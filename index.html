@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>许愿池</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #05070f;
+    font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+    /* 长按不选中、不弹"拷贝 / 翻译"菜单，点击不出现灰色高亮 */
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  input { -webkit-user-select: text; user-select: text; }   /* 搜索框仍然可以正常输入、选中文字 */
+  canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
+  /* 没有文字的深色遮罩：场景第一帧画好后淡出，避免加载时闪一下 */
+  #loading { position: fixed; inset: 0; background: #05070f; transition: opacity 1.6s; z-index: 10; }
+  #loading.done { opacity: 0; pointer-events: none; }
+  #gear[hidden] { display: none; }
+  #picker { position: fixed; inset: 0; z-index: 20; display: flex; align-items: flex-end; justify-content: center;
+    background: rgba(0,0,0,.45); backdrop-filter: blur(4px); }
+  #picker[hidden] { display: none; }
+  #picker .sheet { width: min(480px, 100%); max-height: 70vh; overflow: auto; box-sizing: border-box;
+    padding: 18px 18px calc(18px + env(safe-area-inset-bottom)); border-radius: 18px 18px 0 0;
+    background: rgba(16,20,32,.96); color: #e8ecf5; font-size: 14px; }
+  #picker h3 { margin: 0 0 12px; font-weight: 400; font-size: 16px; letter-spacing: 2px; }
+  #picker input { width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 10px; font-size: 15px;
+    border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.07); color: #fff; outline: none; }
+  #picker ul { list-style: none; margin: 10px 0 0; padding: 0; }
+  #picker li { padding: 11px 6px; border-bottom: 1px solid rgba(255,255,255,.07); cursor: pointer; }
+  #picker li small { opacity: .5; margin-left: 8px; }
+  #picker .btns { display: flex; gap: 10px; margin-top: 14px; }
+  #picker button { flex: 1; padding: 10px; border-radius: 10px; border: 0; background: rgba(255,255,255,.12); color: #fff; font-size: 14px; cursor: pointer; }
+  #gear { position: fixed; right: 14px; top: 12px; width: 34px; height: 34px; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,.25); background: rgba(0,0,0,.25); color: #fff; font-size: 17px;
+    cursor: pointer; backdrop-filter: blur(6px); }
+  #panel { position: fixed; right: 14px; top: 54px; width: 270px; padding: 14px 16px; border-radius: 12px;
+    background: rgba(12,16,28,.72); backdrop-filter: blur(10px); color: #e8ecf5; font-size: 13px;
+    border: 1px solid rgba(255,255,255,.12); }
+  #panel[hidden] { display: none; }
+  #panel .row { display: flex; align-items: center; gap: 8px; margin: 9px 0; }
+  #panel label { width: 34px; opacity: .75; flex: none; }
+  #panel input[type=range] { flex: 1; }
+  #panel select { flex: 1; background: rgba(255,255,255,.08); color: #fff; border: 1px solid rgba(255,255,255,.2); border-radius: 6px; padding: 4px; }
+  #panel option { color: #000; }
+  #panel button { width: 100%; margin-top: 6px; padding: 7px; border-radius: 6px; border: 0; background: rgba(255,255,255,.14); color: #fff; cursor: pointer; }
+  #panel .note { opacity: .55; font-size: 11px; margin-top: 8px; line-height: 1.5; }
+  #hourTxt { width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="loading"></div>
+<div id="picker" hidden>
+  <div class="sheet">
+    <h3>选择城市</h3>
+    <input id="cityInput" placeholder="输入城市名，如：杭州" autocomplete="off">
+    <ul id="cityList"></ul>
+    <div class="btns"><button id="useGps">使用当前定位</button><button id="closePicker">取消</button></div>
+  </div>
+</div>
+<button id="gear" title="调试面板" hidden>⚙</button>
+<div id="panel" hidden>
+  <div class="row"><label>时间</label><input type="range" id="hour" min="0" max="24" step="0.01"><span id="hourTxt"></span></div>
+  <div class="row"><label>流速</label>
+    <select id="speed">
+      <option value="1">1×（真实）</option>
+      <option value="60">60×（1 秒 = 1 分钟）</option>
+      <option value="600">600×（1 秒 = 10 分钟）</option>
+      <option value="3600">3600×（1 秒 = 1 小时）</option>
+    </select></div>
+  <div class="row"><label>天气</label>
+    <select id="wx">
+      <option value="live">实时天气</option>
+      <option value="clear">晴</option>
+      <option value="partly">多云</option>
+      <option value="overcast">阴</option>
+      <option value="fog">雾</option>
+      <option value="drizzle">毛毛雨</option>
+      <option value="rain">大雨</option>
+      <option value="storm">雷雨</option>
+      <option value="snow">雪</option>
+    </select></div>
+  <div class="row"><label>地点</label><span id="dbgPlace" style="flex:1"></span></div>
+  <button id="cityBtn">选择城市</button>
+  <button id="reset">回到实时</button>
+  <div class="note">调试用：拖动时间或加速流速，可以看光线连续变化。正式上线时可以隐藏此面板。</div>
+</div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
