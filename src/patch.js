@@ -29,6 +29,7 @@ const TRI_GLSL = /* glsl */`
 uniform sampler2D tDiff0; uniform sampler2D tNor0; uniform sampler2D tRough0;
 uniform sampler2D tDiff1; uniform sampler2D tNor1; uniform sampler2D tRough1;
 uniform vec2 uTexScale; uniform float uGray; uniform float uBright; uniform float uSoft; uniform float uContrast;
+uniform vec3 uTint; uniform float uCrack;
 vec4 triSample(sampler2D t, vec3 p, vec3 b, float s){
 #ifdef TRI_TOP
   return texture2D(t, p.xz * s);
@@ -97,6 +98,7 @@ export function patch(mat, { grass = false, grassH = .42, underwater = true, tex
         uTexScale: { value: new THREE.Vector2(...tex.scale) },
         uGray: { value: tex.gray ?? 0 }, uBright: { value: tex.bright ?? 1 }, uSoft: { value: tex.soft ?? 0 },
         uContrast: { value: tex.contrast ?? 1 },
+        uTint: { value: new THREE.Vector3(...(tex.tint || [1, 1, 1])) }, uCrack: { value: tex.crack ?? 0 },
       });
     }
     sh.vertexShader = sh.vertexShader
@@ -179,8 +181,8 @@ export function patch(mat, { grass = false, grassH = .42, underwater = true, tex
             float m;
             #ifdef HAS_MOSS
               m = smoothstep(.3, .6, vMoss + (dot(alb1, vec3(.3, .6, .1)) - .12) * 1.5);
-              mossM = m * smoothstep(.35, .85, vMoss + (vnoise(vWPos.xz * 3.1 + vWPos.y * 2.) - .5) * .5);
-              mossTone = .7 + 1.4 * dot(alb1, vec3(.33));
+              mossM = m * smoothstep(.45, .9, vMoss + (vnoise(vWPos.xz * 4.3 + vWPos.y * 2.) - .5) * .6);
+              mossTone = .75 + .9 * dot(alb1, vec3(.33));
             #else
               m = smoothstep(-.04, .14, vWPos.y + (vnoise(vWPos.xz * 2.3) - .5) * .12);
             #endif
@@ -191,7 +193,15 @@ export function patch(mat, { grass = false, grassH = .42, underwater = true, tex
           alb = mix(alb, vec3(dot(alb, vec3(.3, .59, .11))), uGray);
           if (uSoft > 0.) alb = alb / (alb + uSoft) * (1. + uSoft);   // 压缩明暗差（地衣白斑不再刺眼）
           alb = mix(vec3(.24), alb, uContrast);                         // 只保留一部分贴图纹理
-          alb *= uBright;
+          alb *= uBright * uTint;
+          if (uCrack > 0.) {
+            // 石头上的裂纹：两组弯曲的细线，断断续续，裂缝里更暗
+            vec3 cp = vWPos;
+            float r1 = abs(vnoise(cp.xy * 2.6 + cp.z * 1.7) - .5), r2 = abs(vnoise(cp.zy * 3.4 - cp.x * 1.3 + 7.) - .5);
+            float crack = (1. - smoothstep(.0, .028, r1)) * .65 + (1. - smoothstep(.0, .022, r2)) * .45;
+            crack *= smoothstep(.35, .6, vnoise(cp.xz * .9 + cp.y));
+            alb *= 1. - clamp(crack, 0., 1.) * uCrack;
+          }
           #ifdef LAWN
             // 草坪：几层不同大小的色块叠出深浅不一的绿，再借地面贴图的明暗当作草的颗粒感
             float ln = vnoise(vWPos.xz * .35) * .55 + vnoise(vWPos.xz * 1.6) * .3 + vnoise(vWPos.xz * 5.) * .15;
@@ -204,7 +214,7 @@ export function patch(mat, { grass = false, grassH = .42, underwater = true, tex
           #endif
           diffuseColor.rgb *= alb;
           // 青苔放在去色之后再上：石头顶上一片片鲜绿的苔
-          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.15, .2, .07) * mossTone, mossM * .6);
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.07, .11, .045) * mossTone, mossM * .7);   // 深绿色的薄苔，不再是浅黄斑
         #endif
         float above = smoothstep(-0.03, 0.06, vWPos.y);
         ${grass ? 'diffuseColor.rgb *= mix(0.55, 1.0, vH);' : ''}        float snowN = vnoise(vWPos.xz * 3.0) * .35 + vnoise(vWPos.xz * 11.0) * .15;
@@ -246,7 +256,7 @@ export function patch(mat, { grass = false, grassH = .42, underwater = true, tex
           float cs = caustic(vWPos.xz * 1.15, uTime * .9) * (.35 + .65 * vnoise(vWPos.xz * .5 + uTime * .05));
           float att = exp(-dW * 1.4);
           outgoingLight += uSunCol * cs * att * uCaustic * max(triN.y, 0.0) * (diffuseColor.rgb + .08) * .55;
-          outgoingLight *= vec3(.85, .95, .9);
+          outgoingLight *= mix(vec3(1.), vec3(.6, .8, .9), smoothstep(0., .12, dW));   // 一入水就带上青蓝色调（浸在水里的石头不再是棕色）
           // 越深越被水"吃掉"：红光最先消失，然后是绿光，深处只剩幽暗的蓝绿色
           vec3 tr = exp(-dW * vec3(2.6, 1.05, .82));
           outgoingLight = outgoingLight * tr + uWaterCol * (1.0 - tr.b);

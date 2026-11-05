@@ -45,7 +45,7 @@ function makeRockGeo(seed, detail) {
   const p = g.attributes.position, v = new THREE.Vector3();
   // 几个随机切面：让石头有棱角，不像面团
   const R = rng(Math.floor(seed * 1000));
-  const cuts = Array.from({ length: 4 }, () => ({
+  const cuts = Array.from({ length: 7 }, () => ({   // 更多切面：石头有清楚的棱角和平整的面
     n: new THREE.Vector3(R() - .5, (R() - .3) * .8, R() - .5).normalize(), d: .55 + R() * .3 }));
   const rad = new Float32Array(p.count);
   for (let i = 0; i < p.count; i++) {
@@ -54,7 +54,7 @@ function makeRockGeo(seed, detail) {
     const n2 = fbm3(v.x * 3.5 + seed, v.y * 3.5 + seed, v.z * 3.5, 3);
     const n3 = noise3(v.x * 9 + seed, v.y * 9, v.z * 9);
     v.multiplyScalar(.68 + n * .8 + (n2 - .5) * .22 + (n3 - .5) * .03);
-    for (const c of cuts) { const dd = v.dot(c.n); if (dd > c.d) v.addScaledVector(c.n, -(dd - c.d) * .85); }
+    for (const c of cuts) { const dd = v.dot(c.n); if (dd > c.d) v.addScaledVector(c.n, -(dd - c.d) * .95); }
     if (v.y < -.25) v.y = -.25 + (v.y + .25) * .25;   // 底部压平，像陷在土里
     p.setXYZ(i, v.x, v.y, v.z);
     rad[i] = v.length();
@@ -62,7 +62,7 @@ function makeRockGeo(seed, detail) {
   g.computeVertexNormals();
   // 顶点色只做明暗 / 冷暖微调（贴图负责细节），aMoss 标记苔藓区域
   const nrm = g.attributes.normal, col = new Float32Array(p.count * 3), moss = new Float32Array(p.count);
-  const warm = -.04 - R() * .06;   // 负数：整体偏冷灰，抵消贴图里的红褐色
+  const warm = -.02 - R() * .04;   // 负数：整体偏冷灰
   for (let i = 0; i < p.count; i++) {
     v.fromBufferAttribute(p, i);
     const t = fbm3(v.x * 2.5 + seed * 2, v.y * 2.5, v.z * 2.5, 3);
@@ -260,7 +260,7 @@ export function buildPool(scene, { grassCount = 3000, tex }) {
 
   // ---------- 围池石块 ----------
   const rockMat = patch(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, envMapIntensity: .55 }),
-    { tex: { mode: 'rock', sets: [tex.rock, tex.moss], scale: [.6, .7], gray: .62, bright: .85, soft: .6 } });
+    { tex: { mode: 'rock', sets: [tex.rock, tex.moss], scale: [.6, .7], gray: .9, bright: .95, soft: .45, tint: [.95, .98, 1.02], crack: .55 } });   // 冷灰色花岗岩，带裂纹
   const geos = Array.from({ length: 6 }, (_, i) => makeRockGeo(i * 13.7 + 1.3, 4));
   const rocks = [];
   const place = (x, z, s, sx, sy, sz, sink) => {
@@ -296,31 +296,6 @@ export function buildPool(scene, { grassCount = 3000, tex }) {
     place(Math.cos(th) * r, Math.sin(th) * r, rand(.08, .2), rand(1, 1.5), rand(.5, .8), rand(.8, 1.2), .2);
   }
 
-  // ---------- 苔藓团 ----------
-  const mossGeo = (() => {
-    let g = new THREE.IcosahedronGeometry(1, 3); g.deleteAttribute('normal'); g.deleteAttribute('uv'); g = mergeVertices(g);
-    const p = g.attributes.position, v = new THREE.Vector3();
-    for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i); v.multiplyScalar(.8 + fbm3(v.x * 2.5, v.y * 2.5, v.z * 2.5, 3) * .4); if (v.y < 0) v.y *= .2; p.setXYZ(i, v.x, v.y, v.z); }
-    g.computeVertexNormals(); return g;
-  })();
-  const MN = 200;
-  const mossMesh = new THREE.InstancedMesh(mossGeo, patch(new THREE.MeshStandardMaterial({ roughness: 1, envMapIntensity: .5 }),
-    { underwater: false, tex: { mode: 'single', sets: [tex.moss], scale: [1.4, 1.4], bright: 1.6 } }), MN);
-  for (let i = 0; i < MN;) {
-    const o = rocks[Math.floor(R() * rocks.length)];
-    const a = rand(0, Math.PI * 2), d = o.r * rand(.6, 1.1), x = o.x + Math.cos(a) * d, z = o.z + Math.sin(a) * d;
-    const y = floorH(x, z);
-    if (y < .04 || poolK(x, z) < 1) continue;
-    const s = rand(.12, .32);
-    dummy.position.set(x, y - .01, z); dummy.rotation.set(0, rand(0, 6.28), 0);
-    dummy.scale.set(s * rand(1, 1.6), s * rand(.25, .45), s * rand(.8, 1.3));
-    dummy.updateMatrix(); mossMesh.setMatrixAt(i, dummy.matrix);
-    mossMesh.setColorAt(i, c.setHSL(rand(.18, .25), rand(.15, .3), rand(.32, .45), THREE.SRGBColorSpace));
-    i++;
-  }
-  mossMesh.receiveShadow = true; mossMesh.castShadow = true;
-  scene.add(mossMesh); above.push(mossMesh);
-
   // ---------- 水底卵石 ----------
   let pg = new THREE.IcosahedronGeometry(1, 2);
   pg.deleteAttribute('normal'); pg.deleteAttribute('uv'); pg = mergeVertices(pg);
@@ -330,20 +305,20 @@ export function buildPool(scene, { grassCount = 3000, tex }) {
   // 水底已经有卵石贴图，这里只放少量立体的大一点的石子，增加层次
   const PN = 420;   // 浅水区铺一层圆卵石，像设计图那样清楚可见
   const pebbles = new THREE.InstancedMesh(pg, patch(new THREE.MeshStandardMaterial({ roughness: 1, envMapIntensity: .5 }),
-    { tex: { mode: 'single', sets: [tex.rock], scale: [2.5, 2.5], gray: .7, bright: 3.2 } }), PN);
+    { tex: { mode: 'single', sets: [tex.rock], scale: [2.5, 2.5], gray: .9, bright: 2.2, tint: [.94, .97, 1.04] } }), PN);
   for (let i = 0; i < PN;) {
     const x = rand(-4.4, 4.4), z = rand(-4.4, 4.4);
     const k = poolK(x, z);
-    if (k > .97) continue;
+    if (k > .95) continue;
     const y = floorH(x, z);
-    if (y > .02) continue;
     if (k < .5 || (k < .72 && R() < .7)) continue;    // 池心太深看不见，石子集中在靠岸的浅水区
-    const s = rand(.09, .17) * (1 + Math.pow(R(), 4) * 1.6) * (k > .72 ? 1.25 : 1);
+    const s = rand(.08, .15) * (1 + Math.pow(R(), 4) * 1.2);
+    if (y + s * .5 > -.04) continue;                    // 整颗都要浸在水下，不露出水面
     dummy.position.set(x, y + s * .1, z);
-    dummy.scale.set(s * rand(1, 1.6), s * rand(.4, .7), s * rand(.8, 1.3));
+    dummy.scale.set(s * rand(1.1, 1.7), s * rand(.3, .5), s * rand(.9, 1.4));   // 扁一些的卵石
     dummy.rotation.set(rand(-.2, .2), rand(0, 6.28), rand(-.2, .2));
     dummy.updateMatrix(); pebbles.setMatrixAt(i, dummy.matrix);
-    pebbles.setColorAt(i, c.setHSL(rand(.07, .11), rand(.05, .2), rand(.55, .9), THREE.SRGBColorSpace));
+    pebbles.setColorAt(i, c.setHSL(rand(.1, .14), rand(.0, .05), rand(.5, .8), THREE.SRGBColorSpace));
     i++;
   }
   pebbles.receiveShadow = true;
