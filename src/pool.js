@@ -33,7 +33,7 @@ function grassMask(x, z, y) {
   let m = sstep(1.0, 1.07, poolK(x, z));
   m *= sstep(14, 12, Math.max(Math.abs(x), Math.abs(z)));   // 草地网格边缘淡出，不留硬边
   m *= lerp(.55, 1, sstep(.3, .58, fbm3(x * .45, 3, z * .45, 3)));
-  return m * lerp(.12, 1, sstep(.3, .42, fbm3(x * .32 + 40, 1, z * .32, 3)));   // 零星几块裸土
+  return m * lerp(.45, 1, sstep(.2, .34, fbm3(x * .45 + 40, 1, z * .45, 3)));   // 零星几小块草比较稀的地方，边缘柔和
 }
 // 苔藓：靠近石圈一圈，再加零星成片
 const mossMask = (x, z) => Math.max(sstep(1.32, 1.05, poolK(x, z)), sstep(.62, .74, fbm3(x * .7, 11, z * .7, 3)) * .8);
@@ -311,7 +311,7 @@ export function buildPool(scene, { grassCount = 3000, tex }) {
     const k = poolK(x, z);
     if (k > .95) continue;
     const y = floorH(x, z);
-    if (k < .5 || (k < .72 && R() < .7)) continue;    // 池心太深看不见，石子集中在靠岸的浅水区
+    if (k < .66 || (k < .76 && R() < .6)) continue;    // 只铺在靠岸的浅水区，更深处看不清
     const s = rand(.08, .15) * (1 + Math.pow(R(), 4) * 1.2);
     if (y + s * .5 > -.04) continue;                    // 整颗都要浸在水下，不露出水面
     dummy.position.set(x, y + s * .1, z);
@@ -363,7 +363,9 @@ export function buildPool(scene, { grassCount = 3000, tex }) {
     if (fbm3(cx * .6, 7, cz * .6, 3) < .4 + R() * .1) continue;
     if (nearFox(cx, cz)) continue;
     if (rocks.some(o => Math.hypot(o.x - cx, o.z - cz) < o.r * .75)) continue;
-    const m = 14 + Math.floor(R() * 24), spread = rand(.08, .18), tall = rand(.6, 1.1) * (k < 1.3 ? 1.1 : 1);
+    const far = k > 1.45;
+    if (far && R() < .75) continue;                      // 远处的草簇少一些、矮一些、松散一些，不再像一颗颗深色的小星星
+    const m = 14 + Math.floor(R() * 24), spread = rand(.08, .18) * (far ? 1.6 : 1), tall = rand(.6, 1.1) * (k < 1.3 ? 1.1 : far ? .75 : 1);
     for (let j = 0; j < m && n < grassCount; j++) {
       const x = cx + gauss() * spread, z = cz + gauss() * spread, y = floorH(x, z);
       if (y < .06) continue;
@@ -372,7 +374,7 @@ export function buildPool(scene, { grassCount = 3000, tex }) {
       dummy.rotation.set(rand(-.35, .35) * (1 + lean), rand(0, 6.28), rand(-.35, .35) * (1 + lean));
       dummy.scale.set(rand(.8, 1.2), tall * rand(.6, 1.2) * (1.2 - lean * .4), 1);
       dummy.updateMatrix(); grass.setMatrixAt(n, dummy.matrix);
-      grassVar.push([rand(.75, 1.15), rand(-.06, .06)]);
+      grassVar.push([rand(.9, 1.15) * (far ? 1.08 : 1), rand(-.05, .05)]);
       n++; grass.count = n;
     }
   }
@@ -485,7 +487,7 @@ export function buildPool(scene, { grassCount = 3000, tex }) {
   const redN = reds.count;
 
   // ---------- 草地里的小石子 ----------
-  const SPN = 45;
+  const SPN = 18;
   const smallStones = new THREE.InstancedMesh(pg, patch(new THREE.MeshStandardMaterial({ roughness: 1, envMapIntensity: .5 }),
     { underwater: false, tex: { mode: 'single', sets: [tex.rock], scale: [2.5, 2.5], gray: .7, bright: 2.4 } }), SPN);
   for (let i = 0, tries = 0; i < SPN && tries < 3000; tries++) {

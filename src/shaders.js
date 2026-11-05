@@ -25,7 +25,7 @@ export const GradeShader = {
       if (night > 0.) {
         // 判断"被灯照亮"看的是暖色程度（红比蓝多），而不是亮度：月光下的亮处也会褪色
         float warm = clamp((col.r - col.b) * 4., 0., 1.);
-        float teal = clamp((col.g - col.r) * 3., 0., 1.);   // 池心的青色微光也保留颜色
+        float teal = clamp((min(col.g, col.b) - col.r) * 3., 0., 1.);   // 池心的青色微光也保留颜色（绿色植物不算，蓝色分量不够）
         float lit = smoothstep(.12, .35, l) * max(warm, teal);
         vec3 moon = mix(vec3(l), col, .25) * vec3(.82, .93, 1.15);
         col = mix(col, mix(moon, col, lit), night);

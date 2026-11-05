@@ -50,7 +50,7 @@ key.shadow.mapSize.setScalar(isMobile ? 1536 : 2048);
 Object.assign(key.shadow.camera, { left: -10, right: 10, top: 10, bottom: -10, near: 1, far: 70 });
 key.shadow.bias = -.0005; key.shadow.normalBias = .03;
 scene.add(key, key.target);
-const ambient = new THREE.AmbientLight(0x8a9cc8, .05);
+const ambient = new THREE.AmbientLight(0x93a4bd, .05);   // 夜间补光：冷灰蓝（不偏紫）
 scene.add(ambient);
 
 const sky = createSky();
@@ -199,13 +199,13 @@ function update(dt) {
   const gray = [146, 154, 166].map(v => v * (.07 + .88 * dayF) * (1 - .32 * rn));
   zen = mixA(zen, gray, cloud * .85); hor = mixA(hor, gray.map(v => v * 1.08), cloud * .75);
   const glowI = Math.exp(-(((el - 1) / 6) ** 2)) * (1 - cloud * .85) * (1 - fog * .5);
-  const glowCol = mixA([200, 90, 130], [255, 150, 70], clamp((el + 6) / 8));
+  const glowCol = mixA([215, 120, 85], [255, 158, 70], clamp((el + 6) / 8));   // 晚霞：金橙色，天黑前才略带一点暖红
   const su = sky.uniforms;
   setSRGB(su.uZen.value, zen); setSRGB(su.uHor.value, hor); setSRGB(su.uGlowCol.value, glowCol);
   su.uGlow.value = glowI;
   su.uSunDir.value.copy(sunDir); su.uMoonDir.value.copy(moonDir);
   // 阳光：低角度时是浓郁的金橙色，到太阳很高时才变成暖白（上午、下午都带着金色）
-  const sunColS = mixA(mixA([255, 118, 45], [255, 196, 120], smooth(clamp(el / 18))), [255, 232, 196], smooth(clamp((el - 18) / 40)));
+  const sunColS = mixA(mixA([255, 160, 72], [255, 200, 125], smooth(clamp(el / 18))), [255, 232, 196], smooth(clamp((el - 18) / 40)));   // 低角度的阳光偏金色而不是红色
   setSRGB(su.uSunCol.value, sunColS, 20);
   su.uSunVis.value = (1 - cloud * .95) * clamp((el + 1) / 2) * (1 - fog * .7);
   su.uMoonVis.value = clamp((moon.alt + 1) / 3) * (1 - cloud * .9) * (1 - fog * .6) * lerp(.3, 1, clamp(-el / 6 + .5));
@@ -227,7 +227,7 @@ function update(dt) {
   else { key.color.setRGB(.55, .63, .9); key.intensity = moonI; key.position.copy(moonDir); }
   key.position.y = Math.max(key.position.y, .06);
   key.position.normalize().multiplyScalar(30);
-  ambient.intensity = .03 + .4 * (1 - dayF) + flash * 3;
+  ambient.intensity = .03 + .4 * (1 - smooth(clamp((el + 9) / 8))) + flash * 3;   // 太阳落山后才逐渐增强，黄昏的暗面不发紫
 
   // ---- 材质共享参数 ----
   shared.uTime.value = T;
@@ -245,7 +245,7 @@ function update(dt) {
   setSRGB(scene.fog.color, hor, .2 + .8 * dayF);
   scene.fog.density = .004 + fog * .07 + rn * .012;
   renderer.toneMappingExposure = lerp(3, 1, dayF);
-  grade.uniforms.night.value = 1 - smooth(clamp((el + 6) / 10));   // 月夜调色
+  grade.uniforms.night.value = 1 - smooth(clamp((el + 9) / 8));   // 月夜调色：太阳落下后才慢慢开始，黄昏保留暖色
   wu.uNightSheen.value.setRGB(.008, .016, .038).multiplyScalar(grade.uniforms.night.value * (1 - .4 * cloud));   // 阴天不再额外提亮，否则石头发白
 
   // ---- 雷电 ----

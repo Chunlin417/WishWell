@@ -207,10 +207,12 @@ export function patch(mat, { grass = false, grassH = .42, underwater = true, tex
             float ln = vnoise(vWPos.xz * .35) * .55 + vnoise(vWPos.xz * 1.6) * .3 + vnoise(vWPos.xz * 5.) * .15;
             vec3 lawn = mix(uLawnA, uLawnB, smoothstep(.25, .75, ln));
             lawn = mix(lawn, uLawnMoss, vLawn.y);
-            lawn *= mix(.8, 1.15, clamp(dot(alb, vec3(.3, .59, .11)) * 3., 0., 1.));
+            // 地面贴图只留很轻的颗粒感，避免远处看出一块块重复的图案；再叠一层大范围的明暗起伏
+            lawn *= mix(.93, 1.05, clamp(dot(alb, vec3(.3, .59, .11)) * 3., 0., 1.));
+            lawn *= .9 + .2 * vnoise(vWPos.xz * .12 + 3.7);
             alb = mix(alb, lawn, vLawn.x);
             triRough = mix(triRough, .92, vLawn.x);
-            triN = normalize(mix(triN, gN, vLawn.x * .35));
+            triN = normalize(mix(triN, gN, vLawn.x * .8));   // 草坪上压平贴图的凹凸（不再有一颗颗重复的小点）
           #endif
           diffuseColor.rgb *= alb;
           // 青苔放在去色之后再上：石头顶上一片片鲜绿的苔
@@ -262,7 +264,8 @@ export function patch(mat, { grass = false, grassH = .42, underwater = true, tex
           outgoingLight = outgoingLight * tr + uWaterCol * (1.0 - tr.b);
           // 夜里池心深处一团柔和的微光：越深越亮，缓慢地呼吸
           if (uDeepGlow > 0.0) {
-            float deep = smoothstep(1.0, 2.7, dW);
+            // 光从池心深处向外散开：按离池心的水平距离衰减，同一位置的池底和卵石一样亮，不会出现黑色剪影
+            float deep = smoothstep(0., .3, dW) * (1. - smoothstep(.15, .7, length(vWPos.xz) / 3.8));
             float pulse = .8 + .2 * sin(uTime * .4);
             outgoingLight += uDeepGlowCol * uDeepGlow * deep * pulse;
           }
