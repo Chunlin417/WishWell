@@ -55,10 +55,14 @@
     border: 1px solid rgba(243, 220, 156, .55); background: rgba(0, 0, 0, .35); color: #f8e8bf; caret-color: #f6e2a8; outline: none;
     font: 20px/1.3 "STKaiti","KaiTi","Kaiti SC","楷体",serif; letter-spacing: 2px; }
   #wishInput:focus { border-color: #e7c574; box-shadow: 0 0 0 2px rgba(231, 197, 116, .25); }
-  #wishInput::placeholder { color: rgba(243, 220, 156, .45); }
-  #wishOk { padding: 9px 18px; border-radius: 9px; border: 0; background: #d9b25a; color: #4a0f0b; cursor: pointer;
-    font: 16px/1.3 "STKaiti","KaiTi","Kaiti SC","楷体",serif; letter-spacing: 4px; text-indent: 4px; }
+  /* 确认键：一条游龙的简笔图案 */
+  #wishOk { width: 54px; height: 42px; padding: 0; display: grid; place-items: center; border-radius: 10px; border: 0;
+    background: #d9b25a; color: #4a0f0b; cursor: pointer; transition: transform .15s, background .2s; }
+  #wishOk:not(:disabled):hover { background: #e7c574; transform: translateY(-1px); }
   #wishOk:disabled { opacity: .45; cursor: default; }
+  /* 龙头印：线稿做遮罩，颜色跟随按钮文字色 */
+  #wishOk .ico { width: 36px; height: 36px; background: currentColor;
+    -webkit-mask: url(textures/wish_ok_dragon.png) center / contain no-repeat; mask: url(textures/wish_ok_dragon.png) center / contain no-repeat; }
 </style>
 </head>
 <body>
@@ -73,7 +77,7 @@
   </div>
 </div>
 <button id="gear" title="调试面板" hidden>⚙</button>
-<div id="wishPanel" hidden><input id="wishInput" maxlength="30" enterkeyhint="done" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="写下你的愿望"><button id="wishOk" disabled>确认</button></div>
+<div id="wishPanel" hidden><input id="wishInput" maxlength="30" enterkeyhint="done" autocomplete="off" autocorrect="off" spellcheck="false"><button id="wishOk" disabled aria-label="确认" title="确认"><span class="ico" aria-hidden="true"></span></button></div>
 <div id="panel" hidden>
   <div class="row"><label>时间</label><input type="range" id="hour" min="0" max="24" step="0.01"><span id="hourTxt"></span></div>
   <div class="row"><label>流速</label>

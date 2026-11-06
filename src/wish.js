@@ -433,6 +433,7 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
   // mode：idle（没有签）| summon（随风飘来）| await（悬在空中，等输入）| writing（字一个个写上去）
   //       ready（写好了，可以拖）| drag（正被拖着）| back（松手的地方不在水面上，飘回原处）| away（不写了，被风吹走）| ritual（落水之后）
   let mode = 'idle', mt = 0, cam = null, pendingText = null, focus = 0;   // focus：0～1，背景虚化的程度
+  let throwTo = null, throwOpts = null, readyT = 0, throwNow = false;   // 写完之后自己落进水里：落点、朝向、等待时间
   const hoverPos = new THREE.Vector3(), fromPos = new THREE.Vector3(), dragTarget = new THREE.Vector3(), lastPos = new THREE.Vector3();
   const cR = new THREE.Vector3(), cU = new THREE.Vector3(), cF = new THREE.Vector3(), tmpV = new THREE.Vector3();
   const dropPt = new THREE.Vector3(), throwFrom = new THREE.Vector3();
@@ -464,9 +465,10 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
       if (u >= 1) { mode = pendingText ? 'writing' : 'await'; if (pendingText) { chars = pendingText; pendingText = null; writeProg = 0; } }
     } else if (mode === 'await' || mode === 'writing' || mode === 'ready') {
       group.position.copy(hoverPos); faceCamera();   // 停在画面中间，一动不动
+      if (mode === 'ready' && throwTo && (readyT += dt) > .8) throwNow = true;   // 字写完，停一下（看清写了什么），然后落进水里
       if (mode === 'writing') {
         writeProg = Math.min(chars.length, writeProg + dt / WRITE_DT); redrawPaper();
-        if (writeProg >= chars.length) mode = 'ready';
+        if (writeProg >= chars.length) { mode = 'ready'; readyT = 0; }
       }
     } else if (mode === 'drag') {
       lastPos.copy(group.position);
@@ -510,7 +512,9 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
       return true;
     },
     // 写好了：字一个一个写到签上（签还在飞来的路上就先记下，到了再写）
-    write(text) {
+    // where：落点（池心靠镜头一侧，龙来的地方）；opts.facing：签面朝向
+    write(text, where = null, opts = {}) {
+      throwTo = where; throwOpts = opts;
       const cs = [...text.trim()].slice(0, 30);
       if (!cs.length) return;
       if (mode === 'summon') pendingText = cs;
@@ -547,7 +551,7 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
       if (!opts.keepPaper) { paperBg = paperBackground(); chars = [...text.trim()].slice(0, 30); writeProg = chars.length; redrawPaper(); }
       land.set(where.x, 0, where.z);
       // 签从哪里落下、落在水面哪里（直接调用 start 时：从落点正上方 1.3 米落下）
-      dropPt.copy(opts.drop ?? land).setY(0);
+      dropPt.set(opts.drop?.x ?? land.x, 0, opts.drop?.z ?? land.z);
       throwFrom.copy(opts.from ?? dropPt.clone().setY(1.3));
       mode = 'ritual'; setOverlay(false); focus = 0;
       // 贴图本身已经是墨青色：只略微提亮（水会吃掉一大半光）；没贴图的部分用纯墨青色
@@ -561,7 +565,11 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
       dragon.visible = false; head.visible = false; motes.visible = false;
     },
     update(dt, env = {}) {
-      if (mode !== 'idle' && mode !== 'ritual') { preUpdate(dt); return; }
+      if (mode !== 'idle' && mode !== 'ritual') {
+        preUpdate(dt);
+        if (throwNow) { throwNow = false; this.start(chars.join(''), throwTo, { ...throwOpts, from: group.position.clone(), drop: { x: throwTo.x, z: throwTo.z }, keepPaper: true }); }
+        return;
+      }
       if (t < 0) return;
       const day = env.day ?? 1;
       pt += dt; dtNow = dt;

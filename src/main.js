@@ -388,15 +388,11 @@ function loop(now) {
 const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2();
 // 长按不弹系统菜单（安卓浏览器的长按菜单、电脑上的右键菜单）
 addEventListener('contextmenu', e => { if (e.target === canvas) e.preventDefault(); });
-let draggingWish = false;
 const setRay = e => { ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); raycaster.setFromCamera(ndc, camera); };
 canvas.addEventListener('pointerdown', e => {
   setRay(e);
-  // 许愿签：写好之后按住就能拖；还在等输入时点它，重新弹出输入线
-  if (wish.busy && wish.mode !== 'ritual' && wish.hitPaper(raycaster)) {
-    if (wish.draggable && wish.dragStart()) { draggingWish = true; canvas.setPointerCapture(e.pointerId); wish.dragTo(raycaster.ray); return; }
-    if (wish.waiting && wish.inputReady) { openWishInput(); wishInput.focus(); return; }
-  }
+  // 许愿签还在等输入时点它：重新弹出输入框
+  if (wish.waiting && wish.inputReady && wish.hitPaper(raycaster)) { openWishInput(); wishInput.focus(); return; }
   // 左边的石狐（屏幕左半边那一只）：唤来许愿签；右边那只：签落进水里之后，唤龙
   const f = foxes.pick(raycaster);
   if (f) {
@@ -411,26 +407,12 @@ canvas.addEventListener('pointerdown', e => {
 });
 canvas.addEventListener('pointermove', e => {
   setRay(e);
-  if (draggingWish) { wish.dragTo(raycaster.ray); return; }
-  // 鼠标移到能拖的签上 / 左边的石狐上时，换成手形光标
+  // 鼠标移到能点的石狐上时，换成手形光标
   if (e.pointerType === 'mouse') {
-    const over = (wish.draggable && wish.hitPaper(raycaster)) ? 'grab'
-      : (f => f && (f.point.clone().project(camera).x < 0 ? !wish.busy : wish.canCall))(foxes.pick(raycaster)) ? 'pointer' : '';
+    const over = (f => f && (f.point.clone().project(camera).x < 0 ? !wish.busy : wish.canCall))(foxes.pick(raycaster)) ? 'pointer' : '';
     canvas.style.cursor = over;
   }
 });
-const endDrag = e => {
-  if (!draggingWish) return;
-  draggingWish = false;
-  setRay(e);
-  // 松手的位置：沿着视线落到水面上的那一点；在池子里才算投进去
-  const hit = raycaster.intersectObject(water.mesh)[0];
-  const ok = hit && poolK(hit.point.x, hit.point.z) < .9;
-  const w = wishLand();
-  wish.release(ok ? hit.point : null, w, { facing: w.facing });
-};
-canvas.addEventListener('pointerup', endDrag);
-canvas.addEventListener('pointercancel', endDrag);
 addEventListener('pointermove', e => { if (e.pointerType === 'mouse') parallax.set(e.clientX / innerWidth - .5, e.clientY / innerHeight - .5); });
 
 // ================= UI =================
@@ -451,7 +433,7 @@ function updateInfo() {
 
 // ---- 许愿 ----
 // 页面上没有任何提示：点左边的石狐 → 风送来一张许愿签，同时出现一条输入线 → 写完按回车，字一笔一笔写到签上
-// → 把签拖到水面上松手 → 落进池里（之后的仪式在 wish.js）。龙要来的位置：池心稍微靠近镜头一侧
+// → 签自己落进池里（点右边的石狐才会唤来龙）（之后的仪式在 wish.js）。龙要来的位置：池心稍微靠近镜头一侧
 const wishLand = () => { const d = new THREE.Vector3(camera.position.x, 0, camera.position.z).normalize().multiplyScalar(.7); return { x: d.x, z: d.z, facing: Math.atan2(d.x, d.z) }; };
 function throwWish(text) {   // 调试用：跳过写字和拖动，直接从落点上方投下去
   if (wish.busy || !text.trim()) return;
@@ -462,7 +444,8 @@ const wishInput = $('wishInput'), wishPanel = $('wishPanel'), wishOk = $('wishOk
 // 签停稳、四周虚化之后才出现输入框（电脑上自动把光标放进去；手机上点一下输入框才会弹出键盘）
 function openWishInput() { if (!wishPanel.hidden) return; wishInput.value = ''; wishOk.disabled = true; wishPanel.hidden = false; if (matchMedia('(pointer: fine)').matches) wishInput.focus(); }
 function closeWishInput() { wishInput.blur(); wishPanel.hidden = true; }
-const submitWish = () => { const v = wishInput.value.trim(); if (v) { wish.write(v); closeWishInput(); } };
+// 确认：字写到签上，停一下，签自己落进水里（落点：池心靠镜头一侧，龙来的地方）
+const submitWish = () => { const v = wishInput.value.trim(); if (!v) return; const w = wishLand(); wish.write(v, w, { facing: w.facing }); closeWishInput(); };
 wishInput.addEventListener('input', () => { wishOk.disabled = !wishInput.value.trim(); });
 wishInput.addEventListener('keydown', e => {
   if (e.isComposing || e.keyCode === 229) return;   // 输入法正在拼字时的回车不算
