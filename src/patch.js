@@ -125,13 +125,16 @@ float scaleField(vec3 p, vec3 n){
 // sway：摆动幅度的倍数（贴地的矮草要小一些）
 // upNormal：双面草叶的背面也用朝上的法线（否则背面法线朝下，一半草叶是黑的）
 // blade：细长的草叶（PlaneGeometry，uv.x 横跨叶片）——画出中脉
+// rim：自发光只出现在轮廓边缘（视线擦过表面的地方），正面几乎不亮——暗色的龙只有一圈青光勾出轮廓
+// absorb：水的吸收按深度的多少倍算（龙用 0.45：在 2 米深处还看得清鳞片，否则只剩一个青色的剪影）
 // card：贴草丛照片的交叉面片（map + alphaTest）——远处按 mipmap 级别加厚 alpha，草不会越远越稀
-export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = false, blade = false, card = false, underwater = true, tex = null, scales = false, glowAttr = false } = {}) {
+export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = false, blade = false, card = false, rim = false, absorb = 1, underwater = true, tex = null, scales = false, glowAttr = false } = {}) {
   const mode = tex ? tex.mode : 'none';
-  mat.customProgramCacheKey = () => `wish-${grass}-${grassH}-${sway}-${upNormal}-${blade}-${card}-${underwater}-${mode}-${scales}-${glowAttr}`;
+  mat.customProgramCacheKey = () => `wish-${grass}-${grassH}-${sway}-${upNormal}-${blade}-${card}-${rim}-${absorb}-${underwater}-${mode}-${scales}-${glowAttr}`;
   if (upNormal) mat.defines = { ...(mat.defines || {}), UP_NORMAL: '' };
   if (blade) mat.defines = { ...(mat.defines || {}), BLADE: '' };
   if (card) mat.defines = { ...(mat.defines || {}), CARD: '' };
+  if (rim) mat.defines = { ...(mat.defines || {}), RIM: '' };
   if (scales) mat.defines = { ...(mat.defines || {}), SCALES: '' };
   if (glowAttr) mat.defines = { ...(mat.defines || {}), GLOWATTR: '' };
   if (tex) {
@@ -389,6 +392,12 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
         roughnessFactor = mix(roughnessFactor, .8, snowM);
         roughnessFactor = mix(roughnessFactor, .55, frostM * .6);   // 霜晶在斜光下微微发亮`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        #ifdef RIM
+          {
+            float fr = 1. - abs(dot(normalize(normal), normalize(vViewPosition)));
+            totalEmissiveRadiance *= .08 + 1.3 * fr * fr * fr * fr;
+          }
+        #endif
         #ifdef GLOWATTR
           totalEmissiveRadiance += uFoxGlowCol * uFoxGlow * vGlow * (.8 + .2 * sin(uTime * 1.3 + vWPos.y * 9.));
         #endif`)
@@ -416,7 +425,7 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
         #include <opaque_fragment>`);
     if (underwater) {
       sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `
-        float dW = -vWPos.y;
+        float dW = -vWPos.y * ${absorb.toFixed(3)};   // absorb < 1：这个物体被水"吃掉"得少一些（像在更浅的地方）
         if (dW > 0.0) {
           float cs = caustic(vWPos.xz * 1.15, uTime * .9) * (.35 + .65 * vnoise(vWPos.xz * .5 + uTime * .05));
           float att = exp(-dW * 1.4);

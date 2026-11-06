@@ -49,5 +49,7 @@ export function loadAll(renderer) {
     pebbles: loadSet('ganges_river_pebbles', renderer),
     ground,
     grass: loadGrassAtlas(renderer),
+    // 龙鳞（scripts/pack_dragon_textures.py 生成）：背部大鳞、腹部横纹甲、龙头细鳞
+    dragon: { back: loadSet('dragon_scales', renderer), belly: loadSet('dragon_belly', renderer), head: loadSet('dragon_head', renderer) },
   };
 }

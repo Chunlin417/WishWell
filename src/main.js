@@ -14,6 +14,8 @@ import { buildPool, floorH, poolK } from './pool.js';
 import { createSky } from './sky.js';
 import { Ripples, createWater } from './water.js';
 import { Rain, Snow, Fireflies } from './fx.js';
+import { createWish } from './wish.js';
+import { createWishAudio } from './audio.js';
 
 const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -71,6 +73,8 @@ const foxes = buildFoxes(scene, { floorH, poolK });
 const ripples = new Ripples(renderer, 256, 5);
 const water = createWater(ripples, 5);
 scene.add(water.mesh);
+const sfx = createWishAudio();
+const wish = createWish({ scene, ripples, floorH, sound: sfx, tex: texSets.dragon });
 
 const groundAt = (x, z) => Math.max(floorH(x, z), 0);
 const rain = new Rain(groundAt, (x, z) => {
@@ -239,6 +243,10 @@ function update(dt) {
   else { key.color.setRGB(.55, .63, .9); key.intensity = moonI; key.position.copy(moonDir); }
   key.position.y = Math.max(key.position.y, .06);
   key.position.normalize().multiplyScalar(30);
+  // 许愿时的压迫感：光变暗、环境光变弱（用上一帧的值，龙的更新在后面）
+  const dread = wish.dread;
+  key.intensity *= 1 - .35 * dread;
+  scene.environmentIntensity *= 1 - .4 * dread;
   ambient.intensity = .03 + .4 * (1 - smooth(clamp((el + 9) / 8))) + flash * 3;   // 太阳落山后才逐渐增强，黄昏的暗面不发紫
 
   // ---- 材质共享参数 ----
@@ -247,11 +255,12 @@ function update(dt) {
   shared.uKeyDir.value.copy(key.position).normalize();
   shared.uCaustic.value = 1 - rn * .5;
   shared.uWaterCol.value.setRGB(.0015, .016, .03).multiplyScalar(.22 + .78 * dayF * (1 - .25 * cloud));   // 深处的幽蓝（夜里也留一点，池子不会变成黑洞）
-  shared.uSnow.value = snowCover; shared.uWet.value = wet; shared.uWind.value = wind;
+  const windNow = wind * (1 - .92 * dread);   // 风停了：草不动、水面变得像镜子一样
+  shared.uSnow.value = snowCover; shared.uWet.value = wet; shared.uWind.value = windNow;
   shared.uFrost.value = frost;
 
   const wu = water.uniforms;
-  wu.uTime.value = T; wu.uWind.value = wind; wu.uRain.value = rn; wu.uIce.value = ice;
+  wu.uTime.value = T; wu.uWind.value = windNow; wu.uRain.value = rn; wu.uIce.value = ice;
   wu.uReflAmt.value = lerp(1, .5, cloud * dayF);   // 阴天的灰白天空倒影减半，水才不会像牛奶
   wu.uSunDir.value.copy(sunDir); wu.uSunCol.value.copy(su.uSunCol.value).multiplyScalar(sunI / 20 * (1 - cloud * .9));
   wu.uMoonDir.value.copy(moonDir); wu.uMoonCol.value.setRGB(.7, .76, 1).multiplyScalar(moonI * 2);
@@ -259,6 +268,7 @@ function update(dt) {
   setSRGB(scene.fog.color, hor, .2 + .8 * dayF);
   scene.fog.density = .004 + fog * .07 + rn * .012;
   renderer.toneMappingExposure = lerp(3, 1, dayF);
+  grade.uniforms.saturation.value = 1.12 * (1 - .3 * dread);   // 颜色褪去一些
   grade.uniforms.night.value = 1 - smooth(clamp((el + 9) / 8));   // 月夜调色：太阳落下后才慢慢开始，黄昏保留暖色
   wu.uNightSheen.value.setRGB(.008, .016, .038).multiplyScalar(grade.uniforms.night.value * (1 - .4 * cloud));   // 阴天不再额外提亮，否则石头发白
 
@@ -271,14 +281,18 @@ function update(dt) {
   // 石灯笼：太阳落到地平线附近开始点亮，天黑后全亮；阴雨天的傍晚会早一点亮
   // 池心微光：天黑后慢慢亮起（下雨时水面被打乱，稍弱一些）
   shared.uDeepGlow.value = (1 - smooth(clamp((el + 6) / 8))) * (1 - rn * .4) * .028;
+  // 许愿时：等待龙的那几秒，池底深处慢慢亮起来（白天也看得到一点）
+  wish.update(dt, { day: dayF });
+  shared.uDeepGlow.value += wish.glow * (.05 + .05 * dayF);
+  sfx.level(wish.dread);
   const deepNight = 1 - smooth(clamp((el + 10) / 8));   // 萤火虫：夏夜（晚春也有一点），天完全黑了才出来
-  flies.update(T, deepNight * clamp(1 - rn * 8) * clamp(1 - wx.snow * 8) * ({ summer: 1, spring: .4 }[season] || 0));
+  flies.update(T, (1 - dread) * deepNight * clamp(1 - rn * 8) * clamp(1 - wx.snow * 8) * ({ summer: 1, spring: .4 }[season] || 0));
   const light = .12 + .88 * dayF;
   rain.update(dt, rn, wind, light);
   snow.update(dt, wx.snow, wind, T, light);
 
   nextAmbient -= dt;
-  if (nextAmbient < 0) {   // 偶尔有小鱼或水滴扰动水面
+  if (nextAmbient < 0 && dread < .05) {   // 偶尔有小鱼或水滴扰动水面（许愿时一片死寂，不再有）
     nextAmbient = 3 + Math.random() * 5;
     const a = Math.random() * 6.28, r = Math.sqrt(Math.random()) * 2.8;
     ripples.add(Math.cos(a) * r, Math.sin(a) * r, .08, .08);
@@ -365,6 +379,21 @@ function updateInfo() {
   $('hourTxt').textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+// ---- 许愿 ----
+// 落点：池心稍微靠近镜头一侧（目前只有一条青龙）
+function throwWish(text) {
+  if (wish.busy || !text.trim()) return;
+  const d = new THREE.Vector3(camera.position.x, 0, camera.position.z).normalize().multiplyScalar(.7);
+  wish.start(text, { x: d.x, z: d.z }, { facing: Math.atan2(d.x, d.z) });
+}
+$('wishBtn').onclick = () => { $('wishText').value = ''; $('wishCount').textContent = '0'; $('wishGo').disabled = true; $('wishSheet').hidden = false; setTimeout(() => $('wishText').focus(), 50); };
+$('wishText').oninput = () => { const n = [...$('wishText').value].length; $('wishCount').textContent = n; $('wishGo').disabled = !$('wishText').value.trim(); };
+$('wishCancel').onclick = () => { $('wishSheet').hidden = true; };
+$('wishSheet').onclick = e => { if (e.target.id === 'wishSheet') $('wishSheet').hidden = true; };
+$('wishGo').onclick = () => { sfx.unlock(); $('wishSheet').hidden = true; throwWish($('wishText').value); };   // 声音只能在用户点击时开启
+// 仪式进行中不显示按钮，结束后再出现
+setInterval(() => $('wishBtn').classList.toggle('away', wish.busy), 300);
+
 // 城市选择（入口在调试面板里）
 let searchTimer;
 $('cityBtn').onclick = () => {
@@ -418,6 +447,7 @@ if (import.meta.env.DEV) window.__wish = {
   setSimMs(ms) { simMs = ms; realtime = false; },
   setWeather(m) { wxMode = m; applyWeather(true); },
   setSeason(s) { seasonForce = s; },
+  wish: throwWish, get wishState() { return wish; },
   get loc() { return loc; }, sunPos, moonPos, moonPhase,
   renderer, scene, camera, composer, water, sky, key, refrRT, reflRT, pool,
   step(n = 1, dt = 1 / 60) { for (let i = 0; i < n; i++) { update(dt); render(); } },

@@ -44,6 +44,30 @@
   #panel button { width: 100%; margin-top: 6px; padding: 7px; border-radius: 6px; border: 0; background: rgba(255,255,255,.14); color: #fff; cursor: pointer; }
   #panel .note { opacity: .55; font-size: 11px; margin-top: 8px; line-height: 1.5; }
   #hourTxt { width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
+  /* 许愿 */
+  textarea { -webkit-user-select: text; user-select: text; }
+  #wishBtn { position: fixed; left: 50%; bottom: calc(26px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+    padding: 10px 30px; border-radius: 22px; border: 1px solid rgba(255,236,200,.35); background: rgba(20,14,10,.32);
+    color: #f6e7c8; font-size: 15px; letter-spacing: 6px; text-indent: 6px; cursor: pointer; backdrop-filter: blur(6px);
+    transition: opacity .8s; z-index: 5; }
+  #wishBtn.away { opacity: 0; pointer-events: none; }
+  #wishSheet { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.42); backdrop-filter: blur(3px); }
+  #wishSheet[hidden] { display: none; }
+  #wishSheet .card { width: min(300px, 82vw); padding: 22px 20px 18px; box-sizing: border-box; border-radius: 6px;
+    background: linear-gradient(#a3221b, #8e1a14); border: 2px solid #d9b25a; box-shadow: 0 10px 40px rgba(0,0,0,.5);
+    color: #f3dc9c; text-align: center; }
+  #wishSheet h3 { margin: 0 0 12px; font-weight: 400; font-size: 16px; letter-spacing: 6px; }
+  #wishText { width: 100%; height: 96px; box-sizing: border-box; resize: none; padding: 10px; border-radius: 4px;
+    border: 1px solid rgba(243,220,156,.45); background: rgba(0,0,0,.15); color: #f8e8bf; outline: none;
+    font: 18px/1.6 "STKaiti","KaiTi","Kaiti SC","楷体",serif; }
+  #wishText::placeholder { color: rgba(243,220,156,.45); }
+  #wishSheet .count { font-size: 11px; opacity: .6; text-align: right; margin-top: 4px; }
+  #wishSheet .btns { display: flex; gap: 10px; margin-top: 12px; }
+  #wishSheet button { flex: 1; padding: 9px; border-radius: 4px; border: 1px solid rgba(243,220,156,.5); cursor: pointer;
+    background: transparent; color: #f3dc9c; font-size: 14px; letter-spacing: 2px; }
+  #wishSheet button.go { background: #d9b25a; color: #5a120e; border-color: #d9b25a; }
+  #wishSheet button:disabled { opacity: .4; cursor: default; }
 </style>
 </head>
 <body>
@@ -58,6 +82,15 @@
   </div>
 </div>
 <button id="gear" title="调试面板" hidden>⚙</button>
+<button id="wishBtn">许愿</button>
+<div id="wishSheet" hidden>
+  <div class="card">
+    <h3>写下愿望</h3>
+    <textarea id="wishText" maxlength="30" placeholder="三十字以内"></textarea>
+    <div class="count"><span id="wishCount">0</span> / 30　愿望不会被保存</div>
+    <div class="btns"><button id="wishCancel">算了</button><button id="wishGo" class="go" disabled>投入池中</button></div>
+  </div>
+</div>
 <div id="panel" hidden>
   <div class="row"><label>时间</label><input type="range" id="hour" min="0" max="24" step="0.01"><span id="hourTxt"></span></div>
   <div class="row"><label>流速</label>
