@@ -65,7 +65,7 @@ function updateEnv() {
 }
 
 const texSets = loadAll(renderer);
-const pool = buildPool(scene, { grassCount: isMobile ? 3500 : 4800, tex: texSets });
+const pool = buildPool(scene, { grassCount: isMobile ? 3500 : 4800, tuftCount: isMobile ? 12000 : 40000, tex: texSets });
 // 横屏两侧的一对守愿石狐
 const foxes = buildFoxes(scene, { floorH, poolK });
 const ripples = new Ripples(renderer, 256, 5);

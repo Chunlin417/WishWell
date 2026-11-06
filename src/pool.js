@@ -17,14 +17,19 @@ export const Rb = th => 3.7 + .3 * Math.sin(3 * th + .8) + .18 * Math.sin(5 * th
 export const poolK = (x, z) => Math.hypot(x, z) / Rb(Math.atan2(z, x));
 
 // 地形高度：水面在 y = 0。池边是一圈浅浅的石台，往里很快陡降，池心深约 2.8，看起来深不见底
+// 岸上的小土包 / 浅洼（1～3 米尺度）：地面不再像一张平整的桌面；草色也跟着它走（土包上干、洼里绿）
+const landBump = (x, z) => (fbm3(x * .8, 7, z * .8, 3) - .5) * .28 + (fbm3(x * 2.4, 13, z * 2.4, 2) - .5) * .07;
+const landW = k => sstep(1.12, 1.5, k);   // 紧挨石圈的地方不起伏，石头才坐得稳
+
 export function floorH(x, z) {
   const k = poolK(x, z);
   const s = Math.pow(sstep(.35, 1.1, k), .55);
   let y = lerp(-2.8, .3, s);
   y += (fbm3(x * .55, 0, z * .55, 4) - .5) * lerp(.25, .35, s);
   if (k > 1.1) y += (k - 1.1) * .5 + (fbm3(x * .3, 5, z * .3, 3) - .5) * .6 * clamp(k - 1.1);
-  // 石圈以内保证在水下，不露出发白的浅滩
-  return Math.min(y, -.06 + sstep(.94, 1.06, k) * .45);
+  y += landBump(x, z) * landW(k);
+  // 石圈以内保证在水下，不露出发白的浅滩；石圈以外不再削顶（之前会削出一块块平台）
+  return Math.min(y, -.06 + sstep(.94, 1.06, k) * .45 + sstep(1.06, 1.3, k) * 10);
 }
 
 // 草地覆盖：石圈外几乎都长草，夹杂少量稀疏处
@@ -35,6 +40,28 @@ function grassMask(x, z, y) {
   m *= lerp(.55, 1, sstep(.3, .58, fbm3(x * .45, 3, z * .45, 3)));
   return m * lerp(.45, 1, sstep(.2, .34, fbm3(x * .45 + 40, 1, z * .45, 3)));   // 零星几小块草比较稀的地方，边缘柔和
 }
+// GLSL 噪声的 JS 版（和 shaders.js 里的 hash12 / vnoise 一样），草簇才能避开着色器画出来的露土和干草
+const fr = v => v - Math.floor(v);
+function hash12(x, y) {
+  let a = fr(x * .1031), b = fr(y * .1031), c = a;
+  const d = a * (b + 33.33) + b * (c + 33.33) + c * (a + 33.33);
+  a += d; b += d; c += d;
+  return fr((a + b) * c);
+}
+function vnoise(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y), u = fr(x), v = fr(y);
+  const ux = u * u * (3 - 2 * u), uy = v * v * (3 - 2 * v);
+  return lerp(lerp(hash12(xi, yi), hash12(xi + 1, yi), ux), lerp(hash12(xi, yi + 1), hash12(xi + 1, yi + 1), ux), uy);
+}
+// 和 patch.js 里 LAWN 一段同样的公式：干燥度、露土
+function lawnDry(x, z, dryAttr) {
+  return sstep(.45, .9, clamp(dryAttr * .75 + (vnoise(x * .9 + 21, z * .9 + 21) - .5) * .7));
+}
+function lawnBare(x, z, dry, moss) {
+  const b = vnoise(x * .55 + 40, z * .55 + 40) * .65 + vnoise(x * 2.1 + 9, z * 2.1 + 9) * .35 + dry * .18;
+  return sstep(.66, .78, b) * (1 - moss);
+}
+
 // 苔藓：靠近石圈一圈，再加零星成片
 const mossMask = (x, z) => Math.max(sstep(1.32, 1.05, poolK(x, z)), sstep(.62, .74, fbm3(x * .7, 11, z * .7, 3)) * .8);
 
@@ -137,6 +164,29 @@ function makeMaple() {
   g.computeVertexNormals();
   return g;
 }
+// 矮草簇：9 片细草叶从一点向四周斜出、尖端外弯；高 5～10cm，铺满整片草地
+// 法线一律朝上：和地面的光照一致，远看能和着色器画的草坪融成一片
+const TUFT_H = .1;
+function makeTuft() {
+  const R = rng(4242), blades = [];
+  for (let k = 0; k < 9; k++) {
+    const h = TUFT_H * (.45 + R() * .55), w = .01 + R() * .007, bend = .3 + R() * .6;
+    const g = new THREE.PlaneGeometry(w, h, 1, 2);
+    g.translate(0, h / 2, 0);
+    const p = g.attributes.position, nr = g.attributes.normal;
+    for (let i = 0; i < p.count; i++) {
+      const t = p.getY(i) / h;
+      p.setX(i, p.getX(i) * (1 - t * .9));
+      p.setZ(i, t * t * h * bend);
+      nr.setXYZ(i, 0, 1, 0);
+    }
+    g.rotateY(k / 9 * Math.PI * 2 + R() * .8);
+    g.translate((R() - .5) * .05, 0, (R() - .5) * .05);
+    blades.push(g);
+  }
+  return mergeGeometries(blades);
+}
+
 // 春天的花瓣：小小的椭圆
 function makePetal() {
   const s = new THREE.Shape();
@@ -215,7 +265,7 @@ function makeFern() {
   return mergeGeometries(fronds);
 }
 
-export function buildPool(scene, { grassCount = 3000, tex }) {
+export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) {
   const R = rng(20261105);
   const rand = (a, b) => a + R() * (b - a);
   const under = [], above = [];
@@ -225,7 +275,7 @@ export function buildPool(scene, { grassCount = 3000, tex }) {
   const SIZE = 32, SEG = 280;
   const gGeo = new THREE.PlaneGeometry(SIZE, SIZE, SEG, SEG);
   gGeo.rotateX(-Math.PI / 2);
-  const gp = gGeo.attributes.position, gc = new Float32Array(gp.count * 3), gl = new Float32Array(gp.count * 2);
+  const gp = gGeo.attributes.position, gc = new Float32Array(gp.count * 3), gl = new Float32Array(gp.count * 3);
   for (let i = 0; i < gp.count; i++) {
     const x = gp.getX(i), z = gp.getZ(i), y = floorH(x, z);
     gp.setY(i, y);
@@ -248,10 +298,12 @@ export function buildPool(scene, { grassCount = 3000, tex }) {
       c = mixA(c, [1, 1, 1].map(v => v * lerp(.9, 1.06, n2)), grassMask(x, z, y));
     }
     gc[i * 3] = c[0]; gc[i * 3 + 1] = c[1]; gc[i * 3 + 2] = c[2];
-    gl[i * 2] = grassMask(x, z, y); gl[i * 2 + 1] = mossMask(x, z);
+    // 第三个分量：干燥度——土包顶上草发黄变稀，洼地里更绿更密
+    gl[i * 3] = grassMask(x, z, y); gl[i * 3 + 1] = mossMask(x, z);
+    gl[i * 3 + 2] = sstep(-.06, .12, landBump(x, z)) * landW(k);
   }
   gGeo.setAttribute('color', new THREE.BufferAttribute(gc, 3));
-  gGeo.setAttribute('aLawn', new THREE.BufferAttribute(gl, 2));
+  gGeo.setAttribute('aLawn', new THREE.BufferAttribute(gl, 3));
   gGeo.computeVertexNormals();
   const ground = new THREE.Mesh(gGeo, patch(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, envMapIntensity: .6 }),
     { tex: { mode: 'ground', sets: [tex.pebbles, tex.ground], scale: [.75, .4] } }));
@@ -380,6 +432,42 @@ export function buildPool(scene, { grassCount = 3000, tex }) {
   }
   grass.receiveShadow = true;
   scene.add(grass); above.push(grass);
+
+  // ---------- 矮草簇：铺满整片草地，跟着着色器画的草坪走（露土处不长，土包上稀而黄，远处稀一些） ----------
+  const tufts = new THREE.InstancedMesh(makeTuft(), patch(new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, roughness: .85 }),
+    { grass: true, grassH: TUFT_H, sway: .35, upNormal: true, underwater: false }), tuftCount);
+  const tuftVar = [];   // [深浅绿的比例, 干燥度, 苔藓程度, 亮度]
+  for (let n = 0, tries = 0; n < tuftCount && tries < tuftCount * 6; tries++) {
+    const cx = rand(-12.5, 12.5), cz = rand(-12.5, 12.5);
+    // 镜头里看得清的近处密，画面边缘以外稀（先做这个便宜的判断，省得每个点都算地形）
+    const distW = lerp(1, .2, sstep(7, 12, Math.max(Math.abs(cx), Math.abs(cz))));
+    if (R() > distW) continue;
+    const cy = floorH(cx, cz);
+    const ck = poolK(cx, cz);
+    let cover = grassMask(cx, cz, cy);
+    if (cover < .05) continue;
+    const moss = mossMask(cx, cz);
+    const dry = lawnDry(cx, cz, sstep(-.06, .12, landBump(cx, cz)) * landW(ck));
+    cover *= 1 - lawnBare(cx, cz, dry, moss) * .95;
+    if (R() > cover * cover * (1 - dry * .35)) continue;
+    if (nearFox(cx, cz) || rocks.some(o => Math.hypot(o.x - cx, o.z - cz) < o.r * .8)) continue;
+    // 每处 2～4 簇挤在一起，不是均匀撒点
+    const m = 2 + Math.floor(R() * 3);
+    const ln = vnoise(cx * .35, cz * .35) * .55 + vnoise(cx * 1.6, cz * 1.6) * .3 + vnoise(cx * 5, cz * 5) * .15;
+    for (let j = 0; j < m && n < tuftCount; j++) {
+      const x = cx + gauss() * .07, z = cz + gauss() * .07, y = floorH(x, z);
+      if (y < .04) continue;
+      dummy.position.set(x, y - .01, z);
+      dummy.rotation.set(rand(-.15, .15), rand(0, 6.28), rand(-.15, .15));
+      const s = rand(.75, 1.25) * (1 - dry * .3) * lerp(.8, 1.1, cover);
+      dummy.scale.set(s * rand(.85, 1.2), s, s * rand(.85, 1.2));
+      dummy.updateMatrix(); tufts.setMatrixAt(n, dummy.matrix);
+      tuftVar.push([clamp(sstep(.25, .75, ln) + rand(-.2, .2)), dry, moss, rand(.85, 1.12)]);
+      n++; tufts.count = n;
+    }
+  }
+  tufts.receiveShadow = true;
+  scene.add(tufts); above.push(tufts);
 
   // ---------- 蕨类：长在石头外侧 ----------
   const fernGeo = makeFern();
@@ -574,6 +662,15 @@ export function buildPool(scene, { grassCount = 3000, tex }) {
     // 草坪的颜色
     const lw = SEASON_LAWN[season];
     shared.uLawnA.value.copy(srgb(...lw.a)); shared.uLawnB.value.copy(srgb(...lw.b)); shared.uLawnMoss.value.copy(srgb(...lw.moss));
+    // 矮草簇：和草坪同一套颜色（在线性空间里按同样的方式混合），草尖略亮
+    const la = shared.uLawnA.value, lb = shared.uLawnB.value, lm = shared.uLawnMoss.value;
+    const gray = (lb.r + lb.g + lb.b) / 3, straw = new THREE.Color(gray * 1.3, gray * 1.12, gray * .66);
+    for (let i = 0; i < tufts.count; i++) {
+      const [t, dry, moss, b] = tuftVar[i];
+      c.copy(la).lerp(lb, t).lerp(straw, dry * .3).lerp(lm, moss * .7).multiplyScalar(b * .95);
+      tufts.setColorAt(i, c);
+    }
+    if (tufts.instanceColor) tufts.instanceColor.needsUpdate = true;
     const wd = SEASON_WEED[season];
     for (let i = 0; i < weeds.count; i++) { const [b, h] = weedVar[i]; weeds.setColorAt(i, srgb(wd[0] * b + h, wd[1] * b, wd[2] * b)); }
     weeds.instanceColor.needsUpdate = true;

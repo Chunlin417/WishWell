@@ -16,12 +16,12 @@ export const shared = {
   uFoxGlow: { value: 0 }, uFoxGlowCol: { value: new THREE.Color(.3, .95, .85) },
 };
 
-const GRASS_SWAY = h => /* glsl */`
+const GRASS_SWAY = (h, s = 1) => /* glsl */`
   vH = position.y / ${h.toFixed(3)};
   vec2 ip = vec2(instanceMatrix[3][0], instanceMatrix[3][2]);
   float sw = sin(uTime * 1.6 + ip.x * 1.1 + ip.y * .7) * .6 + sin(uTime * 2.7 + ip.x * 2.3 - ip.y * 1.9) * .3;
-  transformed.x += sw * vH * vH * (.03 + .12 * uWind);
-  transformed.z += cos(uTime * 1.3 + ip.y) * vH * vH * .03 * uWind;
+  transformed.x += sw * vH * vH * (.03 + .12 * uWind) * ${s.toFixed(3)};
+  transformed.z += cos(uTime * 1.3 + ip.y) * vH * vH * .03 * uWind * ${s.toFixed(3)};
 `;
 
 // 三平面映射：岩石这类没有好 UV 的形状，按世界坐标从 x/y/z 三个方向投影贴图再混合
@@ -77,9 +77,12 @@ float scaleField(vec3 p, vec3 n){
 `;
 
 // glowAttr：顶点属性 aGlow 标记的部位（石狐的灵纹、铃铛）在夜里发光，强度由 shared.uFoxGlow 控制
-export function patch(mat, { grass = false, grassH = .42, underwater = true, tex = null, scales = false, glowAttr = false } = {}) {
+// sway：摆动幅度的倍数（贴地的矮草要小一些）
+// upNormal：双面草叶的背面也用朝上的法线（否则背面法线朝下，一半草叶是黑的）
+export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = false, underwater = true, tex = null, scales = false, glowAttr = false } = {}) {
   const mode = tex ? tex.mode : 'none';
-  mat.customProgramCacheKey = () => `wish-${grass}-${grassH}-${underwater}-${mode}-${scales}-${glowAttr}`;
+  mat.customProgramCacheKey = () => `wish-${grass}-${grassH}-${sway}-${upNormal}-${underwater}-${mode}-${scales}-${glowAttr}`;
+  if (upNormal) mat.defines = { ...(mat.defines || {}), UP_NORMAL: '' };
   if (scales) mat.defines = { ...(mat.defines || {}), SCALES: '' };
   if (glowAttr) mat.defines = { ...(mat.defines || {}), GLOWATTR: '' };
   if (tex) {
@@ -108,7 +111,7 @@ export function patch(mat, { grass = false, grassH = .42, underwater = true, tex
           attribute float aMoss;
         #endif
         #ifdef LAWN
-          attribute vec2 aLawn; varying vec2 vLawn;
+          attribute vec3 aLawn; varying vec3 vLawn;
         #endif
         #ifdef SCALES
           attribute float aScale; varying float vScaleM; varying vec3 vOPos; varying vec3 vONrm;
@@ -131,7 +134,7 @@ export function patch(mat, { grass = false, grassH = .42, underwater = true, tex
         #ifdef GLOWATTR
           vGlow = aGlow;
         #endif
-        ${grass ? GRASS_SWAY(grassH) : ''}`)
+        ${grass ? GRASS_SWAY(grassH, sway) : ''}`)
       .replace('#include <fog_vertex>', `#include <fog_vertex>
         vec4 wp4 = vec4(transformed, 1.0);
         vec3 wn = objectNormal;
@@ -149,7 +152,7 @@ export function patch(mat, { grass = false, grassH = .42, underwater = true, tex
         uniform float uTime; uniform float uCaustic; uniform float uSnow; uniform float uWet;
         uniform vec3 uSunCol; uniform vec3 uWaterCol; uniform float uDeepGlow; uniform vec3 uDeepGlowCol;
         #ifdef LAWN
-          varying vec2 vLawn; uniform vec3 uLawnA; uniform vec3 uLawnB; uniform vec3 uLawnMoss;
+          varying vec3 vLawn; uniform vec3 uLawnA; uniform vec3 uLawnB; uniform vec3 uLawnMoss;
         #endif
         #ifdef SCALES
           varying float vScaleM; varying vec3 vOPos; varying vec3 vONrm;
@@ -159,6 +162,21 @@ export function patch(mat, { grass = false, grassH = .42, underwater = true, tex
           varying float vGlow; uniform float uFoxGlow; uniform vec3 uFoxGlowCol;
         #endif
         ${NOISE_GLSL}
+        #ifdef LAWN
+          // 草丛的"高度场"：一簇簇的草堆（约 15cm）+ 更细的草叶起伏，用来做明暗和凹凸
+          float lawnTuft(vec2 p){ return vnoise(p * 6.5) * .6 + vnoise(p * 17. + 3.1) * .4; }
+          // 草叶纹理：沿一个缓慢转动的方向拉长的细噪声，看起来像倒伏的草叶
+          float lawnBlades(vec2 p){
+            float a = vnoise(p * .4 + 11.) * 6.283;
+            vec2 d = vec2(cos(a), sin(a));
+            vec2 q = vec2(dot(p, d), dot(p, vec2(-d.y, d.x)));
+            // 两层不同方向、不同粗细，避免整齐划一的条纹
+            float a2 = a + .9 + vnoise(p * 3.1) * 1.2;
+            vec2 d2 = vec2(cos(a2), sin(a2));
+            vec2 q2 = vec2(dot(p, d2), dot(p, vec2(-d2.y, d2.x)));
+            return vnoise(q * vec2(7., 34.)) * .55 + vnoise(q2 * vec2(12., 55.) + 5.) * .45;
+          }
+        #endif
         ${underwater ? CAUSTIC_GLSL : ''}
         ${tex ? TRI_GLSL : ''}`)
       .replace('#include <color_fragment>', `#include <color_fragment>
@@ -203,16 +221,44 @@ export function patch(mat, { grass = false, grassH = .42, underwater = true, tex
             alb *= 1. - clamp(crack, 0., 1.) * uCrack;
           }
           #ifdef LAWN
-            // 草坪：几层不同大小的色块叠出深浅不一的绿，再借地面贴图的明暗当作草的颗粒感
-            float ln = vnoise(vWPos.xz * .35) * .55 + vnoise(vWPos.xz * 1.6) * .3 + vnoise(vWPos.xz * 5.) * .15;
+            // 草地分四层：大块色调 → 干湿（土包干、洼地绿）→ 一簇簇草堆 → 草叶纹理；再有零星露土
+            vec2 lp = vWPos.xz;
+            // 屏幕上一个像素对应多大：细节小于像素时淡出，远处不闪
+            float px = length(fwidth(lp));
+            float fineW = 1. - smoothstep(.004, .014, px);   // 草叶纹理
+            float tuftW = 1. - smoothstep(.03, .09, px);     // 草堆
+            float ln = vnoise(lp * .35) * .55 + vnoise(lp * 1.6) * .3 + vnoise(lp * 5.) * .15;
             vec3 lawn = mix(uLawnA, uLawnB, smoothstep(.25, .75, ln));
+            // 干燥：发黄、偏灰；土包顶上多，再被中等尺度的噪声打散成一片片
+            float dry = clamp(vLawn.z * .75 + (vnoise(lp * .9 + 21.) - .5) * .7, 0., 1.);
+            dry = smoothstep(.45, .9, dry);
+            vec3 straw = vec3(dot(uLawnB, vec3(.33))) * vec3(1.3, 1.12, .66);
+            lawn = mix(lawn, straw, dry * .38);
+            lawn = mix(lawn, uLawnA * .8, (1. - vLawn.z) * .25 * (1. - dry));   // 洼地更深更润
             lawn = mix(lawn, uLawnMoss, vLawn.y);
-            // 地面贴图只留很轻的颗粒感，避免远处看出一块块重复的图案；再叠一层大范围的明暗起伏
-            lawn *= mix(.93, 1.05, clamp(dot(alb, vec3(.3, .59, .11)) * 3., 0., 1.));
-            lawn *= .9 + .2 * vnoise(vWPos.xz * .12 + 3.7);
-            alb = mix(alb, lawn, vLawn.x);
-            triRough = mix(triRough, .92, vLawn.x);
-            triN = normalize(mix(triN, gN, vLawn.x * .8));   // 草坪上压平贴图的凹凸（不再有一颗颗重复的小点）
+            // 一簇簇草堆：缝隙里背光发暗（像环境光遮蔽），草尖亮一点、偏黄一点
+            float tuft = lawnTuft(lp);
+            float tuftS = mix(.5, tuft, tuftW);
+            lawn *= mix(.62, 1.12, smoothstep(.15, .85, tuftS));
+            lawn = mix(lawn, lawn * vec3(1.08, 1.04, .82), smoothstep(.6, .9, tuftS) * .5);
+            // 草叶纹理：明暗相间的细条纹；远处退化成平均亮度
+            float bl = mix(.5, lawnBlades(lp), fineW);
+            lawn *= mix(.86, 1.1, bl);
+            // 大范围的明暗起伏
+            lawn *= .88 + .24 * vnoise(lp * .12 + 3.7);
+            // 露土：零星几小块草被踩秃的地方，边缘被草叶纹理打碎，不是圆滑的色块；土包上更容易露
+            float bare = vnoise(lp * .55 + 40.) * .65 + vnoise(lp * 2.1 + 9.) * .35 + dry * .18;
+            bare = smoothstep(.68, .78, bare + (bl - .5) * .12 + (tuft - .5) * .1) * (1. - vLawn.y);
+            float cover = vLawn.x * (1. - bare * .9);
+            // 草地边缘也被草叶打碎，不是一条模糊的渐变
+            cover = clamp(cover + (bl - .5) * .5 * cover * (1. - cover) * 4., 0., 1.);
+            alb = mix(alb, lawn, cover);
+            triRough = mix(triRough, .95, cover);
+            // 法线：贴图凹凸压平（不再有一颗颗重复的小点），换成草堆高度场的柔和起伏
+            vec2 e = vec2(.02, 0.);
+            vec2 g = vec2(lawnTuft(lp + e.xy) - tuft, lawnTuft(lp + e.yx) - tuft) / e.x;
+            vec3 lawnN = normalize(gN - vec3(g.x, 0., g.y) * .035 * tuftW);
+            triN = normalize(mix(triN, lawnN, cover * .9));
           #endif
           diffuseColor.rgb *= alb;
           // 青苔放在去色之后再上：石头顶上一片片鲜绿的苔
@@ -235,6 +281,9 @@ export function patch(mat, { grass = false, grassH = .42, underwater = true, tex
           totalEmissiveRadiance += uFoxGlowCol * uFoxGlow * vGlow * (.8 + .2 * sin(uTime * 1.3 + vWPos.y * 9.));
         #endif`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        #ifdef UP_NORMAL
+          normal = normalize((viewMatrix * vec4(normalize(vWNrm), 0.)).xyz);
+        #endif
         #ifdef TRI
           // 积雪处把凹凸压平一些
           normal = normalize((viewMatrix * vec4(normalize(mix(triN, gN, snowM * .7)), 0.)).xyz);
