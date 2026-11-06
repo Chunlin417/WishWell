@@ -160,6 +160,32 @@ function boxUV(geo, tile) {
   return g;
 }
 
+// ---------- 龙爪：右侧的一条腿（左侧用镜像的矩阵）----------
+// 局部坐标：+x 朝身体外侧，+y 朝背，+z 朝龙头；原点在肩（髋）关节。游动时腿向后收着贴近身体，爪趾向后、向下蜷着
+function makeLegGeometry() {
+  const V = (x, y, z) => new THREE.Vector3(x, y, z);
+  const S = V(0, 0, 0), E = V(.2, -.2, -.06), W = V(.25, -.3, -.4), H = V(.27, -.33, -.5);
+  const skin = [
+    blob(.12, .1, .19, -.04, -.01, -.02),                          // 肩：鼓起的一块肌肉，把腿和身体接起来
+    taperTube([S, V(.11, -.11, -.01), E], .12, .075, 10),          // 上臂
+    blob(.08, .075, .085, E.x, E.y, E.z),                          // 肘
+    taperTube([E, V(.25, -.27, -.22), W], .075, .05, 10),          // 前臂
+    taperTube([W, H], .05, .046, 4),                               // 掌
+    cone(.03, .17, E.x, E.y + .01, E.z, -1.25, .25), cone(.024, .13, E.x - .02, E.y + .02, E.z, -1.3, -.2),   // 肘后两撮向后飘的鬣毛
+  ];
+  const nails = [];
+  // 四根向后张开的趾 + 一根朝前的拇趾；每根趾的末端接一枚弯钩状的爪
+  const toe = (dir, len, r) => {
+    const d = dir.normalize(), b = H.clone().addScaledVector(d, .02), m = b.clone().addScaledVector(d, len);
+    skin.push(taperTube([b, b.clone().addScaledVector(d, len * .5).add(V(0, -.012, 0)), m], r, r * .7, 6));
+    nails.push(taperTube([m, m.clone().addScaledVector(d, .035).add(V(0, -.02, 0)), m.clone().addScaledVector(d, .045).add(V(0, -.07, 0))], r * .72, .003, 8));
+  };
+  for (let k = 0; k < 4; k++) { const f = (k / 3 - .5) * 1.15; toe(V(.3 + Math.sin(f) * .9, -.35, -Math.cos(f)), .1, .026); }
+  toe(V(-.35, -.45, .55), .06, .022);
+  return { skin: boxUV(mergeGeometries(skin.map(g => g.index ? g.toNonIndexed() : g).map(g => { g.deleteAttribute('uv'); g.deleteAttribute('normal'); return g; })), .45),
+           nails: boxUV(mergeGeometries(nails.map(g => { g = g.toNonIndexed(); g.deleteAttribute('uv'); g.deleteAttribute('normal'); return g; })), .2) };
+}
+
 // 下颚（单独一块，绕下颚根部转动来张嘴）：局部原点就是转轴
 const JAW_PIVOT = [0, -.06, -.02];
 function makeJawGeometry() {
@@ -229,6 +255,29 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
   const dragon = new THREE.Mesh(dGeo, [dBackMat, bellyMat]);
   dragon.frustumCulled = false; dragon.visible = false;
   scene.add(dragon);
+
+  // 四只龙爪：前爪在身长 20% 处，后爪在 58% 处（后腿略大）；左右交替划水（对角的两只同步），转身游走时向后收紧贴着身体
+  // 腿用背上的鳞片贴图；爪尖是暗骨白色的角质。都挂在 dragon 下面：龙隐藏时一起隐藏（dragon 的矩阵是单位矩阵，所以腿的矩阵就是世界坐标）
+  const clawMat = patch(new THREE.MeshStandardMaterial({ color: 0x3e3a2f, roughness: .55, metalness: 0, emissive: 0x000000, emissiveIntensity: 0 }), { lamp: true, underwater: false, deepFade: .32 });
+  const legGeo = makeLegGeometry();
+  legGeo.skin.computeVertexNormals(); legGeo.nails.computeVertexNormals();
+  const legs = [[.2, 1, 0, 1.3], [.2, -1, Math.PI, 1.3], [.58, 1, Math.PI, 1.42], [.58, -1, 0, 1.42]].map(([sAt, sd, ph, k]) => {
+    const g = new THREE.Group(); g.matrixAutoUpdate = false;
+    const skin = new THREE.Mesh(legGeo.skin, dBackMat), nails = new THREE.Mesh(legGeo.nails, clawMat);
+    skin.frustumCulled = nails.frustumCulled = false;
+    g.add(skin, nails); dragon.add(g);
+    return { ring: Math.round(sAt * (RINGS - 1)), sd, ph, k, g };
+  });
+  let legTuck = 0;
+  const legX = new THREE.Vector3(), legP = new THREE.Vector3(), legS = new THREE.Vector3(), legR = new THREE.Matrix4();
+  function legAt(L, r, time) {
+    // 镜像的一侧：x 轴取反，矩阵的行列式为负，three.js 会自动翻转三角形的正反面
+    legX.copy(N).multiplyScalar(L.sd);
+    legP.copy(P).addScaledVector(legX, r * .78).addScaledVector(B, -r * .42);   // 肩在身体侧面偏下（腹部一侧）
+    const swing = Math.sin(time * 2.6 + L.ph) * .2 * (1 - legTuck) + .35 * legTuck;   // 划水的摆动；游走时整条腿向后收
+    L.g.matrix.makeBasis(legX, B, Tn).multiply(legR.makeRotationX(swing)).scale(legS.setScalar(L.k)).setPosition(legP);
+    L.g.matrixWorldNeedsUpdate = true;
+  }
 
   // 龙头（跟着身体最前面那一节走，朝向沿着游动方向；停下来时抬头看着许愿签）
   const head = new THREE.Group();
@@ -390,6 +439,7 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
       B.crossVectors(Tn, N).normalize();
       P.addScaledVector(B, Math.sin(s * 11 - time * 2.5 + 1.3) * (.04 + .16 * s) * waveAmp - NECK_DROP * (1 - smooth(s / .2)));   // 上下方向也有一道波：身体各节离水面的深度不一样，不会整条平躺着
       const r = bodyRadius(s) * BS;
+      for (const L of legs) if (L.ring === i) legAt(L, r, time);
       for (let j = 0; j <= SEGS; j++) {
         const th = ringAngle(j), cy = Math.cos(th), sx = Math.sin(th);
         // 背上的鳍：朝上的一侧一排锯齿（头和尾巴上没有）
@@ -622,7 +672,8 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
         if (t < T.arrive) { const u = (t - T.dragon) / (T.arrive - T.dragon); d = lerp(d0, takeD, .7 * (1 - (1 - u) * (1 - u)) + .3 * u); }   // 一路游上来，越接近许愿签越慢，没有停顿
         else if (t < T.leave) d = takeD + vA * (t - T.arrive);
         else { const x = t - T.leave; d = takeD + vA * (T.leave - T.arrive + x) + EXIT_V * (x + EXIT_TAU * (Math.exp(-x / EXIT_TAU) - 1)); }   // 速度从 0 慢慢加到 EXIT_V：先是缓缓弓身，然后越游越快
-        waveAmp = lerp(1, 2.1, smooth((t - T.leave) / 2.5));   // 转身游走时身体扭得更厉害
+        waveAmp = lerp(1, 2.1, smooth((t - T.leave) / 2.5));
+        legTuck = smooth((t - T.leave) / 1.2);   // 转身游走时身体扭得更厉害
         updateDragon(d, t);
         const look = smooth((t - T.arrive + .9) / .9) * (1 - smooth((t - T.leave) / .7));
         updateHead(d, t, look, group.position);
