@@ -62,6 +62,7 @@ export function createWishAudio() {
     unlock, level,
     splash() { burst({ freq: 1800, q: .8, dur: .45, gain: .35, sweepTo: 500 }); burst({ freq: 400, q: 1, dur: .3, gain: .25 }); },
     thump() { tone(62, 28, 2.2, .9); burst({ freq: 120, q: .7, dur: 1.4, gain: .5, type: 'lowpass' }); },
+    leave() { burst({ freq: 260, q: .7, dur: 2.6, gain: .45, type: 'lowpass', sweepTo: 55 }); tone(70, 30, 2.4, .5); },
     bite() { tone(140, 45, .35, .5); burst({ freq: 300, q: 2, dur: .2, gain: .35 }); },
   };
 }

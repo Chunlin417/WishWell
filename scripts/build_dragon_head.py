@@ -6,7 +6,7 @@
 1. 左右对称：原模型只有一侧有龙须。沿中线（z = 0）切开，保留有龙须的 +z 半边，镜像到另一侧；
    跨过中线的三角形把顶点压到中线上，两半在中线处共用顶点，不留缝
 2. 减面：37 万三角面 → 约 4.5 万（网页里要每帧变换、做水下效果，面太多会卡）
-3. 张嘴：下颚做成一个形变目标（morph target）——绕下颚根部转 0.5 弧度，越靠近根部转得越少，腮帮子是拉伸开的而不是撕开
+3. 张嘴：原模型的嘴是半张着的，先把下颚向上合起 JAW_CLOSE（0.4）弧度作为基础姿势（嘴闭着）；再做一个形变目标（morph target）从合上的嘴张到最大，越靠近转轴转得越少，腮帮子是拉伸开的而不是撕开的
 4. 摆正：吻端朝 +z、头顶朝 +y，原点放在头骨中心（和 src/wish.js 里程序生成的龙头一样），龙须、鬃毛都在原位
 输出只有位置、形变目标和索引（法线、贴图坐标在网页里算），约 1 MB
 """
@@ -17,11 +17,12 @@ import fast_simplification
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "textures-src" / "dragon_head_tripo.glb"
-DST = ROOT / "public" / "models" / "dragon_head.glb"
 TARGET_TRIS = 45000
 ORIGIN = np.array([0.0, 0.3, 0.0])        # 头骨中心（原模型坐标）
 HINGE = np.array([-0.04, 0.205])           # 下颚转轴（原模型的 x, y）
-JAW_OPEN = 0.5                             # 张嘴的最大角度（弧度）
+JAW_CLOSE = float(__import__('os').environ.get('JAW_CLOSE', 0.4))   # 把下颚向上合起的角度（弧度）：Tripo 的原模型嘴是半张着的，基础姿势要先合上
+JAW_OPEN = 0.2                            # 在合上的基础上，张嘴的最大角度（弧度）
+DST = Path(__import__('os').environ.get('DST', str(ROOT / 'public' / 'models' / 'dragon_head.glb')))
 
 
 def load_glb(path):
@@ -66,18 +67,20 @@ def mirror_half(P, F):
     return Pm, np.vstack([Fh, Fm])
 
 
-def jaw_morph(P):
+def jaw_rotate(P, w, ang):
+    dx, dy = P[:, 0] - HINGE[0], P[:, 1] - HINGE[1]
+    a = ang * w; c, s_ = np.cos(a), np.sin(a)
+    Q = P.copy()
+    Q[:, 0] = HINGE[0] + dx * c - dy * s_
+    Q[:, 1] = HINGE[1] + dx * s_ + dy * c
+    return Q
+
+
+def jaw_weight(P):
     # 下颚：转轴前面、嘴缝以下的部分；靠近转轴的地方按比例少转一些
     x, y = P[:, 0], P[:, 1]
     sm = lambda a, b, t: np.clip((t - a) / (b - a), 0, 1) ** 2 * (3 - 2 * np.clip((t - a) / (b - a), 0, 1))
-    w = sm(-0.02, -0.14, x) * sm(0.215, 0.185, y)
-    ang = JAW_OPEN * w
-    dx, dy = x - HINGE[0], y - HINGE[1]
-    c, s = np.cos(ang), np.sin(ang)
-    Q = P.copy()
-    Q[:, 0] = HINGE[0] + dx * c - dy * s
-    Q[:, 1] = HINGE[1] + dx * s + dy * c
-    return Q - P
+    return sm(-0.02, -0.14, x) * sm(0.215, 0.185, y)
 
 
 def to_local(V):
@@ -125,11 +128,13 @@ def main():
     P, F = fast_simplification.simplify(P.astype(np.float32), F.astype(np.int32), target_reduction=1 - TARGET_TRIS / len(F))
     P = P.astype(np.float64); F = F.astype(np.int64)
     print(f"减面后：{len(P)} 顶点，{len(F)} 三角面")
-    D = jaw_morph(P)
-    L = to_local(P - ORIGIN)
+    w = jaw_weight(P)
+    Pc = jaw_rotate(P, w, -JAW_CLOSE)            # 基础姿势：嘴合上
+    D = jaw_rotate(P, w, JAW_OPEN) - Pc          # 形变目标：从合上的嘴张到最大（总角度 = 合上的角度 + JAW_OPEN）
+    L = to_local(Pc - ORIGIN)
     DL = to_local(D)
     write_glb(DST, L, DL, F)
-    print(f"{DST.relative_to(ROOT)}：{DST.stat().st_size / 1024:.0f} KB，局部范围 {L.min(0).round(3)} ~ {L.max(0).round(3)}")
+    print(f"{DST.name}：{DST.stat().st_size / 1024:.0f} KB，局部范围 {L.min(0).round(3)} ~ {L.max(0).round(3)}")
     print(f"下颚顶点（会动的）：{(np.abs(D).sum(1) > 1e-5).sum()}")
 
 

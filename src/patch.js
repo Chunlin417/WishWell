@@ -5,6 +5,7 @@ import { NOISE_GLSL, CAUSTIC_GLSL } from './shaders.js';
 export const shared = {
   uTime: { value: 0 },
   uSunCol: { value: new THREE.Color() },   // 焦散用的光颜色 × 强度
+  uLampDir: { value: new THREE.Vector3(0, 1, 0) }, uLampCol: { value: new THREE.Color(0, 0, 0) },   // 给龙用的一盏方向光（从斜上方照下来，整条龙一样亮，不是围着龙头的光晕；只照 lamp 材质）
   uKeyDir: { value: new THREE.Vector3(0, 1, 0) },   // 主光（太阳 / 月亮）的方向，草叶透光用
   uCaustic: { value: 1 },
   uWaterCol: { value: new THREE.Color() }, // 水体散射色
@@ -30,6 +31,20 @@ const GRASS_TONE = /* glsl */`
         #ifdef BLADE
           float rib = 1. - smoothstep(.0, .22, abs(vBladeU - .5));
           diffuseColor.rgb *= .9 + .2 * rib;
+        #endif
+`;
+// 龙头旁边的冷色小灯：漫反射让鳞片的凹凸有受光面和背光面，高光让鳞片有湿润的反光；一点点环境项（+.12）避免背光面死黑
+const LAMP_GLSL = /* glsl */`
+        #ifdef LAMP
+        {
+          vec3 Ld = normalize((viewMatrix * vec4(uLampDir, 0.)).xyz);
+          float att = 1.;   // 方向光：没有距离衰减，整条龙受光一样；越往深处越暗由 deepFade 管
+          float ndl = max(dot(normal, Ld), 0.);
+          vec3 Hd = normalize(Ld + normalize(vViewPosition));
+          float shin = mix(18., 80., clamp(1. - roughnessFactor, 0., 1.));
+          float spec = pow(max(dot(normal, Hd), 0.), shin) * clamp(1.1 - roughnessFactor, 0., 1.) * .45;   // 高光收小：不要一道道发白发亮的线
+          outgoingLight += uLampCol * att * (diffuseColor.rgb * (ndl * 2.4 + .12) + vec3(spec * ndl));
+        }
         #endif
 `;
 // 透光：逆着太阳看草叶时，光从叶片背后透过来，叶子发亮、偏黄绿；顺光时也有一点点
@@ -125,16 +140,19 @@ float scaleField(vec3 p, vec3 n){
 // sway：摆动幅度的倍数（贴地的矮草要小一些）
 // upNormal：双面草叶的背面也用朝上的法线（否则背面法线朝下，一半草叶是黑的）
 // blade：细长的草叶（PlaneGeometry，uv.x 横跨叶片）——画出中脉
+// lamp：额外受 shared.uLampDir / uLampCol 这盏方向光照射（带漫反射和高光），水的吸收之前叠加；不是真正的灯，不影响场景里其他材质
 // rim：自发光只出现在轮廓边缘（视线擦过表面的地方），正面几乎不亮——暗色的龙只有一圈青光勾出轮廓
+// deepFade：不透明的实体越往深处越暗（exp(-深度 × deepFade)，只变暗、略偏冷，没有任何叠加的雾或发光）——用在龙身上，它是从黑暗里浮上来的真实物体，不是半透明的影子
 // absorb：水的吸收按深度的多少倍算（龙用 0.45：在 2 米深处还看得清鳞片，否则只剩一个青色的剪影）
 // card：贴草丛照片的交叉面片（map + alphaTest）——远处按 mipmap 级别加厚 alpha，草不会越远越稀
-export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = false, blade = false, card = false, rim = false, absorb = 1, underwater = true, tex = null, scales = false, glowAttr = false } = {}) {
+export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = false, blade = false, card = false, rim = false, lamp = false, deepFade = 0, absorb = 1, underwater = true, tex = null, scales = false, glowAttr = false } = {}) {
   const mode = tex ? tex.mode : 'none';
-  mat.customProgramCacheKey = () => `wish-${grass}-${grassH}-${sway}-${upNormal}-${blade}-${card}-${rim}-${absorb}-${underwater}-${mode}-${scales}-${glowAttr}`;
+  mat.customProgramCacheKey = () => `wish-${grass}-${grassH}-${sway}-${upNormal}-${blade}-${card}-${rim}-${lamp}-${deepFade}-${absorb}-${underwater}-${mode}-${scales}-${glowAttr}`;
   if (upNormal) mat.defines = { ...(mat.defines || {}), UP_NORMAL: '' };
   if (blade) mat.defines = { ...(mat.defines || {}), BLADE: '' };
   if (card) mat.defines = { ...(mat.defines || {}), CARD: '' };
   if (rim) mat.defines = { ...(mat.defines || {}), RIM: '' };
+  if (lamp) mat.defines = { ...(mat.defines || {}), LAMP: '' };
   if (scales) mat.defines = { ...(mat.defines || {}), SCALES: '' };
   if (glowAttr) mat.defines = { ...(mat.defines || {}), GLOWATTR: '' };
   if (tex) {
@@ -213,6 +231,9 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
         varying vec3 vWPos; varying vec3 vWNrm; varying float vH; varying float vMoss;
         uniform float uTime; uniform float uCaustic; uniform float uSnow; uniform float uWet; uniform float uFrost;
         uniform vec3 uSunCol; uniform vec3 uWaterCol; uniform float uDeepGlow; uniform vec3 uDeepGlowCol; uniform vec3 uKeyDir;
+        #ifdef LAMP
+          uniform vec3 uLampDir; uniform vec3 uLampCol;
+        #endif
         #ifdef BLADE
           varying float vBladeU;
         #endif
@@ -395,7 +416,7 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
         #ifdef RIM
           {
             float fr = 1. - abs(dot(normalize(normal), normalize(vViewPosition)));
-            totalEmissiveRadiance *= .08 + 1.3 * fr * fr * fr * fr;
+            totalEmissiveRadiance *= .05 + .55 * fr * fr * fr * fr * fr;   // 只剩一道很细的边缘光，真正的明暗交给 lamp
           }
         #endif
         #ifdef GLOWATTR
@@ -422,6 +443,11 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
         #endif`);
 
     if (grass) sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `${GRASS_TRANS}
+        #include <opaque_fragment>`);
+    if (lamp) sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `${LAMP_GLSL}
+        #include <opaque_fragment>`);
+    if (deepFade > 0) sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `
+        { float dd = max(-vWPos.y, 0.); outgoingLight *= exp(-dd * ${deepFade.toFixed(3)}) * mix(vec3(1.), vec3(.82, .93, .97), smoothstep(0., 1.5, dd)); }
         #include <opaque_fragment>`);
     if (underwater) {
       sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `

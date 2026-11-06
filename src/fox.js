@@ -48,5 +48,13 @@ export function buildFoxes(scene, { floorH, poolK }) {
     // 横屏时按屏幕宽度摆到两侧；竖屏没有空间就不显示
     // g：石狐离池边的距离；k：大小系数
     layout(s, g, k = 1) { show = s; gap = g; sizeK = k; if (ready) items.forEach(place); },
+    // 点到了哪只石狐：返回 side（-1 / 1，模型所在的一侧）和点中的位置；没点到返回 null
+    pick(raycaster) {
+      if (!ready || !show) return null;
+      const hit = raycaster.intersectObjects(items.map(it => it.g), true)[0];
+      if (!hit) return null;
+      const it = items.find(it => { let o = hit.object; while (o) { if (o === it.g) return true; o = o.parent; } return false; });
+      return it ? { side: it.side, point: hit.point } : null;
+    },
   };
 }

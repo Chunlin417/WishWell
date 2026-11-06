@@ -53,6 +53,7 @@ Object.assign(key.shadow.camera, { left: -10, right: 10, top: 10, bottom: -10, n
 key.shadow.bias = -.0005; key.shadow.normalBias = .03;
 scene.add(key, key.target);
 const ambient = new THREE.AmbientLight(0x93a4bd, .05);   // 夜间补光：冷灰蓝（不偏紫）
+key.layers.enable(1); ambient.layers.enable(1);   // 第 1 层（许愿签悬在空中时）也要被照亮
 scene.add(ambient);
 
 const sky = createSky();
@@ -99,6 +100,23 @@ const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, 
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), .28, .5, 1.6);
 composer.addPass(bloom);
+// 许愿时的背景虚化（两遍可分离高斯模糊：横一遍、竖一遍），强度由 wish.focus 控制；不虚化时整段跳过
+const BlurShader = {
+  uniforms: { tDiffuse: { value: null }, uDir: { value: new THREE.Vector2() }, uAmt: { value: 0 }, uDim: { value: 1 } },
+  vertexShader: /* glsl */`varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`,
+  fragmentShader: /* glsl */`
+    uniform sampler2D tDiffuse; uniform vec2 uDir; uniform float uAmt; uniform float uDim; varying vec2 vUv;
+    void main(){
+      vec2 o = uDir * uAmt;
+      vec4 c = texture2D(tDiffuse, vUv) * .227027;
+      c += (texture2D(tDiffuse, vUv + o * 1.384615) + texture2D(tDiffuse, vUv - o * 1.384615)) * .316216;
+      c += (texture2D(tDiffuse, vUv + o * 3.230769) + texture2D(tDiffuse, vUv - o * 3.230769)) * .070270;
+      gl_FragColor = vec4(c.rgb * uDim, c.a);
+    }`,
+};
+// 两轮（横、竖、横、竖），每轮步子小一些：模糊更顺滑，不会出现一格一格的重影
+const blurs = [0, 1, 2, 3].map(() => new ShaderPass(BlurShader));
+for (const b of blurs) { b.enabled = false; composer.addPass(b); }
 composer.addPass(new OutputPass());
 // 全画面统一的调色：略加对比度和饱和度（不改变四周明暗）
 const grade = new ShaderPass(GradeShader);
@@ -337,7 +355,24 @@ function render() {
 
   renderer.clippingPlanes = [];
   renderer.setRenderTarget(null);
+  // 背景虚化：两遍模糊的强度跟着 wish.focus，四周再稍微压暗一点
+  const f = wish.focus;
+  for (const b of blurs) b.enabled = f > .01;
+  if (f > .01) {
+    const sz = renderer.getDrawingBufferSize(new THREE.Vector2());
+    blurs.forEach((b, i) => {
+      b.uniforms.uDir.value.set(i % 2 ? 0 : 1 / sz.x, i % 2 ? 1 / sz.y : 0);
+      b.uniforms.uAmt.value = f * (i < 2 ? 1.6 : 2.6) * renderer.getPixelRatio();
+      b.uniforms.uDim.value = i === 3 ? 1 - .22 * f : 1;
+    });
+  }
   composer.render();
+  // 悬在空中的许愿签：单独画在最上面（不被虚化）
+  if (wish.overlay) {
+    const ac = renderer.autoClear; renderer.autoClear = false; renderer.clearDepth();
+    camera.layers.set(1); renderer.render(scene, camera); camera.layers.set(0);
+    renderer.autoClear = ac;
+  }
 }
 
 let last = performance.now();
@@ -353,14 +388,49 @@ function loop(now) {
 const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2();
 // 长按不弹系统菜单（安卓浏览器的长按菜单、电脑上的右键菜单）
 addEventListener('contextmenu', e => { if (e.target === canvas) e.preventDefault(); });
+let draggingWish = false;
+const setRay = e => { ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); raycaster.setFromCamera(ndc, camera); };
 canvas.addEventListener('pointerdown', e => {
-  ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
-  raycaster.setFromCamera(ndc, camera);
+  setRay(e);
+  // 许愿签：写好之后按住就能拖；还在等输入时点它，重新弹出输入线
+  if (wish.busy && wish.mode !== 'ritual' && wish.hitPaper(raycaster)) {
+    if (wish.draggable && wish.dragStart()) { draggingWish = true; canvas.setPointerCapture(e.pointerId); wish.dragTo(raycaster.ray); return; }
+    if (wish.waiting && wish.inputReady) { openWishInput(); wishInput.focus(); return; }
+  }
+  // 左边的石狐（屏幕左半边那一只）：唤来许愿签；右边那只：签落进水里之后，唤龙
+  const f = foxes.pick(raycaster);
+  if (f) {
+    const left = f.point.clone().project(camera).x < 0;
+    if (left && !wish.busy) { sfx.unlock(); wish.summon(camera); return; }   // 声音只能在用户点击时开启
+    if (!left && wish.canCall) { sfx.unlock(); wish.callDragon(); return; }
+  }
   const hit = raycaster.intersectObject(water.mesh)[0];
   if (hit && poolK(hit.point.x, hit.point.z) < .93) {
     ripples.add(hit.point.x, hit.point.z, .22, .5);
   }
 });
+canvas.addEventListener('pointermove', e => {
+  setRay(e);
+  if (draggingWish) { wish.dragTo(raycaster.ray); return; }
+  // 鼠标移到能拖的签上 / 左边的石狐上时，换成手形光标
+  if (e.pointerType === 'mouse') {
+    const over = (wish.draggable && wish.hitPaper(raycaster)) ? 'grab'
+      : (f => f && (f.point.clone().project(camera).x < 0 ? !wish.busy : wish.canCall))(foxes.pick(raycaster)) ? 'pointer' : '';
+    canvas.style.cursor = over;
+  }
+});
+const endDrag = e => {
+  if (!draggingWish) return;
+  draggingWish = false;
+  setRay(e);
+  // 松手的位置：沿着视线落到水面上的那一点；在池子里才算投进去
+  const hit = raycaster.intersectObject(water.mesh)[0];
+  const ok = hit && poolK(hit.point.x, hit.point.z) < .9;
+  const w = wishLand();
+  wish.release(ok ? hit.point : null, w, { facing: w.facing });
+};
+canvas.addEventListener('pointerup', endDrag);
+canvas.addEventListener('pointercancel', endDrag);
 addEventListener('pointermove', e => { if (e.pointerType === 'mouse') parallax.set(e.clientX / innerWidth - .5, e.clientY / innerHeight - .5); });
 
 // ================= UI =================
@@ -380,19 +450,28 @@ function updateInfo() {
 }
 
 // ---- 许愿 ----
-// 落点：池心稍微靠近镜头一侧（目前只有一条青龙）
-function throwWish(text) {
+// 页面上没有任何提示：点左边的石狐 → 风送来一张许愿签，同时出现一条输入线 → 写完按回车，字一笔一笔写到签上
+// → 把签拖到水面上松手 → 落进池里（之后的仪式在 wish.js）。龙要来的位置：池心稍微靠近镜头一侧
+const wishLand = () => { const d = new THREE.Vector3(camera.position.x, 0, camera.position.z).normalize().multiplyScalar(.7); return { x: d.x, z: d.z, facing: Math.atan2(d.x, d.z) }; };
+function throwWish(text) {   // 调试用：跳过写字和拖动，直接从落点上方投下去
   if (wish.busy || !text.trim()) return;
-  const d = new THREE.Vector3(camera.position.x, 0, camera.position.z).normalize().multiplyScalar(.7);
-  wish.start(text, { x: d.x, z: d.z }, { facing: Math.atan2(d.x, d.z) });
+  const w = wishLand();
+  wish.start(text, w, { facing: w.facing, callNow: true });
 }
-$('wishBtn').onclick = () => { $('wishText').value = ''; $('wishCount').textContent = '0'; $('wishGo').disabled = true; $('wishSheet').hidden = false; setTimeout(() => $('wishText').focus(), 50); };
-$('wishText').oninput = () => { const n = [...$('wishText').value].length; $('wishCount').textContent = n; $('wishGo').disabled = !$('wishText').value.trim(); };
-$('wishCancel').onclick = () => { $('wishSheet').hidden = true; };
-$('wishSheet').onclick = e => { if (e.target.id === 'wishSheet') $('wishSheet').hidden = true; };
-$('wishGo').onclick = () => { sfx.unlock(); $('wishSheet').hidden = true; throwWish($('wishText').value); };   // 声音只能在用户点击时开启
-// 仪式进行中不显示按钮，结束后再出现
-setInterval(() => $('wishBtn').classList.toggle('away', wish.busy), 300);
+const wishInput = $('wishInput'), wishPanel = $('wishPanel'), wishOk = $('wishOk');
+// 签停稳、四周虚化之后才出现输入框（电脑上自动把光标放进去；手机上点一下输入框才会弹出键盘）
+function openWishInput() { if (!wishPanel.hidden) return; wishInput.value = ''; wishOk.disabled = true; wishPanel.hidden = false; if (matchMedia('(pointer: fine)').matches) wishInput.focus(); }
+function closeWishInput() { wishInput.blur(); wishPanel.hidden = true; }
+const submitWish = () => { const v = wishInput.value.trim(); if (v) { wish.write(v); closeWishInput(); } };
+wishInput.addEventListener('input', () => { wishOk.disabled = !wishInput.value.trim(); });
+wishInput.addEventListener('keydown', e => {
+  if (e.isComposing || e.keyCode === 229) return;   // 输入法正在拼字时的回车不算
+  if (e.key === 'Enter') submitWish();
+  else if (e.key === 'Escape') { wish.dismiss(); closeWishInput(); }
+});
+wishOk.onclick = submitWish;
+setInterval(() => { if (wish.inputReady) openWishInput(); }, 100);
+
 
 // 城市选择（入口在调试面板里）
 let searchTimer;

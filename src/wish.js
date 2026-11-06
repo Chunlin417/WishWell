@@ -1,9 +1,9 @@
-// 许愿：写在许愿签上的愿望，挂着铜钱投进池里，慢慢沉下去；
+// 许愿：点左边的石狐，一阵风送来一张许愿签；写下愿望，字一笔一笔出现在签上；把签拖到水面上松手，它挂着铜钱落进池里，慢慢沉下去；
 // 四周渐渐安静下来（光变暗、风停、萤火虫躲起来），池底深处先亮起一对眼睛，
 // 青龙从正下方缓缓浮上来，张口衔走许愿签，转身潜回深处。
 // 愿望文字不保存、不上传：画到许愿签上之后就只存在于这一次的画面里。
 import * as THREE from 'three';
-import { patch } from './patch.js';
+import { patch, shared } from './patch.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
@@ -14,51 +14,53 @@ const easeOut = t => 1 - Math.pow(1 - clamp(t), 3);
 
 // 时间轴（秒，从投入那一刻算起）
 const T = {
-  fall: .85,      // 从空中落到水面
-  float: 1.7,     // 在水面上漂一下，开始下沉
+  fall: 1.1,      // 从松手的地方落到水面
+  float: 1.9,     // 在水面上漂一下，开始下沉
   sunk: 8,        // 沉到预定深度
   dread: 3,       // 四周开始安静、变暗（"屏住呼吸"）
   glowIn: 4,      // 深处的光开始变亮
-  dragon: 5.6,    // 龙开始从最深处往上游（还看不见）
-  lurk: 7.8,      // 停在池底附近：只看得到一对眼睛睁开
-  rise: 9.8,      // 缓缓浮上来
-  arrive: 12.4,   // 龙头停在许愿签正下方，抬头看着它
-  take: 13.2,     // 张口衔走许愿签
-  leave: 14.4,    // 转身，游回深处
-  ripple: 17,     // 水面泛起一圈大涟漪
-  end: 23,
+  dragon: 5.4,    // 龙开始从最深处往上游（还在黑暗里），一路不停地游上来
+  arrive: 10.4,   // 龙头游到许愿签正下方（没有停下来：速度只是慢下来）
+  take: 10.6,     // 咬住许愿签（嘴只是轻轻一合）
+  leave: 10.85,   // 咬住后马上转头：弓起身子，从旁边游回井底
+  ripple: 18.8,   // 水面泛起一圈大涟漪（龙完全沉下去之后）
+  end: 21.8,
 };
+const EXIT_V = 3.4, EXIT_TAU = 1.4;   // 离开时的最大速度（米/秒）和加速的快慢
+const STOP_Y = -2.1;   // 龙头停住时头骨中心的深度（龙头放大了，吻端伸得更远，所以要比以前再低一点）
 const PAPER_W = .24, PAPER_H = .7, STRING = .14, SINK_Y = -.9;
 
-// ---------- 许愿签：红纸、金边，竖排写字 ----------
-function paperTexture(text) {
-  const W = 256, H = 742, c = document.createElement('canvas');
-  c.width = W; c.height = H;
+// ---------- 许愿签：红纸、金边，竖排写字（字是一个一个"写"上去的） ----------
+const PW = 256, PH = 742;
+function paperBackground() {
+  const c = document.createElement('canvas'); c.width = PW; c.height = PH;
   const g = c.getContext('2d');
-  g.fillStyle = '#9c1d18'; g.fillRect(0, 0, W, H);
+  g.fillStyle = '#9c1d18'; g.fillRect(0, 0, PW, PH);
   // 纸纹：细小的明暗纤维
   for (let i = 0; i < 1800; i++) {
     g.fillStyle = `rgba(${Math.random() < .5 ? '0,0,0' : '255,210,190'},${Math.random() * .06})`;
-    g.fillRect(Math.random() * W, Math.random() * H, 1 + Math.random() * 2, 4 + Math.random() * 14);
+    g.fillRect(Math.random() * PW, Math.random() * PH, 1 + Math.random() * 2, 4 + Math.random() * 14);
   }
-  g.strokeStyle = '#d9b25a'; g.lineWidth = 5; g.strokeRect(12, 12, W - 24, H - 24);
-  g.lineWidth = 1.5; g.strokeRect(22, 22, W - 44, H - 44);
+  g.strokeStyle = '#d9b25a'; g.lineWidth = 5; g.strokeRect(12, 12, PW - 24, PH - 24);
+  g.lineWidth = 1.5; g.strokeRect(22, 22, PW - 44, PH - 44);
   // 顶上的小孔（挂绳的地方）
-  g.fillStyle = '#3a0907'; g.beginPath(); g.arc(W / 2, 46, 9, 0, 7); g.fill();
-  // 竖排：从右往左一列列写
-  const chars = [...text.trim()].slice(0, 30);
+  g.fillStyle = '#3a0907'; g.beginPath(); g.arc(PW / 2, 46, 9, 0, 7); g.fill();
+  return c;
+}
+// 把签面重画一遍：背景 + 前 prog 个字（prog 带小数：正在写的那个字从淡到浓、从略大到正常，像墨落在纸上）
+function drawPaper(g, bg, chars, prog) {
+  g.clearRect(0, 0, PW, PH); g.drawImage(bg, 0, 0);
+  if (!chars.length) return;
   const perCol = chars.length <= 10 ? 10 : 12, cols = Math.max(1, Math.ceil(chars.length / perCol));
-  const size = Math.min(58, Math.floor((H - 130) / perCol), Math.floor((W - 60) / cols));
+  const size = Math.min(58, Math.floor((PH - 130) / perCol), Math.floor((PW - 60) / cols));
   g.fillStyle = '#f3dc9c'; g.textAlign = 'center'; g.textBaseline = 'middle';
   g.font = `${size}px "STKaiti","KaiTi","Kaiti SC","楷体",serif`;
-  const colW = (W - 60) / cols, top = 84 + size / 2;
-  chars.forEach((ch, i) => {
-    const col = Math.floor(i / perCol), row = i % perCol;
-    g.fillText(ch, W - 30 - colW * (col + .5), top + row * size * 1.04);
-  });
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
-  return t;
+  const colW = (PW - 60) / cols, top = 84 + size / 2;
+  for (let i = 0; i < chars.length && i < prog; i++) {
+    const col = Math.floor(i / perCol), row = i % perCol, k = Math.min(1, prog - i);
+    const x = PW - 30 - colW * (col + .5), y = top + row * size * 1.04;
+    g.save(); g.globalAlpha = k; g.translate(x, y); g.scale(1 + .15 * (1 - k), 1 + .15 * (1 - k)); g.fillText(chars[i], 0, 0); g.restore();
+  }
 }
 
 function coinGeometry() {
@@ -81,15 +83,18 @@ function softDot() {
 }
 
 // ---------- 龙：一条长长的身躯，沿路径游动（每一节都走过龙头走过的位置），背上一排鳍 ----------
-// HS：龙头放大倍数，BS：身体粗细倍数（主视角离水面 11 米，原尺寸的龙头只有几十像素）
-const RINGS = 150, SEGS = 14, LEN = 7.2, HS = 1.75, BS = 1.5;
+// HS：龙头放大倍数（主视角离水面 11 米，龙头要够大），BS：身体粗细的额外倍数（现在直接由 BODY_R 控制）
+const RINGS = 150, SEGS = 14, LEN = 11, HS = 2.2, BS = 1;
 const VPR = SEGS + 1;          // 每一圈的顶点数：多一个和第一个重合的点，贴图在接缝处才能连续
 const U_REP = 2, V_TILE = 1.1; // 鳞片贴图：绕身体一圈重复 2 次，沿身体每 1.1 米重复一次（鳞片跟着身体走，不会在身上滑动）
 const HEAD_TILE = .32;         // 龙头细鳞：每 0.32（头的局部单位）重复一次
+const BODY_R = .3;    // 身体的半径（米）：从脖子到接近尾巴一直是这个粗细，直径约 0.6 米，是龙头宽度的一半不到
+const NECK_R = .46;   // 紧挨着龙头的地方：半径和龙头后面那块脖子差不多粗，然后在约 2 米内顺滑地收成身体的粗细，接口才不会"脑袋插在一根管子上"
+const NECK_DROP = .26;   // 龙头那块脖子的中心比龙头原点低约 0.28 米：身体的中心线要对在脖子的中心上，而不是龙头原点上
 function bodyRadius(s) {   // s：0 = 头的中心（埋在头骨里），1 = 尾尖
-  if (s < .12) return lerp(.15, .21, smooth(s / .12));           // 颈：从头骨后面长出来
-  if (s < .35) return lerp(.21, .29, smooth((s - .12) / .23));   // 身体最粗处
-  return lerp(.29, .015, Math.pow((s - .35) / .65, .8));         // 一路收到尾尖
+  const base = lerp(BODY_R, NECK_R, 1 - smooth(s / .18));
+  const t = clamp((s - .78) / .22);   // 只有最后 22%（约 2.4 米）才逐渐变细，收成尾尖
+  return lerp(base, .02, Math.pow(t, 1.7));
 }
 
 // ---------- 龙头：+z 朝前（吻端），+y 朝上，+x 朝右；原点在头骨中心 ----------
@@ -176,6 +181,12 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
   // 许愿签不用水的真实吸收（红色在水里一下子就看不见了），改成按深度自己染成暗青色，一路沉下去都看得到
   const paperMat = patch(new THREE.MeshStandardMaterial({ roughness: .85, emissive: 0xffffff, emissiveIntensity: 0 }), { underwater: false });
   const backMat = patch(new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(.55, .1, .08, THREE.SRGBColorSpace), roughness: .85 }), { underwater: false });
+  const paperCanvas = document.createElement('canvas'); paperCanvas.width = PW; paperCanvas.height = PH;
+  const paperCtx = paperCanvas.getContext('2d');
+  const paperTex = new THREE.CanvasTexture(paperCanvas); paperTex.colorSpace = THREE.SRGBColorSpace; paperTex.anisotropy = 4;
+  paperMat.map = paperTex; paperMat.emissiveMap = paperTex;
+  let paperBg = null, chars = [], writeProg = 0;
+  const redrawPaper = () => { drawPaper(paperCtx, paperBg, chars, writeProg); paperTex.needsUpdate = true; };
   const paper = new THREE.Mesh(new THREE.PlaneGeometry(PAPER_W, PAPER_H), paperMat);
   const back = new THREE.Mesh(new THREE.PlaneGeometry(PAPER_W, PAPER_H), backMat);
   back.rotation.y = Math.PI;
@@ -210,10 +221,10 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
   // 龙鳞：背上大鳞、腹部横纹甲、龙头细鳞三套贴图（没有贴图时退回纯色）；龙须是纯色的
   const scaleMat = set => patch(new THREE.MeshStandardMaterial({
     map: set?.diff ?? null, normalMap: set?.nor ?? null, roughnessMap: set?.rough ?? null,
-    normalScale: new THREE.Vector2(1.6, 1.6), roughness: set ? .75 : .38, metalness: set ? .35 : .18, emissive: new THREE.Color(), emissiveIntensity: 1,
-  }), { rim: true, absorb: .45 });
+    normalScale: new THREE.Vector2(2.2, 2.2), roughness: set ? .62 : .38, metalness: set ? .3 : .18, emissive: 0x000000, emissiveIntensity: 0,
+  }), { lamp: true, underwater: false, deepFade: .32 });
   const dBackMat = scaleMat(tex?.back), bellyMat = scaleMat(tex?.belly), headMat = scaleMat(tex?.head);
-  const plainMat = patch(new THREE.MeshStandardMaterial({ roughness: .45, metalness: .18, emissive: new THREE.Color(), emissiveIntensity: 1 }), { rim: true, absorb: .45 });
+  const plainMat = patch(new THREE.MeshStandardMaterial({ roughness: .45, metalness: .18, emissive: 0x000000, emissiveIntensity: 0 }), { lamp: true, underwater: false, deepFade: .32 });
   const dMats = [dBackMat, bellyMat, headMat, plainMat];
   const dragon = new THREE.Mesh(dGeo, [dBackMat, bellyMat]);
   dragon.frustumCulled = false; dragon.visible = false;
@@ -222,7 +233,7 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
   // 龙头（跟着身体最前面那一节走，朝向沿着游动方向；停下来时抬头看着许愿签）
   const head = new THREE.Group();
   const headMesh = new THREE.Mesh(boxUV(makeHeadGeometry(), HEAD_TILE), headMat);
-  const eyeMat = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xffc24a, emissiveIntensity: 0 });   // 不受水的吸收：深处也看得见一对眼睛
+  const eyeMat = patch(new THREE.MeshStandardMaterial({ color: 0x9a6a1c, roughness: .25, metalness: 0, emissive: 0xffc24a, emissiveIntensity: 0 }), { lamp: true, underwater: false, deepFade: .32 });   // 不受水的吸收：深处也看得见一对眼睛
   const pupilMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
   const eyeGeo = new THREE.SphereGeometry(.032, 14, 10), pupilGeo = new THREE.SphereGeometry(1, 10, 8);
   // 金色的眼睛 + 竖着的细缝瞳孔；每只眼睛一个小组，睁眼时把它沿竖直方向从扁到圆放开
@@ -296,12 +307,14 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
   motes.visible = false; motes.frustumCulled = false;
   scene.add(motes);
 
+  let pt = 0, called = false;   // pt：签落下之后的时间（下沉一直在走）；t：龙的时间线，点右边的石狐之前停在压迫感开始之前
   let phase0 = 0, t = -1, land = new THREE.Vector3(), path = null, pathLen = 1, glow = 0, dread = 0, took = false, rippled = false, phase = 0;
   const fired = new Set();   // 已经触发过的声音
   const once = (k, f) => { if (!fired.has(k)) { fired.add(k); f?.(); } };
   const mouth = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), P = new THREE.Vector3(), Tn = new THREE.Vector3(), N = new THREE.Vector3(), B = new THREE.Vector3();
 
   let takeD = 0, lurkD = 0;
+  const crest = new THREE.Vector3();   // 弓顶的位置（龙翻过来的时候水面在这里被搅动）
   const toCam = new THREE.Vector3(0, 0, 1), awayRef = new THREE.Vector3();
   function buildPath() {
     // 从许愿签正下方的深处笔直地浮上来（正对着镜头，身体垂向黑暗里），停在签下面抬头看着它；
@@ -311,19 +324,33 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
     if (toCam.lengthSq() < .01) toCam.set(0, 0, 1);
     const side = new THREE.Vector3(-toCam.z, 0, toCam.x);
     const at = (c, sd, y) => p.clone().addScaledVector(toCam, c).addScaledVector(side, sd).setY(y);
+    // 离开的轨迹：不再是"垂直上去、急转半圈、垂直下去"的 U 形（转弯半径比身体还细，顶上会拧成一个折角），
+    // 而是：头先缓缓向一侧弓出去，再绕着井的中轴一圈一圈盘旋着往下游，最后才竖直沉下去。
+    // 全程用柱坐标（相对池心 O：半径 r，角度 φ，高度 y）写控制点，Catmull-Rom 过一遍就是一条圆滑的曲线
+    const O = new THREE.Vector3(0, 0, 0);
+    const cyl = (r, deg, y) => O.clone().addScaledVector(toCam, r * Math.cos(deg * Math.PI / 180)).addScaledVector(side, r * Math.sin(deg * Math.PI / 180)).setY(y);
+    const RH = 1.3;   // 盘旋的半径（身体直径 0.6 米，龙头宽 1.3 米，离开中轴上那一股身体要有 1 米的间距）
     const pts = [
-      at(-.5, 0, -4.8),
-      at(-.47, 0, -2.75),             // 潜伏：贴着池底，只看得到眼睛
-      at(-.45, 0, SINK_Y - .95),      // 停在这里：头骨中心在许愿签正下方略靠后，吻端朝上、刚好到签底下
-      at(-.2, .6, SINK_Y - .5),       // 转身：头向一侧低下去
-      at(-.75, .9, -2.0),
-      at(-1.55, .25, -2.9),
-      at(-1.3, -.6, -4.1),
+      at(-.5, 0, -12),
+      at(-.55, -.5, -9.2),            // 从井底游上来的时候是一道缓缓的 S 形，不是一根笔直的棍子
+      at(-.5, .55, -6.6),
+      at(-.47, -.35, -4.2),           // 游上来的起点参考位置（用来算起始距离）
+      at(-.45, 0, STOP_Y),            // 停在这里：头骨中心在许愿签正下方略靠后，吻端朝上、刚好到签底下
+      cyl(.40, 20, STOP_Y + .5),      // 头慢慢向一侧弓出去（半径一点点放大，弯得很缓）
+      cyl(.68, 48, STOP_Y + .8),      // 弓顶（最高点）：只比停住的位置高 0.8 米，之后马上往下扎
+      cyl(1.05, 92, STOP_Y + .3),
+      cyl(RH, 138, -2.9),             // 往下盘旋：每一段都斜着往下 50～60 度，身体是一条斜线，不是平躺在水面下面
+      cyl(RH, 188, -4.7),
+      cyl(RH, 233, -6.8),
+      cyl(RH, 272, -9.0),
+      cyl(RH, 300, -11.2),            // 最后几米拉直，竖直沉下去（路径之外沿切线延长，必须是竖直的）
+      cyl(RH, 304, -13.4),
     ];
+    crest.copy(pts[6]);
     // 池子是个碗：越往边上池底越浅。中间几个点要留在池底上面，只有起点、终点可以在池底以下（像从深不见底的地方浮上来）
     pts.forEach((q, i) => {
-      const r = Math.hypot(q.x, q.z); if (r > 1.7) { q.x *= 1.7 / r; q.z *= 1.7 / r; }
-      if (i > 0 && i < pts.length - 1) q.y = Math.max(q.y, floorH(q.x, q.z) + (i === 1 ? .12 : .5));
+      const r = Math.hypot(q.x, q.z); if (r > 1.8) { q.x *= 1.8 / r; q.z *= 1.8 / r; }
+      if (i === 3) q.y = Math.max(q.y, floorH(q.x, q.z) + .12);
     });
     path = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
     pathLen = path.getLength();
@@ -333,7 +360,7 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
       for (let i = 0; i <= 400; i++) { path.getPointAt(i / 400, q); const dd = q.distanceToSquared(target); if (dd < best) { best = dd; at = i / 400 * pathLen; } }
       return at;
     };
-    takeD = arcOf(pts[2]); lurkD = arcOf(pts[1]);
+    takeD = arcOf(pts[4]); lurkD = arcOf(pts[3]);
   }
 
   // 头走到路径上的 d（米）处时，s 处那一节在路径上的位置；路径两端之外沿切线延长
@@ -351,20 +378,22 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
     return out.copy(up).lerp(awayRef, smooth((Math.abs(tn.y) - .55) / .35)).normalize();
   }
   const ref = new THREE.Vector3();
+  let waveAmp = 1;
   function updateDragon(head, time) {
     for (let i = 0; i < RINGS; i++) {
       const s = i / (RINGS - 1);
       along(head - s * LEN);
       // 左右摆动：一道从头传到尾的波（尾巴摆得更大）
       N.crossVectors(frameRef(Tn, ref), Tn).normalize();
-      const wave = Math.sin(s * 11 - time * 3.2) * (.05 + .2 * s * s);
+      const wave = Math.sin(s * 15 - time * 3.2) * (.05 + .2 * s * s) * waveAmp;
       P.addScaledVector(N, wave);
       B.crossVectors(Tn, N).normalize();
+      P.addScaledVector(B, Math.sin(s * 11 - time * 2.5 + 1.3) * (.04 + .16 * s) * waveAmp - NECK_DROP * (1 - smooth(s / .2)));   // 上下方向也有一道波：身体各节离水面的深度不一样，不会整条平躺着
       const r = bodyRadius(s) * BS;
       for (let j = 0; j <= SEGS; j++) {
         const th = ringAngle(j), cy = Math.cos(th), sx = Math.sin(th);
         // 背上的鳍：朝上的一侧一排锯齿（头和尾巴上没有）
-        const fin = Math.pow(Math.max(cy, 0), 10) * (.5 + .5 * Math.sin(s * 160)) * .9 * smooth((s - .1) / .06) * (1 - smooth((s - .8) / .15));
+        const fin = Math.pow(Math.max(cy, 0), 10) * (.5 + .5 * Math.sin(s * 160)) * .9 * smooth((s - .12) / .1) * (1 - smooth((s - .8) / .15));
         const rr = r * (1 + fin), k = (i * VPR + j) * 3;
         // 截面略扁（腹部平一点）
         const vy = cy * rr * (cy < 0 ? .8 : 1), vx = sx * rr;
@@ -383,64 +412,185 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
     }
   }
 
+  const hFs = new THREE.Vector3();   // 头的朝向（带惯性：转向时慢半拍跟上路径，不是一下子对准）
+  let hFinit = false, dtNow = 1 / 60;
   const hF = new THREE.Vector3(), hN = new THREE.Vector3(), hB = new THREE.Vector3(), hP = new THREE.Vector3(), toPaper = new THREE.Vector3();
   function updateHead(d, time, look, paperPos) {
     along(d);
     hF.copy(Tn);
     N.crossVectors(frameRef(Tn, ref), Tn).normalize();
     hP.copy(P).addScaledVector(N, Math.sin(-time * 3.2) * .05);   // 和身体第一节一样的左右摆
+    hP.addScaledVector(B.crossVectors(Tn, N).normalize(), Math.sin(-time * 2.5 + 1.3) * .04 * waveAmp);   // 上下的波也一样
     if (look > 0) { toPaper.subVectors(paperPos, hP).normalize(); hF.lerp(toPaper, look * .75).normalize(); }   // 停下来时抬头看着许愿签
-    hN.crossVectors(frameRef(hF, ref), hF).normalize(); hB.crossVectors(hF, hN);
-    head.matrix.makeBasis(hN, hB, hF).scale(new THREE.Vector3(HS, HS, HS)).setPosition(hP);
+    if (!hFinit) { hFs.copy(hF); hFinit = true; } else hFs.lerp(hF, 1 - Math.exp(-dtNow * 7)).normalize();
+    hN.crossVectors(frameRef(hFs, ref), hFs).normalize(); hB.crossVectors(hFs, hN);
+    head.matrix.makeBasis(hN, hB, hFs).scale(new THREE.Vector3(HS, HS, HS)).setPosition(hP);
     head.matrixAutoUpdate = false; head.matrixWorldNeedsUpdate = true;
     updateWhiskers(time);
   }
 
+  // ---------- 许愿签落水之前：飘来 → 等着写字 → 写字 → 可以拖动 → 拖到水面上松手 ----------
+  // mode：idle（没有签）| summon（随风飘来）| await（悬在空中，等输入）| writing（字一个个写上去）
+  //       ready（写好了，可以拖）| drag（正被拖着）| back（松手的地方不在水面上，飘回原处）| away（不写了，被风吹走）| ritual（落水之后）
+  let mode = 'idle', mt = 0, cam = null, pendingText = null, focus = 0;   // focus：0～1，背景虚化的程度
+  const hoverPos = new THREE.Vector3(), fromPos = new THREE.Vector3(), dragTarget = new THREE.Vector3(), lastPos = new THREE.Vector3();
+  const cR = new THREE.Vector3(), cU = new THREE.Vector3(), cF = new THREE.Vector3(), tmpV = new THREE.Vector3();
+  const dropPt = new THREE.Vector3(), throwFrom = new THREE.Vector3();
+  const SUMMON_T = 2.6, WRITE_DT = .22;
+  const camBasis = () => { cR.set(1, 0, 0).applyQuaternion(cam.quaternion); cU.set(0, 1, 0).applyQuaternion(cam.quaternion); cF.set(0, 0, -1).applyQuaternion(cam.quaternion); };
+  // 让签正对着镜头（plane 的正面朝 +z），再叠一点飘动的倾斜
+  function faceCamera(rx = 0, rz = 0) {
+    group.lookAt(cam.position);
+    if (rx) group.rotateX(rx);
+    if (rz) group.rotateZ(rz);
+  }
+  // 落水之前，签在第 1 层：主画面（会被虚化）里没有它，虚化之后再单独画在最上面，所以它一直是清楚的
+  const setOverlay = on => group.traverse(o => o.layers.set(on ? 1 : 0));
+  function preUpdate(dt) {
+    mt += dt;
+    // 背景虚化：签停稳之后四周先虚化，等着写字；写好之后虚化退去，好看清池子把签拖过去
+    const want = (mode === 'await' || mode === 'writing') ? 1 : 0;
+    focus += (want - focus) * (1 - Math.exp(-dt * (want ? 3 : 4)));
+    camBasis();
+    const bob = tmpV.copy(hoverPos).addScaledVector(cU, Math.sin(mt * 1.3) * .04).addScaledVector(cR, Math.sin(mt * .9) * .03);
+    if (mode === 'summon') {
+      // 从左边随风飘进来：一条弧线，越来越慢；一路翻飞，快到时才转正对着镜头
+      const u = clamp(mt / SUMMON_T), e = easeOut(u);
+      const ctrl = tmpV.copy(fromPos).lerp(hoverPos, .5).addScaledVector(cU, .9);
+      const a = fromPos.clone().lerp(ctrl, e), b2 = ctrl.clone().lerp(hoverPos, e);
+      group.position.copy(a.lerp(b2, e))
+        .addScaledVector(cU, Math.sin(mt * 6.5) * .1 * (1 - e)).addScaledVector(cR, Math.sin(mt * 3.7) * .12 * (1 - e));
+      faceCamera(Math.sin(mt * 5.3) * 1.1 * (1 - e), Math.sin(mt * 4.1 + 1) * .9 * (1 - e));   // 翻飞随着靠近慢慢停下，到位时正好静止
+      if (u >= 1) { mode = pendingText ? 'writing' : 'await'; if (pendingText) { chars = pendingText; pendingText = null; writeProg = 0; } }
+    } else if (mode === 'await' || mode === 'writing' || mode === 'ready') {
+      group.position.copy(hoverPos); faceCamera();   // 停在画面中间，一动不动
+      if (mode === 'writing') {
+        writeProg = Math.min(chars.length, writeProg + dt / WRITE_DT); redrawPaper();
+        if (writeProg >= chars.length) mode = 'ready';
+      }
+    } else if (mode === 'drag') {
+      lastPos.copy(group.position);
+      group.position.lerp(dragTarget, 1 - Math.exp(-dt * 14));
+      const vx = group.position.clone().sub(lastPos).dot(cR) / Math.max(dt, 1e-3);
+      faceCamera(0, clamp(-vx * .12, -.5, .5));   // 拖得快时签往反方向斜一点，像被风带着
+    } else if (mode === 'back') {
+      group.position.lerp(hoverPos, 1 - Math.exp(-dt * 5)); faceCamera();
+      if (group.position.distanceTo(hoverPos) < .02) mode = 'ready';
+    } else if (mode === 'away') {
+      // 不写了：一阵风把签吹走（向右上方翻飞着飘出画面）
+      const u = clamp(mt / 1.6);
+      group.position.copy(fromPos).addScaledVector(cR, 5 * u * u).addScaledVector(cU, 1.6 * u);
+      faceCamera(mt * 4, mt * 3);
+      if (u >= 1) { mode = 'idle'; group.visible = false; setOverlay(false); }
+    }
+  }
+
   return {
-    get busy() { return t >= 0; },
+    get busy() { return mode !== 'idle'; },
+    get focus() { return focus; },
+    get overlay() { return mode !== 'idle' && mode !== 'ritual'; },
+    // 签停稳、四周虚化好了：这时才出现输入框
+    get inputReady() { return mode === 'await' && focus > .85; },
+    // 签已经在水里了、龙还没被唤来：点右边的石狐就唤龙
+    get canCall() { return mode === 'ritual' && !called && pt >= T.float; },
+    callDragon() { if (this.canCall) { called = true; return true; } return false; },
+    get mode() { return mode; },
+    // 点了石狐：一阵风送来一张空白的许愿签，悬停在画面里（screenX, screenY：悬停位置，-1～1 的屏幕坐标）
+    summon(camera, screenX = 0, screenY = .06) {
+      if (mode !== 'idle') return false;
+      cam = camera; camBasis();
+      const ray = new THREE.Raycaster(); ray.setFromCamera({ x: screenX, y: screenY }, cam);
+      hoverPos.copy(ray.ray.origin).addScaledVector(ray.ray.direction, 3);   // 离镜头 3 米：签在画面里够大，字看得清
+      fromPos.copy(hoverPos).addScaledVector(cR, -4.6).addScaledVector(cU, 1.1).addScaledVector(cF, .8);
+      paperBg = paperBackground(); chars = []; writeProg = 0; pendingText = null; redrawPaper();
+      paperMat.color.setRGB(1, 1, 1); backMat.color.setRGB(.55, .1, .08); paperMat.emissiveIntensity = .35;   // 落水前：逆光时纸是暗的，让纸面和金字带一点亮度，看得清写了什么（落水后由深度染色接管）
+      group.visible = true; group.scale.setScalar(1); group.position.copy(fromPos);
+      setOverlay(true); focus = 0;
+      mode = 'summon'; mt = 0;
+      return true;
+    },
+    // 写好了：字一个一个写到签上（签还在飞来的路上就先记下，到了再写）
+    write(text) {
+      const cs = [...text.trim()].slice(0, 30);
+      if (!cs.length) return;
+      if (mode === 'summon') pendingText = cs;
+      else if (mode === 'await') { chars = cs; writeProg = 0; mode = 'writing'; }
+    },
+    dismiss() { if (mode === 'summon' || mode === 'await') { fromPos.copy(group.position); mode = 'away'; mt = 0; } },
+    // 点到的是不是许愿签
+    hitPaper(raycaster) {   // 签悬在空中时在第 1 层，射线也要看第 1 层
+      if (!group.visible) return false;
+      raycaster.layers.enable(1); const hit = raycaster.intersectObjects([paper, back], false).length > 0; raycaster.layers.disable(1);
+      return hit;
+    },
+    get draggable() { return mode === 'ready'; },
+    get waiting() { return mode === 'await'; },
+    dragStart() { if (mode === 'ready' || mode === 'back') { mode = 'drag'; dragTarget.copy(group.position); return true; } return false; },
+    // 拖动：签沿着鼠标 / 手指的视线，保持在离镜头和悬停时差不多远的地方
+    dragTo(ray) {
+      if (mode !== 'drag') return;
+      const dist = hoverPos.distanceTo(cam.position);
+      dragTarget.copy(ray.origin).addScaledVector(ray.direction, dist);
+    },
+    // 松手：落点在水面上（池子里）→ 投进池中，开始仪式；否则飘回原处
+    release(waterPoint, where, opts = {}) {
+      if (mode !== 'drag') return false;
+      if (!waterPoint) { mode = 'back'; return false; }
+      this.start(chars.join(''), where, { ...opts, from: group.position.clone(), drop: waterPoint, keepPaper: true });
+      return true;
+    },
     get glow() { return glow; },
     get dread() { return dread; },   // 0～1：四周安静、变暗的程度（main.js 用它压暗光线、停风、调低饱和度、放大轰鸣）
     // where：落点（水面上的 x, z）；opts.facing：许愿签正面朝向（朝着镜头）
     start(text, where, opts = {}) {
       if (opts.facing !== undefined) phase0 = opts.facing;
-      paperMat.map?.dispose();
-      paperMat.map = paperTexture(text); paperMat.emissiveMap = paperMat.map; paperMat.needsUpdate = true;
+      if (!opts.keepPaper) { paperBg = paperBackground(); chars = [...text.trim()].slice(0, 30); writeProg = chars.length; redrawPaper(); }
       land.set(where.x, 0, where.z);
-      for (const m of dMats) m.emissive.set(0x1f8a74);   // 轮廓上的青光
+      // 签从哪里落下、落在水面哪里（直接调用 start 时：从落点正上方 1.3 米落下）
+      dropPt.copy(opts.drop ?? land).setY(0);
+      throwFrom.copy(opts.from ?? dropPt.clone().setY(1.3));
+      mode = 'ritual'; setOverlay(false); focus = 0;
       // 贴图本身已经是墨青色：只略微提亮（水会吃掉一大半光）；没贴图的部分用纯墨青色
-      for (const m of [dBackMat, bellyMat, headMat]) m.map ? m.color.setRGB(1.7, 1.9, 1.85) : m.color.set(0x173f38);
+      for (const m of [dBackMat, bellyMat, headMat]) m.map ? m.color.setRGB(3.6, 3.9, 3.7) : m.color.set(0x173f38);   // 贴图很暗（平均亮度只有 0.01～0.025），乘上去才看得出鳞片
+      bellyMat.roughness = 1.8; bellyMat.metalness = 0;   // 腹部做成哑光：它朝上、被阳光照到，粗糙度贴图偏低时会泛出一层丝绸一样的白色反光
+      if (bellyMat.map) bellyMat.color.setRGB(.95, 1.3, 1.5);   // 腹部贴图本身比背鳞亮一倍多（平均亮度 0.025 对 0.013），而且偏黄褐：压暗并偏向墨青，和背部协调
       plainMat.color.set(0x173f38);
       buildPath();
-      t = 0; took = false; rippled = false; fired.clear(); phase = phase0 + (Math.random() - .5) * .5;
+      t = 0; pt = 0; called = !!opts.callNow; took = false; rippled = false; fired.clear(); hFinit = false; phase = phase0 + (Math.random() - .5) * .5;
       group.visible = true; group.scale.setScalar(1);
       dragon.visible = false; head.visible = false; motes.visible = false;
     },
     update(dt, env = {}) {
+      if (mode !== 'idle' && mode !== 'ritual') { preUpdate(dt); return; }
       if (t < 0) return;
       const day = env.day ?? 1;
-      t += dt;
-      const sway = Math.sin(t * 1.3 + phase), sway2 = Math.sin(t * .8 + phase * 2);
+      pt += dt; dtNow = dt;
+      t += dt; if (!called) t = Math.min(t, T.dread - .01);   // 还没唤龙：时间停在压迫感开始之前（四周不暗、龙不来）
+      const sway = Math.sin(pt * 1.3 + phase), sway2 = Math.sin(pt * .8 + phase * 2);
 
       // ---- 许愿签 ----
-      if (t < T.fall) {                      // 从空中落下，翻转着
-        const u = t / T.fall;
-        group.position.set(land.x - .25 * (1 - u), lerp(1.3, 0, u * u), land.z + .15 * (1 - u));
+      if (pt < T.fall) {                     // 从空中落下，翻转着
+        // 从松手的地方落向水面：水平方向先快后慢，高度越落越快；一路翻飞
+        const u = pt / T.fall;
+        group.position.set(lerp(throwFrom.x, dropPt.x, easeOut(u)), lerp(throwFrom.y, 0, u * u), lerp(throwFrom.z, dropPt.z, easeOut(u)));
         group.rotation.set(lerp(-1.2, -.3, u) + Math.sin(u * 9) * .25, phase, Math.sin(u * 7) * .3);
-      } else if (t < T.float) {              // 落水：溅起涟漪，在水面附近晃一下
+      } else if (pt < T.float) {             // 落水：溅起涟漪，在水面附近晃一下
         if (!group.userData.splashed) {
           group.userData.splashed = true;
           sound.splash?.();
-          ripples.add(land.x, land.z, .2, .45);
-          for (let i = 0; i < 4; i++) ripples.add(land.x + (Math.random() - .5) * .3, land.z + (Math.random() - .5) * .3, .06, .15);
+          ripples.add(dropPt.x, dropPt.z, .2, .45);
+          for (let i = 0; i < 4; i++) ripples.add(dropPt.x + (Math.random() - .5) * .3, dropPt.z + (Math.random() - .5) * .3, .06, .15);
         }
-        const u = (t - T.fall) / (T.float - T.fall);
-        group.position.set(land.x, lerp(0, -.18, u), land.z);
+        const u = (pt - T.fall) / (T.float - T.fall);
+        group.position.set(dropPt.x, lerp(0, -.18, u), dropPt.z);
         group.rotation.set(lerp(-.3, -.9, Math.sin(u * Math.PI)), phase + u * .3, .2 * sway);
       } else if (!took || t < T.take + .35) { // 摇摆着下沉：铜钱在下面拽着，纸在上面飘
-        const u = easeOut((t - T.float) / (T.sunk - T.float));
+        const u = easeOut((pt - T.float) / (T.sunk - T.float));
         const depth = lerp(-.18, SINK_Y, u);
-        group.position.set(land.x + sway * .07 * u, depth, land.z + sway2 * .05 * u);
-        group.rotation.set(.18 * sway2, phase + .3 + t * .05, .22 * sway);
+        // 一边下沉，一边慢慢被井的中间"吸"过去（落在池边也一样会漂到龙要来的地方）
+        const k = smooth((pt - T.float) / (T.sunk - T.float - 1));
+        group.position.set(lerp(dropPt.x, land.x, k) + sway * .07 * u, depth, lerp(dropPt.z, land.z, k) + sway2 * .05 * u);
+        group.rotation.set(.18 * sway2, phase + .3 + pt * .05, .22 * sway);
       }
 
       // 入水后：越深越暗、越偏青；字迹微微发光
@@ -450,7 +600,7 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
       paperMat.emissiveIntensity = smooth(dep * 2) * .12;
 
       // ---- 压迫感：许愿签沉下去之后，四周慢慢安静、变暗；龙走后慢慢恢复 ----
-      dread = smooth((t - T.dread) / 3) * (1 - smooth((t - T.leave - 1.5) / 3.5));
+      dread = smooth((t - T.dread) / 3) * (1 - smooth((t - T.leave - 6) / 4));
       // ---- 深处的光：等待时慢慢变亮，龙走后慢慢暗下去（比之前弱：不要让人觉得亲切） ----
       glow = smooth((t - T.glowIn) / 4) * (1 - smooth((t - T.ripple) / 4.5)) * .6;
       coin.material.emissive.setRGB(.25, .2, .1).multiplyScalar(smooth((t - T.glowIn) / 3) * (1 - smooth((t - T.take) / .4)) * .6);
@@ -458,28 +608,35 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
       // ---- 龙 ----
       if (t >= T.dragon) {
         dragon.visible = head.visible = true;
-        // 头走过的路程：从最深处游到池底附近停下（只露眼睛）→ 缓缓浮上来，停在许愿签下方 → 转身后越游越快
+        // 头走过的路程：从最深处一路游上来，停在许愿签下方 → 转身后越游越快
         let d;
-        if (t < T.lurk) { const u = (t - T.dragon) / (T.lurk - T.dragon); d = lurkD - 3 * (1 - u) * (1 - u); }
-        else if (t < T.rise) d = lurkD + .05 * smooth((t - T.lurk) / (T.rise - T.lurk));
-        else if (t < T.arrive) d = lerp(lurkD + .05, takeD, smooth((t - T.rise) / (T.arrive - T.rise)));
-        else if (t < T.leave) d = takeD + .06 * smooth((t - T.arrive) / (T.leave - T.arrive));
-        else { const x = t - T.leave; d = takeD + .06 + (x < 1.5 ? .55 * x * x : .55 * 2.25 + 1.65 * (x - 1.5)); }
+        const d0 = lurkD - 3, vA = .3 * (takeD - d0) / (T.arrive - T.dragon);   // 到许愿签下面时还剩一点速度（0.3 米/秒左右），接着自然地转进离开的动作，没有"刹停"
+        if (t < T.arrive) { const u = (t - T.dragon) / (T.arrive - T.dragon); d = lerp(d0, takeD, .7 * (1 - (1 - u) * (1 - u)) + .3 * u); }   // 一路游上来，越接近许愿签越慢，没有停顿
+        else if (t < T.leave) d = takeD + vA * (t - T.arrive);
+        else { const x = t - T.leave; d = takeD + vA * (T.leave - T.arrive + x) + EXIT_V * (x + EXIT_TAU * (Math.exp(-x / EXIT_TAU) - 1)); }   // 速度从 0 慢慢加到 EXIT_V：先是缓缓弓身，然后越游越快
+        waveAmp = lerp(1, 2.1, smooth((t - T.leave) / 2.5));   // 转身游走时身体扭得更厉害
         updateDragon(d, t);
         const look = smooth((t - T.arrive + .9) / .9) * (1 - smooth((t - T.leave) / .7));
         updateHead(d, t, look, group.position);
-        if (d - LEN > pathLen + .5) dragon.visible = head.visible = false;
+        if (d - LEN > pathLen - 3.5) dragon.visible = head.visible = false;
+        if (hP.y < -10.8) head.visible = false;   // 龙头沉到井底最深的黑暗里就不画了（再往下会插进井底的地面）   // 尾巴进了最后几米（已经在井底的黑暗里）就不用再画了
         // 轮廓上的青光：主视角隔着水面反光也认得出轮廓；夜里水面暗，光要弱得多
-        const ei = (.8 + .25 * Math.sin(t * 1.4)) * lerp(.35, 1, day) * smooth((t - T.rise + .8) / 2);
-        for (const m of dMats) m.emissiveIntensity = ei;
         // 眼睛：潜伏时在黑暗里慢慢睁开（先是一条缝），转身后慢慢暗下去
-        const open = smooth((t - T.lurk) / 1.1);
+        const open = smooth((t - T.dragon - 1.2) / 1.4);
         for (const e of eyes) { const k = e.userData.size ?? 1; e.scale.set(k, k * lerp(.08, 1, open), k); }
-        eyeMat.emissiveIntensity = smooth((t - T.lurk + .3) / .9) * (1 - smooth((t - T.leave - 1.2) / 1.2)) * lerp(1.6, 3.5, day) * (sculpt ? .6 : 1);
-        // 张嘴：衔走许愿签前慢慢张开，衔住后猛地合上
-        const gape = smooth((t - T.take + .9) / .6) * (1 - smooth((t - T.take - .1) / .2));
+        // 眼睛只在潜伏、还在最深的黑暗里的时候有一点微光（否则一点都看不到它）；浮上来之后就只是一对被照亮的眼睛，不发光
+        eyeMat.emissiveIntensity = smooth((t - T.dragon - .8) / .9) * (1 - smooth((t - T.dragon - 3.4) / 1.6)) * lerp(.5, 1., day) * (sculpt ? .6 : 1);
+        // 张嘴：基础姿势是合上的；龙头往前探的同一瞬间张开，衔住后猛地合上
+        const gape = smooth((t - T.take + .3) / .22) * (1 - smooth((t - T.take - .02) / .16));   // 嘴一直是合着的，只在咬之前一瞬间张开，咬住后立刻合上
         jaw.rotation.x = gape * .6;
         if (sculpt) sculpt.morphTargetInfluences[0] = gape;
+        // 光照：一盏从斜上方照下来的方向光，整条龙受光一样；越往深处越暗全靠 deepFade，所以它是从黑暗里浮出来、又沉回黑暗里的
+        const lampK = smooth((t - T.dragon) / 1.5) * (1 - smooth((t - T.end + 3) / 2));
+        shared.uLampDir.value.set(toCam.x * .5, 1, toCam.z * .5).normalize();
+        shared.uLampCol.value.setRGB(.95, 1.05, 1.05).multiplyScalar(lampK);
+        // 转身时：头翻过弓顶的时候水面被搅动一下，身体拖过的时候再搅一下
+        if (t >= T.leave + 1.6) once('crest', () => { ripples.add(crest.x, crest.z, .6, .3); sound.leave?.(); });
+        if (t >= T.leave + 4.2) once('crest2', () => ripples.add(crest.x * .7, crest.z * .7, .8, .16));
         if (t >= T.arrive) once('thump', sound.thump);
         if (t >= T.take + .2) once('bite', sound.bite);
       }
@@ -487,7 +644,7 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
         took = true;
         const mp = motes.geometry.attributes.position;
         for (let i = 0; i < 3; i++) mp.setXYZ(i, group.position.x + (Math.random() - .5) * .25, group.position.y + Math.random() * .3, group.position.z + (Math.random() - .5) * .25);
-        mp.needsUpdate = true; motes.visible = true;
+        mp.needsUpdate = true;   // 微光粒子不再显示：它们会停在龙头前面，看起来像龙头在发光
       }
       if (took) {   // 许愿签缩进龙的嘴里
         const u = clamp((t - T.take) / .35);
@@ -509,7 +666,7 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
       // 水面一圈很大、很慢的涟漪
       if (!rippled && t >= T.ripple) { rippled = true; ripples.add(land.x * .5, land.z * .5, .9, .22); }
 
-      if (t >= T.end) { t = -1; dread = 0; group.visible = false; dragon.visible = false; head.visible = false; motes.visible = false; glow = 0; group.userData.splashed = false; }
+      if (t >= T.end) { t = -1; mode = 'idle'; dread = 0; shared.uLampCol.value.setRGB(0, 0, 0); group.visible = false; dragon.visible = false; head.visible = false; motes.visible = false; glow = 0; group.userData.splashed = false; }
     },
   };
 }
