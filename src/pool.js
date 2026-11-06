@@ -285,17 +285,9 @@ export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) 
     if (y < -.02) {
       c = [1, 1, 1].map(v => v * lerp(.85, 1.1, n));
       c = mixA(c, [.62, .64, .6], sstep(-.4, -1.2, y) * .6);    // 深处有沉积物，偏暗
-    } else if (y < .12) {
-      c = [.7, .66, .6];                                         // 湿岸
     } else {
-      // 大块的深浅变化：苔藓绿地、湿润的深色土、干一些的浅色土交错，不再大片平铺
-      const big = fbm3(x * .35, 9, z * .35, 3), wetP = fbm3(x * .6, 4, z * .6, 3);
-      c = mixA([.9, .84, .78], [.62, .85, .45], sstep(.38, .6, n * .6 + big * .6));   // 苔绿
-      c = mixA(c, [.62, .58, .55], sstep(.55, .7, wetP) * .7);                        // 湿土偏暗
-      c = mixA(c, [.58, .78, .42], sstep(1.15, 1.0, k) * .6);                         // 石头脚下更绿
-      c = c.map(v => v * lerp(.82, 1.08, n2));
-      // 草坪的颜色由着色器画，这里只留轻微的明暗起伏
-      c = mixA(c, [1, 1, 1].map(v => v * lerp(.9, 1.06, n2)), grassMask(x, z, y));
+      // 岸上的颜色全交给着色器里的贴图层；顶点色只留一点点明暗起伏
+      c = [1, 1, 1].map(v => v * lerp(.9, 1.06, n2));
     }
     gc[i * 3] = c[0]; gc[i * 3 + 1] = c[1]; gc[i * 3 + 2] = c[2];
     // 第三个分量：干燥度——土包顶上草发黄变稀，洼地里更绿更密
@@ -306,7 +298,7 @@ export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) 
   gGeo.setAttribute('aLawn', new THREE.BufferAttribute(gl, 3));
   gGeo.computeVertexNormals();
   const ground = new THREE.Mesh(gGeo, patch(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, envMapIntensity: .6 }),
-    { tex: { mode: 'ground', sets: [tex.pebbles, tex.ground], scale: [.75, .4] } }));
+    { tex: { mode: 'ground', sets: [tex.pebbles], ground: tex.ground, scale: [.75, .4] } }));
   ground.receiveShadow = true;
   scene.add(ground);
 

@@ -55,6 +55,25 @@ vec3 triNormal(sampler2D t, vec3 p, vec3 n, vec3 b, float s){
 }
 `;
 
+// 地面贴图：tex.ground 里每套的缩放 / 平均色 / 粗糙度 / 亮度直接写进 GLSL 常量
+const GROUND_KEYS = ['grass', 'soil', 'sand', 'moss', 'litter'];
+const GROUND_BRIGHT = { grass: 1, soil: 1.5, sand: 1.25, moss: 1, litter: 1.1 };
+const f3 = v => v.toFixed(4);
+function groundGLSL(g) {
+  return GROUND_KEYS.map(k => `
+    uniform sampler2D tG_${k}D; uniform sampler2D tG_${k}N;
+    const float G_${k}_S = ${f3(g[k].scale)}; const float G_${k}_R = ${f3(g[k].rough)}; const float G_${k}_B = ${f3(GROUND_BRIGHT[k])};
+    const vec3 G_${k}_M = vec3(${g[k].mean.map(f3).join(', ')});`).join('') + `
+    // 防重复：第二次采样旋转约 37°、缩小、平移，再按大尺度噪声和第一次混合
+    const mat2 AT_R = mat2(.8, .6, -.6, .8), AT_RT = mat2(.8, -.6, .6, .8);
+    vec2 atUV(vec2 p){ return AT_R * p * .77 + vec2(.37, .71); }
+    vec3 atDiff(sampler2D t, vec2 p, float m){ return mix(texture2D(t, p).rgb, texture2D(t, atUV(p)).rgb, m); }
+    vec2 atNor(sampler2D t, vec2 p, float m){
+      vec2 a = texture2D(t, p).xy * 2. - 1., b = texture2D(t, atUV(p)).xy * 2. - 1.;
+      return mix(a, AT_RT * b, m);   // 旋转过的采样，法线也要转回来
+    }`;
+}
+
 // mode: 'rock'（岩石 + 苔藓按 aMoss 混合）| 'ground'（水下卵石 + 岸上林地按高度混合）| 'single'
 // grassH：随风摆动的植物高度（草叶 / 菖蒲 / 玉簪各不相同）
 // ground 模式额外有"草坪"：顶点属性 aLawn = (草坪覆盖度, 苔藓程度)，直接画进地面颜色，没有会闪烁的细小草茎
@@ -87,7 +106,7 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
   if (glowAttr) mat.defines = { ...(mat.defines || {}), GLOWATTR: '' };
   if (tex) {
     mat.defines = { ...(mat.defines || {}), TRI: '' };
-    if (mode !== 'single') mat.defines.TRI_TWO = '';
+    if (mode === 'rock') mat.defines.TRI_TWO = '';
     if (mode === 'rock') mat.defines.HAS_MOSS = '';
     if (mode === 'ground') { mat.defines.TRI_TOP = ''; mat.defines.LAWN = ''; }
   }
@@ -103,6 +122,10 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
         uContrast: { value: tex.contrast ?? 1 },
         uTint: { value: new THREE.Vector3(...(tex.tint || [1, 1, 1])) }, uCrack: { value: tex.crack ?? 0 },
       });
+      if (tex.ground) for (const k of GROUND_KEYS) {
+        sh.uniforms[`tG_${k}D`] = { value: tex.ground[k].diff };
+        sh.uniforms[`tG_${k}N`] = { value: tex.ground[k].nor };
+      }
     }
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
@@ -163,19 +186,9 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
         #endif
         ${NOISE_GLSL}
         #ifdef LAWN
-          // 草丛的"高度场"：一簇簇的草堆（约 15cm）+ 更细的草叶起伏，用来做明暗和凹凸
+          // 草丛的"高度场"：一簇簇的草堆（约 15cm），用来做明暗和凹凸
           float lawnTuft(vec2 p){ return vnoise(p * 6.5) * .6 + vnoise(p * 17. + 3.1) * .4; }
-          // 草叶纹理：沿一个缓慢转动的方向拉长的细噪声，看起来像倒伏的草叶
-          float lawnBlades(vec2 p){
-            float a = vnoise(p * .4 + 11.) * 6.283;
-            vec2 d = vec2(cos(a), sin(a));
-            vec2 q = vec2(dot(p, d), dot(p, vec2(-d.y, d.x)));
-            // 两层不同方向、不同粗细，避免整齐划一的条纹
-            float a2 = a + .9 + vnoise(p * 3.1) * 1.2;
-            vec2 d2 = vec2(cos(a2), sin(a2));
-            vec2 q2 = vec2(dot(p, d2), dot(p, vec2(-d2.y, d2.x)));
-            return vnoise(q * vec2(7., 34.)) * .55 + vnoise(q2 * vec2(12., 55.) + 5.) * .45;
-          }
+          ${tex && tex.ground ? groundGLSL(tex.ground) : ''}
         #endif
         ${underwater ? CAUSTIC_GLSL : ''}
         ${tex ? TRI_GLSL : ''}`)
@@ -221,44 +234,81 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
             alb *= 1. - clamp(crack, 0., 1.) * uCrack;
           }
           #ifdef LAWN
-            // 草地分四层：大块色调 → 干湿（土包干、洼地绿）→ 一簇簇草堆 → 草叶纹理；再有零星露土
+            // 岸上的地面分几层：湿泥土打底 → 零星成片的落叶 → 草地（石头边是苔藓）→ 水边一圈湿沙；水下是卵石
+            // 每层都是真实贴图；草和苔藓的颜色仍然跟着季节走（贴图除以它的平均色，只留明暗和细节，再乘季节色）
             vec2 lp = vWPos.xz;
-            // 屏幕上一个像素对应多大：细节小于像素时淡出，远处不闪
             float px = length(fwidth(lp));
-            float fineW = 1. - smoothstep(.004, .014, px);   // 草叶纹理
-            float tuftW = 1. - smoothstep(.03, .09, px);     // 草堆
+            float tuftW = 1. - smoothstep(.03, .09, px);     // 草堆明暗：小于像素时淡出
+            float atM = smoothstep(.3, .7, vnoise(lp * .45 + 17.));   // 防重复：两次采样的混合比例
+
+            vec3 grassC = atDiff(tG_grassD, lp * G_grass_S, atM);
+            vec3 soilC  = atDiff(tG_soilD,  lp * G_soil_S,  1. - atM);
+            vec3 sandC  = texture2D(tG_sandD,   lp * G_sand_S).rgb;
+            vec3 mossC  = texture2D(tG_mossD,   lp * G_moss_S).rgb;
+            vec3 litC   = texture2D(tG_litterD, lp * G_litter_S).rgb;
+            vec2 grassN = atNor(tG_grassN, lp * G_grass_S, atM);
+            vec2 soilN  = atNor(tG_soilN,  lp * G_soil_S,  1. - atM);
+            vec2 sandN  = texture2D(tG_sandN,   lp * G_sand_S).xy * 2. - 1.;
+            vec2 mossN  = texture2D(tG_mossN,   lp * G_moss_S).xy * 2. - 1.;
+            vec2 litN   = texture2D(tG_litterN, lp * G_litter_S).xy * 2. - 1.;
+
+            // 草地颜色：大块色调 → 干湿（土包干、洼地绿）→ 苔藓
             float ln = vnoise(lp * .35) * .55 + vnoise(lp * 1.6) * .3 + vnoise(lp * 5.) * .15;
             vec3 lawn = mix(uLawnA, uLawnB, smoothstep(.25, .75, ln));
-            // 干燥：发黄、偏灰；土包顶上多，再被中等尺度的噪声打散成一片片
             float dry = clamp(vLawn.z * .75 + (vnoise(lp * .9 + 21.) - .5) * .7, 0., 1.);
             dry = smoothstep(.45, .9, dry);
             vec3 straw = vec3(dot(uLawnB, vec3(.33))) * vec3(1.3, 1.12, .66);
             lawn = mix(lawn, straw, dry * .38);
             lawn = mix(lawn, uLawnA * .8, (1. - vLawn.z) * .25 * (1. - dry));   // 洼地更深更润
-            lawn = mix(lawn, uLawnMoss, vLawn.y);
-            // 一簇簇草堆：缝隙里背光发暗（像环境光遮蔽），草尖亮一点、偏黄一点
+            vec3 grassDetail = grassC / G_grass_M;                              // 平均为 1 的草地细节
+            float bl0 = clamp(dot(grassDetail, vec3(.3, .59, .11)) * .5, 0., 1.);
+            // 苔藓：边缘被噪声打散、和草混着长，颜色压暗一点，不是一块块鲜绿的补丁
+            float gMoss = vLawn.y * smoothstep(.2, .75, vLawn.y + (vnoise(lp * 3.3) - .5) * .7 + (bl0 - .5) * .4) * .8;
+            vec3 lawnAlb = mix(lawn * grassDetail, uLawnMoss * .8 * (mossC / G_moss_M), gMoss);
+            // 一簇簇草堆：缝隙稍暗，草尖略亮略黄（贴图已经有细节，这里只轻轻叠一层）
             float tuft = lawnTuft(lp);
             float tuftS = mix(.5, tuft, tuftW);
-            lawn *= mix(.62, 1.12, smoothstep(.15, .85, tuftS));
-            lawn = mix(lawn, lawn * vec3(1.08, 1.04, .82), smoothstep(.6, .9, tuftS) * .5);
-            // 草叶纹理：明暗相间的细条纹；远处退化成平均亮度
-            float bl = mix(.5, lawnBlades(lp), fineW);
-            lawn *= mix(.86, 1.1, bl);
-            // 大范围的明暗起伏
-            lawn *= .88 + .24 * vnoise(lp * .12 + 3.7);
-            // 露土：零星几小块草被踩秃的地方，边缘被草叶纹理打碎，不是圆滑的色块；土包上更容易露
+            lawnAlb *= mix(.78, 1.08, smoothstep(.15, .85, tuftS));
+            lawnAlb *= .88 + .24 * vnoise(lp * .12 + 3.7);                    // 大范围的明暗起伏
+
+            // 露土：边缘用草地贴图自己的明暗打碎（像草叶盖在土上），土包上更容易露
+            float bl = bl0;
             float bare = vnoise(lp * .55 + 40.) * .65 + vnoise(lp * 2.1 + 9.) * .35 + dry * .18;
-            bare = smoothstep(.68, .78, bare + (bl - .5) * .12 + (tuft - .5) * .1) * (1. - vLawn.y);
+            bare = smoothstep(.68, .78, bare + (bl - .5) * .25 + (tuft - .5) * .1) * (1. - vLawn.y);
             float cover = vLawn.x * (1. - bare * .9);
-            // 草地边缘也被草叶打碎，不是一条模糊的渐变
-            cover = clamp(cover + (bl - .5) * .5 * cover * (1. - cover) * 4., 0., 1.);
-            alb = mix(alb, lawn, cover);
-            triRough = mix(triRough, .95, cover);
-            // 法线：贴图凹凸压平（不再有一颗颗重复的小点），换成草堆高度场的柔和起伏
+            cover = clamp(cover + (bl - .5) * .9 * cover * (1. - cover) * 4., 0., 1.);
+            cover = max(cover, gMoss * .9 * step(.03, vWPos.y));   // 苔藓不受草地覆盖度限制
+
+            // 泥土和落叶：落叶一片片地盖在泥土上，石头脚下和草地边缘多一些
+            float litW = smoothstep(.55, .72, vnoise(lp * .7 + 31.) * .65 + vnoise(lp * 2.9 + 3.) * .35 + vLawn.y * .25);
+            vec3 soilAlb = mix(soilC * G_soil_B, litC * G_litter_B, litW);
+            vec2 soilNx = mix(soilN, litN, litW);
+            float soilR = mix(G_soil_R, G_litter_R, litW);
+
+            // 水边湿沙：水线往上一窄条，边缘被噪声打乱
+            // （只在池边：按 pool.js 的 Rb 算出到池中心的相对距离 k，远处低洼的地方不出沙）
+            float th = atan(lp.y, lp.x);
+            float poolK = length(lp) / (3.7 + .3 * sin(3. * th + .8) + .18 * sin(5. * th + 2.1) + .1 * sin(8. * th + .3));
+            float sandW = (1. - smoothstep(.06, .24, vWPos.y + (vnoise(lp * 1.7 + 5.) - .5) * .16))
+                        * (1. - smoothstep(1.12, 1.3, poolK + (vnoise(lp * 2.2) - .5) * .1));
+
+            vec3 landAlb = mix(soilAlb, lawnAlb, cover);
+            vec2 landN = mix(soilNx, mix(grassN, mossN, gMoss), cover);
+            float landR = mix(soilR, mix(G_grass_R, G_moss_R, gMoss), cover);
+            landAlb = mix(landAlb, sandC * G_sand_B, sandW);
+            landN = mix(landN, sandN, sandW);
+            landR = mix(landR, G_sand_R, sandW);
+
+            // 法线：贴图凹凸 + 草堆的柔和起伏
             vec2 e = vec2(.02, 0.);
             vec2 g = vec2(lawnTuft(lp + e.xy) - tuft, lawnTuft(lp + e.yx) - tuft) / e.x;
-            vec3 lawnN = normalize(gN - vec3(g.x, 0., g.y) * .035 * tuftW);
-            triN = normalize(mix(triN, lawnN, cover * .9));
+            landN = landN * .9 - g * .03 * tuftW * cover;
+            vec3 landNW = normalize(vec3(gN.x + landN.x, gN.y, gN.z + landN.y));
+
+            float land = smoothstep(-.04, .14, vWPos.y + (vnoise(lp * 2.3) - .5) * .12);
+            alb = mix(alb, landAlb, land);
+            triRough = mix(triRough, landR, land);
+            triN = normalize(mix(triN, landNW, land));
           #endif
           diffuseColor.rgb *= alb;
           // 青苔放在去色之后再上：石头顶上一片片鲜绿的苔
