@@ -94,6 +94,7 @@ const WATER_FS = /* glsl */`
 uniform sampler2D tRefl; uniform sampler2D tRefr; uniform sampler2D tRip;
 uniform vec2 uRes; uniform float uTime; uniform float uE; uniform float uWind; uniform float uRain; uniform float uTexel;
 uniform vec3 uSunDir; uniform vec3 uSunCol; uniform vec3 uMoonDir; uniform vec3 uMoonCol; uniform float uReflAmt; uniform vec3 uNightSheen;
+uniform float uIce;   // 冬天结冰的程度（0～1）：池边一圈薄冰，越冷越往池心长
 varying vec3 vW; varying vec4 vRefl;
 ${NOISE_GLSL}
 float Rb(float t){ return 3.7 + .3 * sin(3. * t + .8) + .18 * sin(5. * t + 2.1) + .1 * sin(8. * t + .3); }
@@ -115,6 +116,12 @@ void main(){
   wg *= .012 + .05 * uWind + .03 * uRain;
   vec3 n = normalize(vec3(-(wg.x + rg.x), 1., -(wg.y + rg.y)));
 
+  // 薄冰：从石头边往里长一圈，内缘不规则；冰面上没有波纹
+  float kk = length(vW.xz) / Rb(atan(vW.z, vW.x));
+  float iceIn = mix(.97, .62, uIce) + (vnoise(vW.xz * 1.3 + 5.) - .5) * .14 + (vnoise(vW.xz * 4.2) - .5) * .05;
+  float iceM = uIce > 0. ? smoothstep(iceIn, iceIn + .015, kk) : 0.;
+  n = normalize(mix(n, vec3(0., 1., 0.), iceM * .9));
+
   vec3 V = normalize(cameraPosition - vW);
   float cosT = clamp(dot(n, V), 0., 1.);
   // 接近真实的菲涅尔：从上往下看只反射几个百分点，越往远处（视线越斜）倒影越明显
@@ -127,12 +134,26 @@ void main(){
   vec3 col = mix(refr, refl, F * uReflAmt);
 
   // 石头和水的交界处：一圈柔和的接触阴影（石头挡住了天光，也压在水面上）
-  float kk = length(vW.xz) / Rb(atan(vW.z, vW.x));
   col *= mix(1., .62, smoothstep(.84, .98, kk));
   col += uNightSheen * (.4 + .6 * F) * (.85 + .3 * n.x);   // 夜里水面淡淡的月色反光，随波纹微微起伏
 
+  if (iceM > 0.) {
+    // 冰的颜色：半透明的灰白，透出一点水下；亮度跟着天光走（夜里不会发白）。靠近内缘的冰更薄更透
+    float amb = dot(refl, vec3(.3, .59, .11)) + dot(uNightSheen, vec3(.33)) * .5;
+    float thick = smoothstep(0., .12, kk - iceIn);
+    vec3 iceCol = mix(refr * .6, vec3(.72, .8, .86) * (amb * 1.8 + .02), .55 + .35 * thick);
+    // 冰里的裂纹和气泡：细线和小白点
+    float c1 = abs(vnoise(vW.xz * 3.1) - .5), c2 = abs(vnoise(vW.xz * 5.7 + 9.) - .5);
+    float crack = (1. - smoothstep(.0, .018, c1)) * .7 + (1. - smoothstep(.0, .012, c2)) * .4;
+    iceCol *= 1. + crack * .5;
+    iceCol += vec3(.8, .85, .9) * (amb + .02) * step(.985, hash12(floor(vW.xz * 60.))) * .4 * thick;
+    // 内缘一条白一点的冰边
+    iceCol += vec3(.7, .76, .82) * (amb + .02) * (1. - smoothstep(0., .025, kk - iceIn)) * .9;
+    col = mix(col, iceCol, iceM);
+  }
+
   vec3 Hs = normalize(uSunDir + V); float sh = max(dot(n, Hs), 0.);
-  col += uSunCol * (pow(sh, 900.) * 9. + pow(sh, 90.) * .1) * step(0., uSunDir.y);
+  col += uSunCol * (pow(sh, 900.) * 9. + pow(sh, 90.) * .1) * step(0., uSunDir.y) * (1. - iceM * .85);
   vec3 Hm = normalize(uMoonDir + V);
   col += uMoonCol * pow(max(dot(n, Hm), 0.), 700.) * 8. * step(0., uMoonDir.y);
 
@@ -148,7 +169,7 @@ export function createWater(ripples, extent = 5) {
     uTexMat: { value: new THREE.Matrix4() }, uRes: { value: new THREE.Vector2(1, 1) },
     uTime: { value: 0 }, uE: { value: extent }, uWind: { value: .3 }, uRain: { value: 0 }, uTexel: { value: 1 / 256 },
     uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uSunCol: { value: new THREE.Color() },
-    uMoonDir: { value: new THREE.Vector3(0, 1, 0) }, uMoonCol: { value: new THREE.Color() }, uReflAmt: { value: 1 }, uNightSheen: { value: new THREE.Color() },
+    uMoonDir: { value: new THREE.Vector3(0, 1, 0) }, uMoonCol: { value: new THREE.Color() }, uReflAmt: { value: 1 }, uNightSheen: { value: new THREE.Color() }, uIce: { value: 0 },
   }]);
   const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: WATER_VS, fragmentShader: WATER_FS, fog: true });
   const geo = new THREE.PlaneGeometry(2 * extent, 2 * extent); geo.rotateX(-Math.PI / 2);

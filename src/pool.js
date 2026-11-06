@@ -104,24 +104,26 @@ function makeRockGeo(seed, detail) {
   return g;
 }
 
+// 四季的思路：底色常青（草、苔、蕨四季都是绿的，秋天略暖、冬天略暗略冷），季节感交给点缀
+// （春天花瓣、秋天红枫叶和发黄的玉簪、冬天积雪），任何季节打开都是生机勃勃的
 const SEASON_GRASS = {
-  spring: [.38, .6, .2], summer: [.3, .54, .16], autumn: [.38, .52, .18], winter: [.46, .44, .3],
+  spring: [.38, .6, .2], summer: [.3, .54, .16], autumn: [.34, .52, .17], winter: [.27, .43, .2],
 };
 const SEASON_FERN = {
-  spring: [.32, .56, .17], summer: [.24, .48, .14], autumn: [.3, .46, .15], winter: [.34, .32, .18],
+  spring: [.32, .56, .17], summer: [.24, .48, .14], autumn: [.27, .47, .14], winter: [.22, .39, .16],
 };
 // 草坪：a 深一些的绿、b 浅一些的绿（两者按大小色块交错），moss 石头脚下的苔藓色
 const SEASON_LAWN = {
   spring: { a: [.3, .46, .15], b: [.45, .6, .22], moss: [.26, .4, .12] },
   summer: { a: [.22, .38, .1], b: [.35, .52, .16], moss: [.2, .34, .1] },
-  autumn: { a: [.3, .38, .13], b: [.46, .5, .2], moss: [.28, .44, .13] },
-  winter: { a: [.36, .34, .2], b: [.48, .44, .28], moss: [.26, .3, .15] },
+  autumn: { a: [.25, .38, .11], b: [.38, .51, .17], moss: [.22, .37, .1] },
+  winter: { a: [.2, .32, .13], b: [.31, .43, .19], moss: [.18, .31, .11] },
 };
 const SEASON_IRIS = {
-  spring: [.34, .56, .2], summer: [.26, .5, .15], autumn: [.36, .5, .18], winter: [.44, .4, .26],
+  spring: [.34, .56, .2], summer: [.26, .5, .15], autumn: [.3, .5, .16], winter: [.25, .41, .18],
 };
-const SEASON_HOSTA = {   // null = 冬天地上部分枯掉
-  spring: [.38, .6, .24], summer: [.22, .44, .16], autumn: [.62, .55, .22], winter: null,
+const SEASON_HOSTA = {   // 秋天发黄是点缀；冬天保留成深绿，石头脚下不会突然空出一块（null = 地上部分枯掉，现在不用）
+  spring: [.38, .6, .24], summer: [.22, .44, .16], autumn: [.56, .54, .2], winter: [.2, .35, .15],
 };
 const SEASON_FLOWERS = {
   // 只有零星几簇白色小花
@@ -131,7 +133,7 @@ const SEASON_FLOWERS = {
   winter: { n: 0, colors: [[1, 1, 1]] },
 };
 const SEASON_WEED = {   // 石脚下的阔叶小草：鲜绿
-  spring: [.42, .68, .22], summer: [.33, .6, .17], autumn: [.4, .6, .19], winter: [.34, .38, .2],
+  spring: [.42, .68, .22], summer: [.33, .6, .17], autumn: [.36, .58, .18], winter: [.26, .44, .18],
 };
 const SEASON_RED = {   // 红叶小植物
   spring: [.42, .2, .14], summer: [.38, .17, .12], autumn: [.55, .16, .08], winter: [.3, .17, .11],
@@ -164,28 +166,39 @@ function makeMaple() {
   g.computeVertexNormals();
   return g;
 }
-// 矮草簇：9 片细草叶从一点向四周斜出、尖端外弯；高 5～10cm，铺满整片草地
-// 法线一律朝上：和地面的光照一致，远看能和着色器画的草坪融成一片
-const TUFT_H = .1;
-function makeTuft() {
-  const R = rng(4242), blades = [];
-  for (let k = 0; k < 9; k++) {
-    const h = TUFT_H * (.45 + R() * .55), w = .01 + R() * .007, bend = .3 + R() * .6;
-    const g = new THREE.PlaneGeometry(w, h, 1, 2);
+// 草的图集（public/textures/grass_atlas.webp，由 scripts/pack_grass_atlas.py 生成，数值是它打印出来的）
+// uv：在图集里的范围 [u0, v0, u1, v1]；aspect：宽 / 高；mean：平均色（线性）
+export const GRASS_CARDS = {
+  short: { uv: [0.0469, 0.5000, 0.4531, 0.7681], aspect: 1.515, mean: [0.1380, 0.1998, 0.0457] },
+  medium: { uv: [0.5469, 0.5000, 0.9531, 0.8853], aspect: 1.054, mean: [0.1871, 0.2333, 0.0769] },
+  tall: { uv: [0.0527, 0.0000, 0.4468, 0.4668], aspect: 0.844, mean: [0.2089, 0.2075, 0.0852] },
+  sedge: { uv: [0.5469, 0.0000, 0.9531, 0.4287], aspect: 0.948, mean: [0.1455, 0.2047, 0.0682] },
+};
+// 交叉面片草丛：几张贴着草丛照片的竖直面片绕中心交叉（从哪个方向看都有草），上半部微微向后弯
+// 法线一律朝上：和地面的光照一致，草丛不会因为面片朝向不同而一张亮一张暗
+function makeCard(card, h, planes = 3, seed = 1) {
+  const R = rng(seed), [u0, v0, u1, v1] = card.uv, w = h * card.aspect, parts = [];
+  for (let k = 0; k < planes; k++) {
+    const g = new THREE.PlaneGeometry(w, h, 1, 3);
     g.translate(0, h / 2, 0);
-    const p = g.attributes.position, nr = g.attributes.normal;
+    const p = g.attributes.position, uv = g.attributes.uv, nr = g.attributes.normal;
     for (let i = 0; i < p.count; i++) {
+      uv.setXY(i, lerp(u0, u1, uv.getX(i)), lerp(v0, v1, uv.getY(i)));
       const t = p.getY(i) / h;
-      p.setX(i, p.getX(i) * (1 - t * .9));
-      p.setZ(i, t * t * h * bend);
+      p.setZ(i, t * t * h * .12);
       nr.setXYZ(i, 0, 1, 0);
     }
-    g.rotateY(k / 9 * Math.PI * 2 + R() * .8);
-    g.translate((R() - .5) * .05, 0, (R() - .5) * .05);
-    blades.push(g);
+    g.rotateY(k / planes * Math.PI + (R() - .5) * .35);
+    parts.push(g);
   }
-  return mergeGeometries(blades);
+  return mergeGeometries(parts);
 }
+const TUFT_H = .11, MED_H = .34, TALL_H = .5, SEDGE_H = .7;
+// 季节色 → 乘在贴图上的倍数（线性空间）：一半是"把贴图的平均色拉到这个季节色"，一半保留照片本身的颜色
+const cardTint = (cur, card, keep = .5) => {
+  const a = srgb(...cur), m = card.mean;
+  return new THREE.Color(lerp(a.r / m[0], 1, keep), lerp(a.g / m[1], 1, keep), lerp(a.b / m[2], 1, keep));
+};
 
 // 春天的花瓣：小小的椭圆
 function makePetal() {
@@ -392,15 +405,15 @@ export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) 
   // 两侧石狐的位置附近不种高的植物
   const nearFox = (x, z) => poolK(x, z) > 1.08 && Math.abs(z - FOX_Z) < 1 && Math.abs(x) > 4.4;
 
-  // ---------- 草丛：一簇簇高一点的草，石头附近密，远处零星 ----------
-  const bladeH = .4, bg = new THREE.PlaneGeometry(.055, bladeH, 1, 4);   // 细软的草叶
-  bg.translate(0, bladeH / 2, 0);
-  { const p = bg.attributes.position, nr = bg.attributes.normal;
-    for (let i = 0; i < p.count; i++) { const t = p.getY(i) / bladeH; p.setX(i, p.getX(i) * (1 - t * .85)); p.setZ(i, t * t * .16); nr.setXYZ(i, 0, 1, 0); } }
-  const grass = new THREE.InstancedMesh(bg, patch(new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, roughness: .75 }), { grass: true, underwater: false }), grassCount);
-  const grassVar = [];
+  // ---------- 草丛：一簇簇高一点的草（交叉面片），石头附近密，远处零星；偶尔夹一丛带草穗的高草 ----------
+  const cardMat = (h, sway, underwater = false) => patch(new THREE.MeshStandardMaterial({ map: tex.grass, alphaTest: .5, side: THREE.DoubleSide, roughness: .8 }),
+    { grass: true, grassH: h, sway, upNormal: true, card: true, underwater });
+  const clusters = Math.round(grassCount / 22);   // grassCount 原来是草叶数，一丛约 22 片
+  const grass = new THREE.InstancedMesh(makeCard(GRASS_CARDS.medium, MED_H, 3, 11), cardMat(MED_H, 1), clusters * 2);
+  const grassTall = new THREE.InstancedMesh(makeCard(GRASS_CARDS.tall, TALL_H, 2, 12), cardMat(TALL_H, 1.3), clusters);
+  const grassVar = [], tallVar = [];
   const gauss = () => (R() + R() + R() - 1.5) / 1.5;
-  for (let n = 0, tries = 0; n < grassCount && tries < 40000; tries++) {
+  for (let cl = 0, tries = 0; cl < clusters && tries < 40000; tries++) {
     const th = rand(0, Math.PI * 2), k = 1 + Math.pow(R(), 2.4) * 1.7, r = Rb(th) * k;   // 越靠近石圈越密
     const cx = Math.cos(th) * r, cz = Math.sin(th) * r;
     if (floorH(cx, cz) < .06) continue;
@@ -408,26 +421,34 @@ export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) 
     if (nearFox(cx, cz)) continue;
     if (rocks.some(o => Math.hypot(o.x - cx, o.z - cz) < o.r * .75)) continue;
     const far = k > 1.45;
-    if (far && R() < .75) continue;                      // 远处的草簇少一些、矮一些、松散一些，不再像一颗颗深色的小星星
-    const m = 14 + Math.floor(R() * 24), spread = rand(.08, .18) * (far ? 1.6 : 1), tall = rand(.6, 1.1) * (k < 1.3 ? 1.1 : far ? .75 : 1);
-    for (let j = 0; j < m && n < grassCount; j++) {
-      const x = cx + gauss() * spread, z = cz + gauss() * spread, y = floorH(x, z);
+    if (far && R() < .75) continue;                      // 远处的草丛少一些、矮一些
+    cl++;
+    const tall = rand(.7, 1.15) * (k < 1.3 ? 1.1 : far ? .75 : 1);
+    const m = 1 + (R() < .55 ? 1 : 0);
+    for (let j = 0; j < m; j++) {
+      const x = cx + gauss() * .08, z = cz + gauss() * .08, y = floorH(x, z);
       if (y < .06) continue;
-      const lean = Math.hypot(x - cx, z - cz) / spread;
       dummy.position.set(x, y - .02, z);
-      dummy.rotation.set(rand(-.35, .35) * (1 + lean), rand(0, 6.28), rand(-.35, .35) * (1 + lean));
-      dummy.scale.set(rand(.8, 1.2), tall * rand(.6, 1.2) * (1.2 - lean * .4), 1);
-      dummy.updateMatrix(); grass.setMatrixAt(n, dummy.matrix);
-      grassVar.push([rand(.9, 1.15) * (far ? 1.08 : 1), rand(-.05, .05)]);
-      n++; grass.count = n;
+      dummy.rotation.set(rand(-.12, .12), rand(0, 6.28), rand(-.12, .12));
+      const s = tall * rand(.8, 1.15);
+      dummy.scale.set(s * rand(.85, 1.15), s, s * rand(.85, 1.15));
+      dummy.updateMatrix(); grass.setMatrixAt(grassVar.length, dummy.matrix);
+      grassVar.push(rand(.88, 1.12) * (far ? 1.05 : 1));
+    }
+    if (R() < .22) {   // 带草穗的高草，从草丛里冒出来
+      const x = cx + gauss() * .05, z = cz + gauss() * .05, y = floorH(x, z);
+      dummy.position.set(x, y - .02, z);
+      dummy.rotation.set(rand(-.08, .08), rand(0, 6.28), rand(-.08, .08));
+      dummy.scale.setScalar(rand(.8, 1.15) * (far ? .8 : 1));
+      dummy.updateMatrix(); grassTall.setMatrixAt(tallVar.length, dummy.matrix);
+      tallVar.push(rand(.9, 1.1));
     }
   }
-  grass.receiveShadow = true;
-  scene.add(grass); above.push(grass);
+  grass.count = grassVar.length; grassTall.count = tallVar.length;
+  for (const g of [grass, grassTall]) { g.receiveShadow = g.castShadow = true; scene.add(g); above.push(g); }
 
   // ---------- 矮草簇：铺满整片草地，跟着着色器画的草坪走（露土处不长，土包上稀而黄，远处稀一些） ----------
-  const tufts = new THREE.InstancedMesh(makeTuft(), patch(new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, roughness: .85 }),
-    { grass: true, grassH: TUFT_H, sway: .35, upNormal: true, underwater: false }), tuftCount);
+  const tufts = new THREE.InstancedMesh(makeCard(GRASS_CARDS.short, TUFT_H, 2, 13), cardMat(TUFT_H, .35), tuftCount);
   const tuftVar = [];   // [深浅绿的比例, 干燥度, 苔藓程度, 亮度]
   for (let n = 0, tries = 0; n < tuftCount && tries < tuftCount * 6; tries++) {
     const cx = rand(-12.5, 12.5), cz = rand(-12.5, 12.5);
@@ -443,11 +464,11 @@ export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) 
     cover *= 1 - lawnBare(cx, cz, dry, moss) * .95;
     if (R() > cover * cover * (1 - dry * .35)) continue;
     if (nearFox(cx, cz) || rocks.some(o => Math.hypot(o.x - cx, o.z - cz) < o.r * .8)) continue;
-    // 每处 2～4 簇挤在一起，不是均匀撒点
-    const m = 2 + Math.floor(R() * 3);
+    // 每处 1～3 簇挤在一起，不是均匀撒点
+    const m = 1 + Math.floor(R() * 3);
     const ln = vnoise(cx * .35, cz * .35) * .55 + vnoise(cx * 1.6, cz * 1.6) * .3 + vnoise(cx * 5, cz * 5) * .15;
     for (let j = 0; j < m && n < tuftCount; j++) {
-      const x = cx + gauss() * .07, z = cz + gauss() * .07, y = floorH(x, z);
+      const x = cx + gauss() * .09, z = cz + gauss() * .09, y = floorH(x, z);
       if (y < .04) continue;
       dummy.position.set(x, y - .01, z);
       dummy.rotation.set(rand(-.15, .15), rand(0, 6.28), rand(-.15, .15));
@@ -465,7 +486,7 @@ export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) 
   const fernGeo = makeFern();
   const FN = 56, fernVar = [];
   const ferns = new THREE.InstancedMesh(fernGeo, patch(new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, roughness: .8 }),
-    { grass: true, underwater: false }), FN);
+    { grass: true, upNormal: true, underwater: false }), FN);
   for (let i = 0, tries = 0; i < FN && tries < 5000; tries++) {
     const o = rocks[Math.floor(R() * Math.min(rocks.length, 40))];   // 只挨着大石头
     const out = Math.atan2(o.z, o.x) + rand(-.9, .9);                 // 朝池外一侧
@@ -482,25 +503,20 @@ export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) 
   ferns.receiveShadow = true; ferns.castShadow = true;
   scene.add(ferns); above.push(ferns);
 
-  // ---------- 菖蒲：长在石缝和水边，细长的剑形叶，打破石圈的圆形轮廓 ----------
-  const irisH = .85, ig = new THREE.PlaneGeometry(.045, irisH, 1, 6);
-  ig.translate(0, irisH / 2, 0);
-  { const p = ig.attributes.position, nr = ig.attributes.normal;
-    for (let i = 0; i < p.count; i++) { const t = p.getY(i) / irisH; p.setX(i, p.getX(i) * (1 - t * .9)); p.setZ(i, t * t * .16); nr.setXYZ(i, 0, 1, 0); } }
-  const IN = 220, irisVar = [];
-  const iris = new THREE.InstancedMesh(ig, patch(new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, roughness: .6 }),
-    { grass: true, grassH: irisH }), IN);
+  // ---------- 菖蒲：长在石缝和水边（交叉面片），剑形叶打破石圈的圆形轮廓 ----------
+  const IN = 16, irisVar = [];
+  const iris = new THREE.InstancedMesh(makeCard(GRASS_CARDS.sedge, SEDGE_H, 3, 14), cardMat(SEDGE_H, .6, true), IN);
   for (let n = 0, cl = 0, tries = 0; cl < 5 && tries < 2000; tries++) {   // 水边只零星几丛
     const th = rand(0, Math.PI * 2), r = Rb(th) * rand(.94, 1.02), cx = Math.cos(th) * r, cz = Math.sin(th) * r;
     cl++;
-    const m = 6 + Math.floor(R() * 5), tall = rand(.45, .7);
+    const m = 1 + Math.floor(R() * 2), tall = rand(.75, 1.05);
     for (let j = 0; j < m && n < IN; j++) {
-      const x = cx + gauss() * .06, z = cz + gauss() * .06;
+      const x = cx + gauss() * .05, z = cz + gauss() * .05;
       dummy.position.set(x, Math.max(floorH(x, z), -.25) - .02, z);
-      dummy.rotation.set(rand(-.32, .32), rand(0, 6.28), rand(-.32, .32));
-      dummy.scale.set(1, tall * rand(.65, 1.15), 1);
+      dummy.rotation.set(rand(-.08, .08), rand(0, 6.28), rand(-.08, .08));
+      dummy.scale.setScalar(tall * rand(.85, 1.1));
       dummy.updateMatrix(); iris.setMatrixAt(n, dummy.matrix);
-      irisVar.push(rand(.85, 1.12));
+      irisVar.push(rand(.9, 1.1));
       n++; iris.count = n;
     }
   }
@@ -642,12 +658,10 @@ export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) 
   scene.add(groundLeaves); above.push(groundLeaves);
 
   function setSeason(season) {
-    const g = SEASON_GRASS[season];
-    for (let i = 0; i < grass.count; i++) {
-      const [b, h] = grassVar[i];
-      grass.setColorAt(i, srgb(g[0] * b + h, g[1] * b, g[2] * b - h * .5));
-    }
-    grass.instanceColor.needsUpdate = true;
+    const gt = cardTint(SEASON_GRASS[season], GRASS_CARDS.medium), gtt = cardTint(SEASON_GRASS[season], GRASS_CARDS.tall);
+    for (let i = 0; i < grass.count; i++) grass.setColorAt(i, c.copy(gt).multiplyScalar(grassVar[i]));
+    for (let i = 0; i < grassTall.count; i++) grassTall.setColorAt(i, c.copy(gtt).multiplyScalar(tallVar[i]));
+    for (const g of [grass, grassTall]) if (g.instanceColor) g.instanceColor.needsUpdate = true;
     const f = SEASON_FERN[season];
     for (let i = 0; i < ferns.count; i++) ferns.setColorAt(i, srgb(...f.map(v => v * fernVar[i])));
     ferns.instanceColor.needsUpdate = true;
@@ -657,17 +671,19 @@ export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) 
     // 矮草簇：和草坪同一套颜色（在线性空间里按同样的方式混合），草尖略亮
     const la = shared.uLawnA.value, lb = shared.uLawnB.value, lm = shared.uLawnMoss.value;
     const gray = (lb.r + lb.g + lb.b) / 3, straw = new THREE.Color(gray * 1.3, gray * 1.12, gray * .66);
+    const sm = GRASS_CARDS.short.mean, shortInv = new THREE.Color(.88 / sm[0], .9 / sm[1], .95 / sm[2]);
     for (let i = 0; i < tufts.count; i++) {
       const [t, dry, moss, b] = tuftVar[i];
-      c.copy(la).lerp(lb, t).lerp(straw, dry * .3).lerp(lm, moss * .7).multiplyScalar(b * .95);
-      tufts.setColorAt(i, c);
+      c.copy(la).lerp(lb, t).lerp(straw, dry * .3).lerp(lm, moss * .7).multiplyScalar(b);
+      tufts.setColorAt(i, c.multiply(shortInv));   // 矮草要和底下的草坪融成一片：平均色直接拉到草坪色
     }
     if (tufts.instanceColor) tufts.instanceColor.needsUpdate = true;
     const wd = SEASON_WEED[season];
     for (let i = 0; i < weeds.count; i++) { const [b, h] = weedVar[i]; weeds.setColorAt(i, srgb(wd[0] * b + h, wd[1] * b, wd[2] * b)); }
     weeds.instanceColor.needsUpdate = true;
     const ir = SEASON_IRIS[season];
-    for (let i = 0; i < iris.count; i++) iris.setColorAt(i, srgb(...ir.map(v => v * irisVar[i])));
+    const it = cardTint(ir, GRASS_CARDS.sedge);
+    for (let i = 0; i < iris.count; i++) iris.setColorAt(i, c.copy(it).multiplyScalar(irisVar[i]));
     iris.instanceColor.needsUpdate = true;
     // 玉簪冬天地上部分枯掉；红叶植物冬天变暗褐色
     const ho = SEASON_HOSTA[season];

@@ -26,7 +26,7 @@ let loc = tzGuess();   // 定位完成前先按系统时区估一个城市，保
 let realtime = true, speed = 1, simMs = Date.now();
 let wxMode = 'live', live = null, weatherReady = false;
 const wx = { cloud: .2, rain: 0, snow: 0, fog: 0, thunder: 0, wind: .2 }, wxT = { ...wx };
-let snowCover = 0, wet = 0, flash = 0, season = null;
+let snowCover = 0, wet = 0, flash = 0, season = null, frost = 0, ice = 0, seasonForce = null;   // seasonForce：调试用，强制某个季节
 
 // ================= 渲染器 / 场景 =================
 const isMobile = matchMedia('(pointer: coarse)').matches || innerWidth < 800;
@@ -65,7 +65,7 @@ function updateEnv() {
 }
 
 const texSets = loadAll(renderer);
-const pool = buildPool(scene, { grassCount: isMobile ? 3500 : 4800, tuftCount: isMobile ? 12000 : 40000, tex: texSets });
+const pool = buildPool(scene, { grassCount: isMobile ? 3500 : 4800, tuftCount: isMobile ? 16000 : 60000, tex: texSets });
 // 横屏两侧的一对守愿石狐
 const foxes = buildFoxes(scene, { floorH, poolK });
 const ripples = new Ripples(renderer, 256, 5);
@@ -181,8 +181,20 @@ function update(dt) {
   snowCover = clamp(snowCover + (wx.snow > .3 ? dt * .04 : -dt * .02));
   wet = clamp(wet + (wx.rain > .05 ? dt * .15 : -dt * .01));
 
-  const s = seasonOf(simMs, loc.lat);
+  const s = seasonForce || seasonOf(simMs, loc.lat);
   if (s !== season) { season = s; pool.setSeason(s); }
+
+  // ---- 冬天的点缀：白霜（夜里结、上午化）和池边薄冰（够冷才有）----
+  // 有实时气温就按气温；没有（离线 / 调试天气）就按冬天的典型情况
+  const tempC = wxMode === 'live' && live ? live.temperature_2m : null;
+  const winter = season === 'winter' ? 1 : 0;
+  const hr = new Date(simMs); const h = hr.getHours() + hr.getMinutes() / 60;
+  const frostTime = h < 12 ? 1 - smooth(clamp((h - 8.5) / 3)) : smooth(clamp((h - 17) / 4));
+  const cold = tempC === null ? 1 : clamp((5 - tempC) / 5);   // 5°C 以下开始结霜，0°C 以下最重
+  const frostT = winter * frostTime * cold * (1 - clamp(wet * 3)) * (1 - snowCover);
+  frost += (frostT - frost) * Math.min(1, dt * .3);
+  const iceT = winter * (tempC === null ? .6 : clamp((1 - tempC) / 5));   // 1°C 以下开始结冰，-4°C 冰最宽
+  ice += (iceT - ice) * Math.min(1, dt * .2);
 
   // ---- 天文 ----
   const face = loc.lat >= 0 ? 165 : 345;   // 镜头大致朝向太阳一侧，水面能看到粼粼反光
@@ -232,12 +244,14 @@ function update(dt) {
   // ---- 材质共享参数 ----
   shared.uTime.value = T;
   shared.uSunCol.value.copy(key.color).multiplyScalar(key.intensity * .55);
+  shared.uKeyDir.value.copy(key.position).normalize();
   shared.uCaustic.value = 1 - rn * .5;
   shared.uWaterCol.value.setRGB(.0015, .016, .03).multiplyScalar(.22 + .78 * dayF * (1 - .25 * cloud));   // 深处的幽蓝（夜里也留一点，池子不会变成黑洞）
   shared.uSnow.value = snowCover; shared.uWet.value = wet; shared.uWind.value = wind;
+  shared.uFrost.value = frost;
 
   const wu = water.uniforms;
-  wu.uTime.value = T; wu.uWind.value = wind; wu.uRain.value = rn;
+  wu.uTime.value = T; wu.uWind.value = wind; wu.uRain.value = rn; wu.uIce.value = ice;
   wu.uReflAmt.value = lerp(1, .5, cloud * dayF);   // 阴天的灰白天空倒影减半，水才不会像牛奶
   wu.uSunDir.value.copy(sunDir); wu.uSunCol.value.copy(su.uSunCol.value).multiplyScalar(sunI / 20 * (1 - cloud * .9));
   wu.uMoonDir.value.copy(moonDir); wu.uMoonCol.value.setRGB(.7, .76, 1).multiplyScalar(moonI * 2);
@@ -403,8 +417,9 @@ if (import.meta.env.DEV) window.__wish = {
   setTime(h) { const d = new Date(simMs); d.setHours(Math.floor(h), Math.round((h % 1) * 60), 0, 0); simMs = d.getTime(); realtime = false; },
   setSimMs(ms) { simMs = ms; realtime = false; },
   setWeather(m) { wxMode = m; applyWeather(true); },
+  setSeason(s) { seasonForce = s; },
   get loc() { return loc; }, sunPos, moonPos, moonPhase,
-  renderer, scene, camera, composer, water, sky, key, refrRT, reflRT,
+  renderer, scene, camera, composer, water, sky, key, refrRT, reflRT, pool,
   step(n = 1, dt = 1 / 60) { for (let i = 0; i < n; i++) { update(dt); render(); } },
   closeup(p, t) { camOverride = p ? { p: new THREE.Vector3(...p), t: new THREE.Vector3(...t) } : null; },
   async shot(name) {   // 开发用：渲染一帧并保存到 .shots/

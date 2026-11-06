@@ -5,9 +5,11 @@ import { NOISE_GLSL, CAUSTIC_GLSL } from './shaders.js';
 export const shared = {
   uTime: { value: 0 },
   uSunCol: { value: new THREE.Color() },   // 焦散用的光颜色 × 强度
+  uKeyDir: { value: new THREE.Vector3(0, 1, 0) },   // 主光（太阳 / 月亮）的方向，草叶透光用
   uCaustic: { value: 1 },
   uWaterCol: { value: new THREE.Color() }, // 水体散射色
   uSnow: { value: 0 },
+  uFrost: { value: 0 },   // 冬天清晨的白霜（0～1），在 main.js 里按季节、气温、时间算
   uWet: { value: 0 },
   uWind: { value: .3 },
   // 草坪颜色（随季节在 pool.setSeason 里更新）
@@ -15,6 +17,30 @@ export const shared = {
   uDeepGlow: { value: 0 }, uDeepGlowCol: { value: new THREE.Color(.22, .8, .75) },   // 夜里池心深处的微光
   uFoxGlow: { value: 0 }, uFoxGlowCol: { value: new THREE.Color(.3, .95, .85) },
 };
+
+// 草叶从根到尖的颜色：根部暗、偏冷（埋在草丛里照不到光），尖端亮、微微发黄（老叶尖）；BLADE 再画一条浅色中脉
+const GRASS_TONE = /* glsl */`
+        #ifdef CARD
+          // 贴图照片本身已经有根部暗、叶尖黄的变化，这里只把贴地的一段再压暗一点（被周围的草挡住）
+          diffuseColor.rgb *= mix(vec3(.62, .68, .64), vec3(1.), smoothstep(0., .45, vH));
+        #else
+          diffuseColor.rgb *= mix(vec3(.42, .5, .44), vec3(1.), smoothstep(0., .75, vH));
+          diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.14, 1.07, .7), smoothstep(.55, 1., vH) * .35);
+        #endif
+        #ifdef BLADE
+          float rib = 1. - smoothstep(.0, .22, abs(vBladeU - .5));
+          diffuseColor.rgb *= .9 + .2 * rib;
+        #endif
+`;
+// 透光：逆着太阳看草叶时，光从叶片背后透过来，叶子发亮、偏黄绿；顺光时也有一点点
+const GRASS_TRANS = /* glsl */`
+        {
+          vec3 V = normalize(cameraPosition - vWPos), L = normalize(uKeyDir);
+          float back = pow(clamp(dot(-V, L), 0., 1.), 5.);
+          float trans = (back * .8 + .08) * pow(clamp(vH, 0., 1.), .8) * smoothstep(-.05, .15, L.y);
+          outgoingLight += uSunCol * trans * diffuseColor.rgb * vec3(1., 1.2, .55) * .13;
+        }
+`;
 
 const GRASS_SWAY = (h, s = 1) => /* glsl */`
   vH = position.y / ${h.toFixed(3)};
@@ -98,10 +124,14 @@ float scaleField(vec3 p, vec3 n){
 // glowAttr：顶点属性 aGlow 标记的部位（石狐的灵纹、铃铛）在夜里发光，强度由 shared.uFoxGlow 控制
 // sway：摆动幅度的倍数（贴地的矮草要小一些）
 // upNormal：双面草叶的背面也用朝上的法线（否则背面法线朝下，一半草叶是黑的）
-export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = false, underwater = true, tex = null, scales = false, glowAttr = false } = {}) {
+// blade：细长的草叶（PlaneGeometry，uv.x 横跨叶片）——画出中脉
+// card：贴草丛照片的交叉面片（map + alphaTest）——远处按 mipmap 级别加厚 alpha，草不会越远越稀
+export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = false, blade = false, card = false, underwater = true, tex = null, scales = false, glowAttr = false } = {}) {
   const mode = tex ? tex.mode : 'none';
-  mat.customProgramCacheKey = () => `wish-${grass}-${grassH}-${sway}-${upNormal}-${underwater}-${mode}-${scales}-${glowAttr}`;
+  mat.customProgramCacheKey = () => `wish-${grass}-${grassH}-${sway}-${upNormal}-${blade}-${card}-${underwater}-${mode}-${scales}-${glowAttr}`;
   if (upNormal) mat.defines = { ...(mat.defines || {}), UP_NORMAL: '' };
+  if (blade) mat.defines = { ...(mat.defines || {}), BLADE: '' };
+  if (card) mat.defines = { ...(mat.defines || {}), CARD: '' };
   if (scales) mat.defines = { ...(mat.defines || {}), SCALES: '' };
   if (glowAttr) mat.defines = { ...(mat.defines || {}), GLOWATTR: '' };
   if (tex) {
@@ -142,6 +172,9 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
         #ifdef GLOWATTR
           attribute float aGlow; varying float vGlow;
         #endif
+        #ifdef BLADE
+          varying float vBladeU;
+        #endif
         uniform float uTime; uniform float uWind;`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         vH = 1.0; vMoss = 0.0;
@@ -156,6 +189,9 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
         #endif
         #ifdef GLOWATTR
           vGlow = aGlow;
+        #endif
+        #ifdef BLADE
+          vBladeU = uv.x;
         #endif
         ${grass ? GRASS_SWAY(grassH, sway) : ''}`)
       .replace('#include <fog_vertex>', `#include <fog_vertex>
@@ -172,8 +208,11 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
         varying vec3 vWPos; varying vec3 vWNrm; varying float vH; varying float vMoss;
-        uniform float uTime; uniform float uCaustic; uniform float uSnow; uniform float uWet;
-        uniform vec3 uSunCol; uniform vec3 uWaterCol; uniform float uDeepGlow; uniform vec3 uDeepGlowCol;
+        uniform float uTime; uniform float uCaustic; uniform float uSnow; uniform float uWet; uniform float uFrost;
+        uniform vec3 uSunCol; uniform vec3 uWaterCol; uniform float uDeepGlow; uniform vec3 uDeepGlowCol; uniform vec3 uKeyDir;
+        #ifdef BLADE
+          varying float vBladeU;
+        #endif
         #ifdef LAWN
           varying vec3 vLawn; uniform vec3 uLawnA; uniform vec3 uLawnB; uniform vec3 uLawnMoss;
         #endif
@@ -193,6 +232,18 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
         ${underwater ? CAUSTIC_GLSL : ''}
         ${tex ? TRI_GLSL : ''}`)
       .replace('#include <color_fragment>', `#include <color_fragment>
+        #ifdef CARD
+          // mipmap 缩小时 alpha 被平均得越来越淡，alphaTest 会把细草叶整根裁掉：按屏幕上的缩小倍数补回来
+          {
+            vec2 dUv = fwidth(vMapUv) * 2048.;
+            float lod = log2(max(max(dUv.x, dUv.y), 1.));
+            diffuseColor.a = clamp(diffuseColor.a * (1. + lod * .35), 0., 1.);
+            // 侧着看（面片几乎和视线平行）时淡出：从上往下看不会露出"十"字形的面片
+            vec3 fN = normalize(cross(dFdx(vWPos), dFdy(vWPos)));
+            float facing = abs(dot(fN, normalize(cameraPosition - vWPos)));
+            diffuseColor.a *= smoothstep(.06, .3, facing);
+          }
+        #endif
         #ifdef SCALES
           // 远处鳞片小于几个像素会闪烁：按屏幕上的大小淡出
           float scaleFar = 1. - smoothstep(.12, .35, length(fwidth(vOPos * 21.)));
@@ -315,17 +366,28 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.07, .11, .045) * mossTone, mossM * .7);   // 深绿色的薄苔，不再是浅黄斑
         #endif
         float above = smoothstep(-0.03, 0.06, vWPos.y);
-        ${grass ? 'diffuseColor.rgb *= mix(0.55, 1.0, vH);' : ''}        float snowN = vnoise(vWPos.xz * 3.0) * .35 + vnoise(vWPos.xz * 11.0) * .15;
+        ${grass ? GRASS_TONE : ''}        float snowN = vnoise(vWPos.xz * 3.0) * .35 + vnoise(vWPos.xz * 11.0) * .15;
         float snowM = smoothstep(.25, .65, triN.y + snowN - .25) * uSnow * above;
         ${grass ? 'snowM = uSnow * smoothstep(.2, 1.0, vH) * .85;' : ''}
         diffuseColor.rgb *= 1.0 - .4 * uWet * above;
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.9, .92, .96), snowM);`)
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.9, .92, .96), snowM);
+        // 白霜：结在朝上的面和草叶尖上，一粒粒的、不均匀；颜色偏冷的灰白，比雪薄（底色还透得出来）
+        float frostM = 0.;
+        if (uFrost > 0.) {
+          float fg = vnoise(vWPos.xz * 23. + vWPos.y * 7.) * .6 + vnoise(vWPos.xz * 61.) * .4;
+          frostM = uFrost * above * (1. - snowM) * smoothstep(.3, .85, fg + uFrost * .15 - .05);
+          ${grass ? 'frostM *= smoothstep(.3, 1., vH) * .75;' : 'frostM *= smoothstep(.5, .95, triN.y) * .5;'}
+          // 霜是一层薄薄的冰晶：底色变灰变浅，但绿色还在
+          vec3 frostCol = diffuseColor.rgb * .45 + vec3(.42, .46, .5);
+          diffuseColor.rgb = mix(diffuseColor.rgb, frostCol, frostM);
+        }`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
         #ifdef TRI
           roughnessFactor *= triRough;
         #endif
         roughnessFactor = mix(roughnessFactor, ${grass ? '.6' : mode === 'ground' ? '.5' : '.22'}, uWet * above * (1.0 - snowM));
-        roughnessFactor = mix(roughnessFactor, .8, snowM);`)
+        roughnessFactor = mix(roughnessFactor, .8, snowM);
+        roughnessFactor = mix(roughnessFactor, .55, frostM * .6);   // 霜晶在斜光下微微发亮`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
         #ifdef GLOWATTR
           totalEmissiveRadiance += uFoxGlowCol * uFoxGlow * vGlow * (.8 + .2 * sin(uTime * 1.3 + vWPos.y * 9.));
@@ -350,6 +412,8 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
           }
         #endif`);
 
+    if (grass) sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `${GRASS_TRANS}
+        #include <opaque_fragment>`);
     if (underwater) {
       sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `
         float dW = -vWPos.y;

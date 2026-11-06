@@ -31,6 +31,13 @@ export const GROUND = {
   litter: { file: 'leaf_litter', scale: .7,  mean: [.0688, .0401, .0283], rough: .82 },
 };
 
+// 草的图集（带透明通道，scripts/pack_grass_atlas.py 生成）：图集里各格不能互相"串"，所以不平铺
+function loadGrassAtlas(renderer) {
+  const t = load('grass_atlas.webp', true, renderer);
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  return t;
+}
+
 export function loadAll(renderer) {
   const ground = {};
   for (const [k, g] of Object.entries(GROUND)) {
@@ -41,5 +48,6 @@ export function loadAll(renderer) {
     moss: loadSet('mossy_rock', renderer),
     pebbles: loadSet('ganges_river_pebbles', renderer),
     ground,
+    grass: loadGrassAtlas(renderer),
   };
 }
