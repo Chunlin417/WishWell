@@ -11,6 +11,16 @@ function dotTexture() {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 const DOT = dotTexture();
+// 萤火虫的光：一个很小的亮核 + 一圈很淡、很宽的光晕（不是一整块白色圆片）
+function glowTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(.07, 'rgba(255,255,255,.85)'); gr.addColorStop(.16, 'rgba(255,255,255,.22)');
+  gr.addColorStop(.4, 'rgba(255,255,255,.06)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const GLOW = glowTexture();
 
 // 雨丝：细而淡的线，雨滴那一头稍亮、尾巴渐隐，看起来像高速下落的模糊；落地时溅起细小的水花
 const RAIN_VS = /* glsl */`
@@ -137,8 +147,9 @@ export class Fireflies {
   constructor(spots) {
     this.obj = new THREE.Group();
     this.items = spots.map(base => {
-      const m = new THREE.SpriteMaterial({ map: DOT, color: new THREE.Color(.85, 1, .55).multiplyScalar(5), blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, fog: false, opacity: 0 });
-      const s = new THREE.Sprite(m); s.scale.setScalar(.12); s.position.copy(base);
+      // 颜色不再乘 5：太亮会被泛光吹成白色；黄绿色、亮度适中，光晕交给贴图
+      const m = new THREE.SpriteMaterial({ map: GLOW, color: new THREE.Color(.75, 1, .35).multiplyScalar(1.8), blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, fog: false, opacity: 0 });
+      const s = new THREE.Sprite(m); s.scale.setScalar(.16); s.position.copy(base);
       this.obj.add(s);
       return { s, base, p: rand(0, 6.28) };
     });

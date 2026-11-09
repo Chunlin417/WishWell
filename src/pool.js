@@ -68,6 +68,9 @@ function lawnBare(x, z, dry, moss) {
 // 苔藓：靠近石圈一圈，再加零星成片
 const mossMask = (x, z) => Math.max(sstep(1.32, 1.05, poolK(x, z)), sstep(.62, .74, fbm3(x * .7, 11, z * .7, 3)) * .8);
 
+// 阔叶植物（蕨、石脚下的小草、玉簪）没有贴图，是纯色：原来的颜色太鲜，像卡通。往灰度拉一些、略压暗，和草坪的颜色站在一起
+const calm = (c, k = .35, d = .86) => { const l = c[0] * .3 + c[1] * .59 + c[2] * .11; return c.map(v => (v * (1 - k) + l * k) * d); };
+
 function makeRockGeo(seed, detail) {
   let g = new THREE.IcosahedronGeometry(1, detail);
   g.deleteAttribute('normal'); g.deleteAttribute('uv');
@@ -696,7 +699,7 @@ export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) 
     for (let i = 0; i < grass.count; i++) grass.setColorAt(i, c.copy(gt).multiplyScalar(grassVar[i]));
     for (let i = 0; i < grassTall.count; i++) grassTall.setColorAt(i, c.copy(gtt).multiplyScalar(tallVar[i]));
     for (const g of [grass, grassTall]) if (g.instanceColor) g.instanceColor.needsUpdate = true;
-    const f = SEASON_FERN[season];
+    const f = calm(SEASON_FERN[season]);
     for (let i = 0; i < ferns.count; i++) ferns.setColorAt(i, srgb(...f.map(v => v * fernVar[i])));
     ferns.instanceColor.needsUpdate = true;
     // 草坪的颜色
@@ -712,7 +715,7 @@ export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) 
       tufts.setColorAt(i, c.multiply(shortInv));   // 矮草要和底下的草坪融成一片：平均色直接拉到草坪色
     }
     if (tufts.instanceColor) tufts.instanceColor.needsUpdate = true;
-    const wd = SEASON_WEED[season];
+    const wd = calm(SEASON_WEED[season], .4, .8);
     for (let i = 0; i < weeds.count; i++) { const [b, h] = weedVar[i]; weeds.setColorAt(i, srgb(wd[0] * b + h, wd[1] * b, wd[2] * b)); }
     weeds.instanceColor.needsUpdate = true;
     const ir = SEASON_IRIS[season];
@@ -720,7 +723,7 @@ export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) 
     for (let i = 0; i < iris.count; i++) iris.setColorAt(i, c.copy(it).multiplyScalar(irisVar[i]));
     iris.instanceColor.needsUpdate = true;
     // 玉簪冬天地上部分枯掉；红叶植物冬天变暗褐色
-    const ho = SEASON_HOSTA[season];
+    const ho = SEASON_HOSTA[season] && calm(SEASON_HOSTA[season], .3, .88);
     hostas.count = ho ? hostaN : 0;
     if (ho) { for (let i = 0; i < hostaN; i++) hostas.setColorAt(i, srgb(...ho.map(v => v * hostaVar[i]))); hostas.instanceColor.needsUpdate = true; }
     const rd = SEASON_RED[season];

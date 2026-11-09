@@ -218,11 +218,13 @@ function update(dt) {
   const tempC = wxMode === 'live' && live ? live.temperature_2m : null;
   const winter = season === 'winter' ? 1 : 0;
   const hr = new Date(simMs); const h = hr.getHours() + hr.getMinutes() / 60;
-  const frostTime = h < 12 ? 1 - smooth(clamp((h - 8.5) / 3)) : smooth(clamp((h - 17) / 4));
-  const cold = tempC === null ? 1 : clamp((5 - tempC) / 5);   // 5°C 以下开始结霜，0°C 以下最重
+  // 夜里和清晨霜最重；白天也不完全化掉（背阴处、草尖上留着一层薄霜），冬天任何时候打开都看得出来
+  const frostTime = Math.max(.4, h < 12 ? 1 - smooth(clamp((h - 8.5) / 3)) : smooth(clamp((h - 17) / 4)));
+  const cold = tempC === null ? 1 : clamp((8 - tempC) / 8);   // 8°C 以下开始有霜，0°C 以下最重
   const frostT = winter * frostTime * cold * (1 - clamp(wet * 3)) * (1 - snowCover);
   frost += (frostT - frost) * Math.min(1, dt * .3);
-  const iceT = winter * (tempC === null ? .6 : clamp((1 - tempC) / 5));   // 1°C 以下开始结冰，-4°C 冰最宽
+  // 1°C 以下冰往池心长，-4°C 最宽；不太冷的冬日也留着贴岸的一圈薄冰（10°C 以上才没有）
+  const iceT = winter * (tempC === null ? .6 : Math.max(clamp((1 - tempC) / 5), .28 * clamp((10 - tempC) / 6)));
   ice += (iceT - ice) * Math.min(1, dt * .2);
 
   // ---- 天文 ----
