@@ -16,6 +16,8 @@ import { Ripples, createWater } from './water.js';
 import { Rain, Snow, Fireflies } from './fx.js';
 import { createWish } from './wish.js';
 import { createWishAudio } from './audio.js';
+// 临时开关：false = 许愿签功能关闭（点左边的石狐没有反应，也不会出现手形光标）。要恢复改成 true 即可
+const WISH_ENABLED = false;
 
 const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -430,7 +432,7 @@ canvas.addEventListener('pointerdown', e => {
   const f = foxes.pick(raycaster);
   if (f) {
     const left = f.point.clone().project(camera).x < 0;
-    if (left && !wish.busy) { sfx.unlock(); wish.summon(camera); return; }   // 声音只能在用户点击时开启
+    if (left && WISH_ENABLED && !wish.busy) { sfx.unlock(); wish.summon(camera); return; }   // 声音只能在用户点击时开启
     if (!left && wish.canCall) { sfx.unlock(); wish.callDragon(); return; }
   }
   const hit = raycaster.intersectObject(water.mesh)[0];
@@ -442,7 +444,7 @@ canvas.addEventListener('pointermove', e => {
   setRay(e);
   // 鼠标移到能点的石狐上时，换成手形光标
   if (e.pointerType === 'mouse') {
-    const over = (f => f && (f.point.clone().project(camera).x < 0 ? !wish.busy : wish.canCall))(foxes.pick(raycaster)) ? 'pointer' : '';
+    const over = (f => f && (f.point.clone().project(camera).x < 0 ? WISH_ENABLED && !wish.busy : wish.canCall))(foxes.pick(raycaster)) ? 'pointer' : '';
     canvas.style.cursor = over;
   }
 });
