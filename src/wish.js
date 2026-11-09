@@ -84,6 +84,8 @@ function softDot() {
 
 // ---------- 龙：一条长长的身躯，沿路径游动（每一节都走过龙头走过的位置），背上一排鳍 ----------
 // HS：龙头放大倍数（主视角离水面 11 米，龙头要够大），BS：身体粗细的额外倍数（现在直接由 BODY_R 控制）
+// 临时开关：false = 龙不出现（右边的石狐点了没反应；签沉下去、消失，仪式就结束）。要恢复龙改成 true 即可
+const DRAGON_ENABLED = false;
 const RINGS = 150, SEGS = 14, LEN = 11, HS = 2.2, BS = 1;
 const VPR = SEGS + 1;          // 每一圈的顶点数：多一个和第一个重合的点，贴图在接缝处才能连续
 const U_REP = 2, V_TILE = 1.1; // 鳞片贴图：绕身体一圈重复 2 次，沿身体每 1.1 米重复一次（鳞片跟着身体走，不会在身上滑动）
@@ -494,7 +496,7 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
     // 签停稳、四周虚化好了：这时才出现输入框
     get inputReady() { return mode === 'await' && focus > .85; },
     // 签已经在水里了、龙还没被唤来：点右边的石狐就唤龙
-    get canCall() { return mode === 'ritual' && !called && pt >= T.float; },
+    get canCall() { return DRAGON_ENABLED && mode === 'ritual' && !called && pt >= T.float; },
     callDragon() { if (this.canCall) { called = true; return true; } return false; },
     get mode() { return mode; },
     // 点了石狐：一阵风送来一张空白的许愿签，悬停在画面里（screenX, screenY：悬停位置，-1～1 的屏幕坐标）
@@ -574,6 +576,7 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
       const day = env.day ?? 1;
       pt += dt; dtNow = dt;
       t += dt; if (!called) t = Math.min(t, T.dread - .01);   // 还没唤龙：时间停在压迫感开始之前（四周不暗、龙不来）
+      if (!DRAGON_ENABLED && pt >= T.sunk + .5) t = T.end;   // 没有龙：签沉到底、停一下，仪式就收尾
       const sway = Math.sin(pt * 1.3 + phase), sway2 = Math.sin(pt * .8 + phase * 2);
 
       // ---- 许愿签 ----
@@ -614,7 +617,7 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
       coin.material.emissive.setRGB(.25, .2, .1).multiplyScalar(smooth((t - T.glowIn) / 3) * (1 - smooth((t - T.take) / .4)) * .6);
 
       // ---- 龙 ----
-      if (t >= T.dragon) {
+      if (DRAGON_ENABLED && t >= T.dragon) {
         dragon.visible = head.visible = true;
         // 头走过的路程：从最深处一路游上来，停在许愿签下方 → 转身后越游越快
         let d;
