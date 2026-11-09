@@ -15,20 +15,6 @@
   #loading { position: fixed; inset: 0; background: #05070f; transition: opacity 1.6s; z-index: 10; }
   #loading.done { opacity: 0; pointer-events: none; }
   #gear[hidden] { display: none; }
-  #picker { position: fixed; inset: 0; z-index: 20; display: flex; align-items: flex-end; justify-content: center;
-    background: rgba(0,0,0,.45); backdrop-filter: blur(4px); }
-  #picker[hidden] { display: none; }
-  #picker .sheet { width: min(480px, 100%); max-height: 70vh; overflow: auto; box-sizing: border-box;
-    padding: 18px 18px calc(18px + env(safe-area-inset-bottom)); border-radius: 18px 18px 0 0;
-    background: rgba(16,20,32,.96); color: #e8ecf5; font-size: 14px; }
-  #picker h3 { margin: 0 0 12px; font-weight: 400; font-size: 16px; letter-spacing: 2px; }
-  #picker input { width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 10px; font-size: 15px;
-    border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.07); color: #fff; outline: none; }
-  #picker ul { list-style: none; margin: 10px 0 0; padding: 0; }
-  #picker li { padding: 11px 6px; border-bottom: 1px solid rgba(255,255,255,.07); cursor: pointer; }
-  #picker li small { opacity: .5; margin-left: 8px; }
-  #picker .btns { display: flex; gap: 10px; margin-top: 14px; }
-  #picker button { flex: 1; padding: 10px; border-radius: 10px; border: 0; background: rgba(255,255,255,.12); color: #fff; font-size: 14px; cursor: pointer; }
   #gear { position: fixed; right: 14px; top: 12px; width: 34px; height: 34px; border-radius: 50%;
     border: 1px solid rgba(255,255,255,.25); background: rgba(0,0,0,.25); color: #fff; font-size: 17px;
     cursor: pointer; backdrop-filter: blur(6px); }
@@ -68,14 +54,6 @@
 <body>
 <canvas id="c"></canvas>
 <div id="loading"></div>
-<div id="picker" hidden>
-  <div class="sheet">
-    <h3>选择城市</h3>
-    <input id="cityInput" placeholder="输入城市名，如：杭州" autocomplete="off">
-    <ul id="cityList"></ul>
-    <div class="btns"><button id="useGps">使用当前定位</button><button id="closePicker">取消</button></div>
-  </div>
-</div>
 <button id="gear" title="调试面板" hidden>⚙</button>
 <div id="wishPanel" hidden><input id="wishInput" maxlength="30" enterkeyhint="done" autocomplete="off" autocorrect="off" spellcheck="false"><button id="wishOk" disabled aria-label="确认" title="确认"><span class="ico" aria-hidden="true"></span></button></div>
 <div id="panel" hidden>
@@ -100,7 +78,6 @@
       <option value="snow">雪</option>
     </select></div>
   <div class="row"><label>地点</label><span id="dbgPlace" style="flex:1"></span></div>
-  <button id="cityBtn">选择城市</button>
   <button id="reset">回到实时</button>
   <div class="note">调试用：拖动时间或加速流速，可以看光线连续变化。正式上线时可以隐藏此面板。</div>
 </div>

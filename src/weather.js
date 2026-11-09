@@ -1,4 +1,4 @@
-// 定位 + 实时天气（Open-Meteo，免费、无需 key）
+// 实时天气（Open-Meteo，免费、无需 key）：这口井固定在富士山下，只查那里的天气
 
 const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
 
@@ -35,77 +35,6 @@ export function targetsFromLive(c) {
 function fetchTimeout(url, ms) {
   const ac = new AbortController(); const id = setTimeout(() => ac.abort(), ms);
   return fetch(url, { signal: ac.signal }).finally(() => clearTimeout(id));
-}
-
-function gpsLocate() {
-  return new Promise(res => {
-    if (!navigator.geolocation) return res(null);
-    navigator.geolocation.getCurrentPosition(
-      p => res({ lat: p.coords.latitude, lon: p.coords.longitude, src: 'gps' }),
-      () => res(null), { timeout: 10000, maximumAge: 30 * 60e3, enableHighAccuracy: false });
-  });
-}
-
-const deviceOffset = () => -new Date().getTimezoneOffset();   // 分钟，东八区 = 480
-
-async function ipLocate() {
-  try {
-    const j = await (await fetchTimeout('https://ipapi.co/json/', 6000)).json();
-    if (typeof j.latitude !== 'number') return null;
-    // 走代理 / VPN 时 IP 可能被认到国外：IP 所在时区和手机系统时区对不上，就不采信
-    const m = /^([+-])(\d\d)(\d\d)$/.exec(j.utc_offset || '');
-    if (m) {
-      const off = (m[1] === '-' ? -1 : 1) * (+m[2] * 60 + +m[3]);
-      if (Math.abs(off - deviceOffset()) > 60) return null;
-    }
-    return { lat: j.latitude, lon: j.longitude, src: 'ip' };
-  } catch {}
-  return null;
-}
-
-// 按系统时区推一个代表城市（最后的兜底）
-const TZ_CITIES = {
-  'Asia/Shanghai': [31.23, 121.47, '上海'], 'Asia/Chongqing': [29.56, 106.55, '重庆'], 'Asia/Harbin': [45.8, 126.53, '哈尔滨'],
-  'Asia/Urumqi': [43.83, 87.62, '乌鲁木齐'], 'Asia/Hong_Kong': [22.32, 114.17, '香港'], 'Asia/Macau': [22.2, 113.55, '澳门'],
-  'Asia/Taipei': [25.03, 121.56, '台北'], 'Asia/Tokyo': [35.68, 139.69, '东京'], 'Asia/Seoul': [37.57, 126.98, '首尔'],
-  'Asia/Singapore': [1.35, 103.82, '新加坡'], 'Asia/Kuala_Lumpur': [3.14, 101.69, '吉隆坡'], 'Asia/Bangkok': [13.76, 100.5, '曼谷'],
-  'Europe/London': [51.51, -.13, '伦敦'], 'Europe/Paris': [48.86, 2.35, '巴黎'], 'Europe/Berlin': [52.52, 13.4, '柏林'],
-  'America/New_York': [40.71, -74.01, '纽约'], 'America/Los_Angeles': [34.05, -118.24, '洛杉矶'], 'America/Chicago': [41.88, -87.63, '芝加哥'],
-  'America/Toronto': [43.65, -79.38, '多伦多'], 'America/Vancouver': [49.28, -123.12, '温哥华'], 'Australia/Sydney': [-33.87, 151.21, '悉尼'],
-  'Australia/Melbourne': [-37.81, 144.96, '墨尔本'],
-};
-export function tzGuess() {
-  const c = TZ_CITIES[Intl.DateTimeFormat().resolvedOptions().timeZone];
-  if (c) return { lat: c[0], lon: c[1], name: c[2], src: 'tz' };
-  return { lat: 30, lon: deviceOffset() / 4, name: '', src: 'tz' };
-}
-
-// 坐标 → 中文地名（BigDataCloud 的免费客户端接口，坐标只保留两位小数）
-export async function placeName(lat, lon) {
-  try {
-    const j = await (await fetchTimeout(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat.toFixed(2)}&longitude=${lon.toFixed(2)}&localityLanguage=zh`, 6000)).json();
-    return j.city || j.locality || j.principalSubdivision || '';
-  } catch { return ''; }
-}
-
-// 城市搜索（Open-Meteo 地理编码，支持中文）
-export async function searchCity(q) {
-  const j = await (await fetchTimeout(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=8&language=zh&format=json`, 6000)).json();
-  return (j.results || []).map(r => ({ lat: r.latitude, lon: r.longitude, name: r.name, desc: [r.admin1, r.country].filter(Boolean).join(' · ') }));
-}
-
-// 定位优先级：手动选择的城市 > 浏览器定位 > IP（时区一致才用）> 系统时区
-const SAVED_KEY = 'wish.city';
-export const savedCity = () => { try { return JSON.parse(localStorage.getItem(SAVED_KEY)); } catch { return null; } };
-export const saveCity = c => c ? localStorage.setItem(SAVED_KEY, JSON.stringify(c)) : localStorage.removeItem(SAVED_KEY);
-
-export async function locate() {
-  const saved = savedCity();
-  if (saved) return { ...saved, src: 'manual' };
-  const p = (await gpsLocate()) || (await ipLocate());
-  if (!p) return tzGuess();
-  p.name = await placeName(p.lat, p.lon);
-  return p;
 }
 
 export async function fetchWeather(lat, lon) {

@@ -51,7 +51,7 @@ export function skyAt(el) {
 }
 
 export function seasonOf(ms, lat) {
-  let m = new Date(ms).getMonth();
+  let m = new Date(ms).getUTCMonth();   // ms 已经换算成当地时间（调用方加上时差），按 UTC 读月份
   if (lat < 0) m = (m + 6) % 12;
   return m === 11 || m <= 1 ? 'winter' : m <= 4 ? 'spring' : m <= 7 ? 'summer' : 'autumn';
 }

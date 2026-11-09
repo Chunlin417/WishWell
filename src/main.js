@@ -6,7 +6,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { GradeShader } from './shaders.js';
 import { RAD, sunPos, moonPos, moonPhase, skyAt, seasonOf } from './astro.js';
-import { PRESETS, PRESET_NAME, WX_NAME, targetsFromLive, locate, fetchWeather, tzGuess, searchCity, saveCity } from './weather.js';
+import { PRESETS, PRESET_NAME, WX_NAME, targetsFromLive, fetchWeather } from './weather.js';
 import { shared } from './patch.js';
 import { loadAll } from './textures.js';
 import { buildFoxes, FOX_Z } from './fox.js';
@@ -26,7 +26,12 @@ const mixA = (a, b, t) => a.map((v, i) => lerp(v, b[i], t));
 const setSRGB = (color, c, k = 1) => color.setRGB(c[0] / 255, c[1] / 255, c[2] / 255, THREE.SRGBColorSpace).multiplyScalar(k);
 
 // ================= 状态 =================
-let loc = tzGuess();   // 定位完成前先按系统时区估一个城市，保证一打开光线就基本对
+// 这口井在富士山北麓的忍野八海（山梨县）：不读取玩家的位置，所有人看到的都是这里此刻的样子——
+// 日本的昼夜、天气、季节（太阳、月亮按真实时刻和这里的经纬度算；钟点、季节按日本时间 UTC+9）
+const loc = { lat: 35.461, lon: 138.833, name: '忍野八海（山梨县）' };
+const JST = 9 * 3600e3;
+const jstHour = ms => { const d = new Date(ms + JST); return d.getUTCHours() + d.getUTCMinutes() / 60; };
+const atJstHour = (ms, h) => Math.floor((ms + JST) / 864e5) * 864e5 - JST + Math.round(h * 60) * 60e3;   // 同一个日本日期里的 h 点
 let realtime = true, speed = 1, simMs = Date.now();
 let wxMode = 'live', live = null, weatherReady = false;
 const wx = { cloud: .2, rain: 0, snow: 0, fog: 0, thunder: 0, wind: .2 }, wxT = { ...wx };
@@ -185,15 +190,9 @@ async function refreshWeather() {
   catch (e) { console.warn('天气获取失败，15 分钟后重试', e); }
 }
 async function init() {
-  loc = await locate();
   updateInfo();
   await refreshWeather();
   setInterval(refreshWeather, 15 * 60e3);
-}
-function setLocation(c) {   // 手动选城市
-  saveCity(c);
-  loc = { ...c, src: 'manual' };
-  updateInfo(); refreshWeather();
 }
 
 // ================= 每帧更新 =================
@@ -216,14 +215,14 @@ function update(dt) {
   snowCover = clamp(snowCover + (wx.snow > .3 ? dt * .04 : -dt * .02));
   wet = clamp(wet + (wx.rain > .05 ? dt * .15 : -dt * .01));
 
-  const s = seasonForce || seasonOf(simMs, loc.lat);
+  const s = seasonForce || seasonOf(simMs + JST, loc.lat);
   if (s !== season) { season = s; pool.setSeason(s); }
 
   // ---- 冬天的点缀：白霜（夜里结、上午化）和池边薄冰（够冷才有）----
   // 有实时气温就按气温；没有（离线 / 调试天气）就按冬天的典型情况
   const tempC = wxMode === 'live' && live ? live.temperature_2m : null;
   const winter = season === 'winter' ? 1 : 0;
-  const hr = new Date(simMs); const h = hr.getHours() + hr.getMinutes() / 60;
+  const h = jstHour(simMs);   // 日本时间的钟点
   // 夜里和清晨霜最重；白天也不完全化掉（背阴处、草尖上留着一层薄霜），冬天任何时候打开都看得出来
   const frostTime = Math.max(.4, h < 12 ? 1 - smooth(clamp((h - 8.5) / 3)) : smooth(clamp((h - 17) / 4)));
   const cold = tempC === null ? 1 : clamp((8 - tempC) / 8);   // 8°C 以下开始有霜，0°C 以下最重
@@ -490,14 +489,14 @@ const pad = n => String(n).padStart(2, '0');
 let dragging = false;
 // 页面上不显示时间、地点、天气；这些只在调试面板里能看到
 function updateInfo() {
-  const d = new Date(simMs);
   let w;
   if (wxMode !== 'live') w = PRESET_NAME[wxMode] + '（调试）';
   else if (live) w = `${WX_NAME[live.weather_code] ?? '—'} ${Math.round(live.temperature_2m)}°C`;
   else w = '感知天气…';
   $('dbgPlace').textContent = `${loc.name || '未知'} · ${w}`;
-  if (!dragging) $('hour').value = d.getHours() + d.getMinutes() / 60;
-  $('hourTxt').textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const h = jstHour(simMs);
+  if (!dragging) $('hour').value = h;
+  $('hourTxt').textContent = `${pad(Math.floor(h))}:${pad(Math.round((h % 1) * 60) % 60)}（日本）`;
 }
 
 // ---- 许愿 ----
@@ -525,44 +524,13 @@ wishOk.onclick = submitWish;
 setInterval(() => { if (wish.inputReady) openWishInput(); }, 100);
 
 
-// 城市选择（入口在调试面板里）
-let searchTimer;
-$('cityBtn').onclick = () => {
-  $('picker').hidden = false; $('cityInput').value = ''; $('cityList').replaceChildren();
-  setTimeout(() => $('cityInput').focus(), 50);
-};
-$('closePicker').onclick = () => { $('picker').hidden = true; };
-$('picker').onclick = e => { if (e.target.id === 'picker') $('picker').hidden = true; };
-$('cityInput').oninput = e => {
-  clearTimeout(searchTimer);
-  const q = e.target.value.trim();
-  if (!q) { $('cityList').replaceChildren(); return; }
-  searchTimer = setTimeout(async () => {
-    const li = (text, sub) => { const el = document.createElement('li'); el.textContent = text; if (sub) { const s = document.createElement('small'); s.textContent = sub; el.append(s); } return el; };
-    try {
-      const rs = await searchCity(q);
-      $('cityList').replaceChildren(...(rs.length ? rs.map(c => {
-        const el = li(c.name, c.desc);
-        el.onclick = () => { $('picker').hidden = true; setLocation({ lat: c.lat, lon: c.lon, name: c.name }); };
-        return el;
-      }) : [li('没有找到这个城市')]));
-    } catch { $('cityList').replaceChildren(li('搜索失败，请检查网络')); }
-  }, 300);
-};
-$('useGps').onclick = async () => {
-  saveCity(null); $('picker').hidden = true;
-  loc = await locate(); updateInfo(); refreshWeather();
-};
-
 // 调试面板：网址带 ?debug 才显示
 if (new URLSearchParams(location.search).has('debug')) $('gear').hidden = false;
 $('gear').onclick = () => { $('panel').hidden = !$('panel').hidden; };
 $('hour').addEventListener('pointerdown', () => dragging = true);
 addEventListener('pointerup', () => dragging = false);
 $('hour').oninput = e => {
-  const h = +e.target.value, d = new Date(simMs);
-  d.setHours(Math.floor(h), Math.round((h % 1) * 60), 0, 0);
-  simMs = d.getTime(); realtime = false; updateInfo();
+  simMs = atJstHour(simMs, +e.target.value); realtime = false; updateInfo();
 };
 $('speed').onchange = e => { speed = +e.target.value; if (speed > 1) realtime = false; };
 $('wx').onchange = e => { wxMode = e.target.value; applyWeather(false); };
@@ -574,7 +542,7 @@ setInterval(updateInfo, 1000);
 
 // 调试用（只在开发模式下暴露）
 if (import.meta.env.DEV) window.__wish = {
-  setTime(h) { const d = new Date(simMs); d.setHours(Math.floor(h), Math.round((h % 1) * 60), 0, 0); simMs = d.getTime(); realtime = false; },
+  setTime(h) { simMs = atJstHour(simMs, h); realtime = false; },   // h：日本时间
   setSimMs(ms) { simMs = ms; realtime = false; },
   setWeather(m) { wxMode = m; applyWeather(true); },
   setSeason(s) { seasonForce = s; },
