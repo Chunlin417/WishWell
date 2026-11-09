@@ -14,7 +14,7 @@ import { buildPool, floorH, poolK } from './pool.js';
 import { createSky } from './sky.js';
 import { Ripples, createWater } from './water.js';
 import { Rain, Snow, Fireflies } from './fx.js';
-import { createWish } from './wish.js';
+import { createWish, DRAGON_ENABLED } from './wish.js';
 import { createWishAudio } from './audio.js';
 // 临时开关：false = 许愿签功能关闭（点左边的石狐没有反应，也不会出现手形光标）。要恢复改成 true 即可
 const WISH_ENABLED = false;
@@ -82,7 +82,12 @@ function updateEnv() {
   envRT?.dispose(); envRT = rt;
 }
 
-const texSets = loadAll(renderer);
+// 加载遮罩：贴图和模型全部下载完、再画几帧（着色器编译好）之后才淡出——玩家不会先看到没贴图的土色地面和石头
+// （贴图、模型都走 three.js 默认的加载管理器；万一网络很慢，最多等 15 秒也会揭开）
+let assetsReady = false, readyFrames = 0, revealed = false;
+THREE.DefaultLoadingManager.onLoad = () => { assetsReady = true; };
+setTimeout(() => { assetsReady = true; }, 15000);
+const texSets = loadAll(renderer, { dragon: DRAGON_ENABLED });
 const pool = buildPool(scene, { grassCount: isMobile ? 3500 : 4800, tuftCount: isMobile ? 16000 : 36000, tex: texSets });
 // 横屏两侧的一对守愿石狐
 const foxes = buildFoxes(scene, { floorH, poolK, tex: texSets });
@@ -448,7 +453,8 @@ function loop(now) {
   adaptResolution(raw);
   update(dt);
   render();
-  if (firstFrame) { firstFrame = false; document.getElementById('loading').classList.add('done'); }
+  firstFrame = false;
+  if (assetsReady && !revealed && ++readyFrames > 3) { revealed = true; document.getElementById('loading').classList.add('done'); }
   requestAnimationFrame(loop);
 }
 

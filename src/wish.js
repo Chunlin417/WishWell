@@ -85,7 +85,7 @@ function softDot() {
 // ---------- 龙：一条长长的身躯，沿路径游动（每一节都走过龙头走过的位置），背上一排鳍 ----------
 // HS：龙头放大倍数（主视角离水面 11 米，龙头要够大），BS：身体粗细的额外倍数（现在直接由 BODY_R 控制）
 // 临时开关：false = 龙不出现（右边的石狐点了没反应；签沉下去、消失，仪式就结束）。要恢复龙改成 true 即可
-const DRAGON_ENABLED = false;
+export const DRAGON_ENABLED = false;
 const RINGS = 150, SEGS = 14, LEN = 11, HS = 2.2, BS = 1;
 const VPR = SEGS + 1;          // 每一圈的顶点数：多一个和第一个重合的点，贴图在接缝处才能连续
 const U_REP = 2, V_TILE = 1.1; // 鳞片贴图：绕身体一圈重复 2 次，沿身体每 1.1 米重复一次（鳞片跟着身体走，不会在身上滑动）
@@ -262,7 +262,7 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
   // 雕刻的龙头模型（Tripo 生成，scripts/build_dragon_head.py 处理成左右对称、减面、带张嘴形变）：
   // 加载好之后替换掉上面用几何体拼的头和下颚，眼睛挪到模型的眼窝里，程序龙须改成从模型的须根长出来
   let sculpt = null;
-  new GLTFLoader().load(`${import.meta.env.BASE_URL}models/dragon_head.glb`, gltf => {
+  if (DRAGON_ENABLED) new GLTFLoader().load(`${import.meta.env.BASE_URL}models/dragon_head.glb`, gltf => {   // 龙关掉时不下载龙头模型
     let src = null; gltf.scene.traverse(o => { if (o.isMesh) src = o; });
     if (!src) return;
     const geo = src.geometry;

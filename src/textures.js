@@ -38,7 +38,7 @@ function loadGrassAtlas(renderer) {
   return t;
 }
 
-export function loadAll(renderer) {
+export function loadAll(renderer, { dragon = true } = {}) {
   const ground = {};
   for (const [k, g] of Object.entries(GROUND)) {
     ground[k] = { ...g, diff: load(`${g.file}_diff.webp`, true, renderer), nor: load(`${g.file}_nor_gl.webp`, false, renderer) };
@@ -50,6 +50,6 @@ export function loadAll(renderer) {
     ground,
     grass: loadGrassAtlas(renderer),
     // 龙鳞（scripts/pack_dragon_textures.py 生成）：背部大鳞、腹部横纹甲、龙头细鳞
-    dragon: { back: loadSet('dragon_scales', renderer), belly: loadSet('dragon_belly', renderer), head: loadSet('dragon_head', renderer) },
+    dragon: dragon ? { back: loadSet('dragon_scales', renderer), belly: loadSet('dragon_belly', renderer), head: loadSet('dragon_head', renderer) } : null,   // 龙关掉时不下载龙鳞贴图
   };
 }
