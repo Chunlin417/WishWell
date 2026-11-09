@@ -278,9 +278,19 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
         vec3 triN = gN; float triRough = 1.0; float rockWet = 0.;
         #ifdef TRI
           vec3 tb = pow(abs(gN), vec3(4.)); tb /= dot(tb, vec3(1.));
-          vec3 alb = triSample(tDiff0, vWPos, tb, uTexScale.x).rgb;
+          vec3 alb = vec3(1.);
+          #ifdef LAWN
+            // 地面：岸上全是草坪层，水下全是卵石层，只有水线附近两者混合。
+            // 先算出这里是岸上还是水下，只采样用得上的那一层（地面占了大半个画面，每个像素省下十几次贴图采样）
+            float landPre = smoothstep(-.04, .14, vWPos.y + (vnoise(vWPos.xz * 2.3) - .5) * .12);
+            if (landPre < .999) {
+          #endif
+          alb = triSample(tDiff0, vWPos, tb, uTexScale.x).rgb;
           triRough = triSample(tRough0, vWPos, tb, uTexScale.x).r;
           triN = triNormal(tNor0, vWPos, gN, tb, uTexScale.x);
+          #ifdef LAWN
+            }
+          #endif
           float mossM = 0., mossTone = 1.;
           #ifdef TRI_TWO
             vec3 alb1 = triSample(tDiff1, vWPos, tb, uTexScale.y).rgb;
@@ -311,6 +321,8 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
           #ifdef LAWN
             // 岸上的地面分几层：湿泥土打底 → 零星成片的落叶 → 草地（石头边是苔藓）→ 水边一圈湿沙；水下是卵石
             // 每层都是真实贴图；草和苔藓的颜色仍然跟着季节走（贴图除以它的平均色，只留明暗和细节，再乘季节色）
+            float land = landPre;
+            if (land > .001) {
             vec2 lp = vWPos.xz;
             float px = length(fwidth(lp));
             float tuftW = 1. - smoothstep(.03, .09, px);     // 草堆明暗：小于像素时淡出
@@ -380,10 +392,10 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
             landN = landN * .9 - g * .03 * tuftW * cover;
             vec3 landNW = normalize(vec3(gN.x + landN.x, gN.y, gN.z + landN.y));
 
-            float land = smoothstep(-.04, .14, vWPos.y + (vnoise(lp * 2.3) - .5) * .12);
             alb = mix(alb, landAlb, land);
             triRough = mix(triRough, landR, land);
             triN = normalize(mix(triN, landNW, land));
+            }
           #endif
           diffuseColor.rgb *= alb;
           // 青苔放在去色之后再上：石头顶上一片片鲜绿的苔

@@ -328,17 +328,17 @@ export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) 
       { tex: { mode: 'rock', sets: [tex.rock, tex.moss], scale: [.6, .7], gray: .9, bright, soft: .45, tint, crack: .55 } }));   // 带裂纹
   const RV = rng(4711);   // 石头的颜色、倾斜用单独的随机数：不打乱后面草、花的摆放
   const geos = Array.from({ length: 6 }, (_, i) => makeRockGeo(i * 13.7 + 1.3, 4));
-  const rocks = [];
+  const rocks = [], rockParts = [[], [], []];
   const place = (x, z, s, sx, sy, sz, sink) => {
     if (poolK(x, z) > 1.08 && Math.abs(z - FOX_Z) < 1.1 && Math.abs(x) > 4.4) return;   // 给两侧的石狐让位
     const v = RV();
-    const m = new THREE.Mesh(geos[Math.floor(R() * geos.length)], rockMats[v < .62 ? 0 : v < .84 ? 1 : 2]);
-    m.scale.set(s * sx, s * sy, s * sz);
+    const geo = geos[Math.floor(R() * geos.length)], mi = v < .62 ? 0 : v < .84 ? 1 : 2;
+    dummy.scale.set(s * sx, s * sy, s * sz);
     const tilt = RV() < .3 ? .4 : .15;   // 约三成的石头歪得明显一些
-    m.rotation.set(rand(-.15, .15) * tilt / .15, rand(0, Math.PI * 2), rand(-.15, .15) * tilt / .15);
-    m.position.set(x, floorH(x, z) + s * sy * sink, z);
-    m.castShadow = m.receiveShadow = true;
-    scene.add(m);
+    dummy.rotation.set(rand(-.15, .15) * tilt / .15, rand(0, Math.PI * 2), rand(-.15, .15) * tilt / .15);
+    dummy.position.set(x, floorH(x, z) + s * sy * sink, z);
+    dummy.updateMatrix();
+    rockParts[mi].push(geo.clone().applyMatrix4(dummy.matrix));   // 先收集起来，最后按材质合并成三个模型（一百多块石头只画三次）
     rocks.push({ x, z, r: s * Math.max(sx, sz) });
   };
   // 主石圈：大小拉开（约三成是大石头）
@@ -369,6 +369,15 @@ export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) 
     const th = RV() * Math.PI * 2, r = Rb(th) * (.86 + RV() * .08);
     place(Math.cos(th) * r, Math.sin(th) * r, .28 + RV() * .26, 1.1 + RV() * .4, .55 + RV() * .25, .9 + RV() * .3, -.05 + RV() * .15);
   }
+
+  // 同一种材质的石头合并成一个模型：原来每块石头单独画，每帧四遍（阴影、倒影、折射、画面）加起来几百次绘制
+  rockParts.forEach((parts, i) => {
+    if (!parts.length) return;
+    const m = new THREE.Mesh(mergeGeometries(parts), rockMats[i]);
+    m.castShadow = m.receiveShadow = true;
+    scene.add(m);
+    parts.forEach(g => g.dispose());
+  });
 
   // 石头脚下：一圈压暗的接触阴影，草被压没、露出泥土；石头才是"陷在土里"，不是摆在草皮上
   {
@@ -485,6 +494,8 @@ export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) 
   for (const g of [grass, grassTall]) { g.receiveShadow = g.castShadow = true; scene.add(g); above.push(g); }
 
   // ---------- 矮草簇：铺满整片草地，跟着着色器画的草坪走（露土处不长，土包上稀而黄，远处稀一些） ----------
+  // 草簇少的时候（为了流畅）每簇稍微宽一点，草地看起来一样密
+  const TUFT_W = Math.min(1.15, Math.pow(60000 / tuftCount, .25));
   const tufts = new THREE.InstancedMesh(makeCard(GRASS_CARDS.short, TUFT_H, 2, 13), cardMat(TUFT_H, .35), tuftCount);
   const tuftVar = [];   // [深浅绿的比例, 干燥度, 苔藓程度, 亮度]
   for (let n = 0, tries = 0; n < tuftCount && tries < tuftCount * 6; tries++) {
@@ -510,7 +521,7 @@ export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) 
       dummy.position.set(x, y - .01, z);
       dummy.rotation.set(rand(-.15, .15), rand(0, 6.28), rand(-.15, .15));
       const s = rand(.75, 1.25) * (1 - dry * .3) * lerp(.8, 1.1, cover);
-      dummy.scale.set(s * rand(.85, 1.2), s, s * rand(.85, 1.2));
+      dummy.scale.set(s * rand(.85, 1.2) * TUFT_W, s, s * rand(.85, 1.2) * TUFT_W);
       dummy.updateMatrix(); tufts.setMatrixAt(n, dummy.matrix);
       tuftVar.push([clamp(sstep(.25, .75, ln) + rand(-.2, .2)), dry, moss, rand(.85, 1.12)]);
       n++; tufts.count = n;
@@ -753,5 +764,5 @@ export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) 
     if (groundLeaves.instanceColor) groundLeaves.instanceColor.needsUpdate = true;
   }
 
-  return { under, above, flySpots, setSeason };
+  return { under, above, flySpots, setSeason, reflSkip: [tufts] };   // reflSkip：水面倒影里不画（贴地的矮草在倒影里看不见，却要多画几万个）
 }

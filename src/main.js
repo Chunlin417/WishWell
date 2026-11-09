@@ -34,7 +34,10 @@ let snowCover = 0, wet = 0, flash = 0, season = null, frost = 0, ice = 0, season
 
 // ================= 渲染器 / 场景 =================
 const isMobile = matchMedia('(pointer: coarse)').matches || innerWidth < 800;
-const DPR = Math.min(devicePixelRatio || 1, isMobile ? 1.5 : 2);
+// 分辨率：像素比最高 1.25（再高画面几乎看不出区别，显卡要多算一倍以上的像素）；
+// 运行时按实际帧率自动升降（resScale 0.6～1），集成显卡、手机上也能保持流畅
+const DPR_MAX = Math.min(devicePixelRatio || 1, 1.25);
+let resScale = 1, DPR = DPR_MAX;
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
 renderer.setPixelRatio(DPR);
@@ -75,7 +78,7 @@ function updateEnv() {
 }
 
 const texSets = loadAll(renderer);
-const pool = buildPool(scene, { grassCount: isMobile ? 3500 : 4800, tuftCount: isMobile ? 16000 : 60000, tex: texSets });
+const pool = buildPool(scene, { grassCount: isMobile ? 3500 : 4800, tuftCount: isMobile ? 16000 : 36000, tex: texSets });
 // 横屏两侧的一对守愿石狐
 const foxes = buildFoxes(scene, { floorH, poolK, tex: texSets });
 const ripples = new Ripples(renderer, 256, 5);
@@ -99,7 +102,7 @@ water.uniforms.tRefl.value = reflRT.texture;
 water.uniforms.tRefr.value = refrRT.texture;
 const clipAbove = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);      // 保留水面以上
 const clipBelow = new THREE.Plane(new THREE.Vector3(0, -1, 0), .02);   // 保留水面以下
-const hideInRefl = [...pool.under, water.mesh, rain.obj, snow.obj, flies.obj];
+const hideInRefl = [...pool.under, ...pool.reflSkip, water.mesh, rain.obj, snow.obj, flies.obj];
 const hideInRefr = [...pool.above, ...foxes.objects, sky.mesh, water.mesh, rain.obj, snow.obj, flies.obj];
 
 // 后期：泛光 + 色调映射 + 暗角
@@ -158,7 +161,7 @@ function resize() {
   renderer.setSize(w, h);
   composer.setPixelRatio(DPR); composer.setSize(w, h);
   const bw = Math.round(w * DPR), bh = Math.round(h * DPR);
-  reflRT.setSize(Math.round(bw * .6), Math.round(bh * .6));
+  reflRT.setSize(Math.round(bw * .45), Math.round(bh * .45));   // 倒影本来就被波纹打散，分辨率低一些看不出来
   refrRT.setSize(Math.round(bw * .6), Math.round(bh * .6));
   water.uniforms.uRes.value.set(bw, bh);
 }
@@ -201,7 +204,8 @@ const dirOf = (alt, az, face, out) => {
   const r = (az - face) * RAD, a = alt * RAD;
   return out.set(Math.sin(r) * Math.cos(a), Math.sin(a), -Math.cos(r) * Math.cos(a));
 };
-let T = 0, envTimer = 0, nextAmbient = 2, firstFrame = true;
+let T = 0, envAge = 0, nextAmbient = 2, firstFrame = true, shadowTick = 0;
+const envKey = new Float32Array(12);   // 上一次生成环境光时的天空颜色：天空明显变了才重新生成
 
 function update(dt) {
   T += dt;
@@ -353,22 +357,39 @@ function update(dt) {
   ripples.update(dt);
 
   // ---- 环境光贴图 ----
-  envTimer -= dt;
-  if (envTimer <= 0 || firstFrame) { updateEnv(); envTimer = (!realtime || speed > 1) ? .25 : 2; }
+  // 环境光贴图由天空生成，一次要几十毫秒（原来每 2 秒一次，画面会周期性地顿一下）：
+  // 只在天空颜色明显变化时才重新生成（最多每秒一次），否则至少每分钟刷新一次
+  envAge += dt;
+  const skyC = [su.uZen.value, su.uHor.value, su.uGlowCol.value];
+  let changed = false;
+  for (let i = 0; i < 3; i++) ['r', 'g', 'b'].forEach((ch, j) => {
+    const v = skyC[i][ch], o = envKey[i * 3 + j];
+    if (Math.abs(v - o) > .05 * Math.max(v, o) + .002) changed = true;
+  });
+  const extra = [su.uGlow.value, su.uCloud.value, su.uSunVis.value];
+  for (let i = 0; i < 3; i++) if (Math.abs(extra[i] - envKey[9 + i]) > .04) changed = true;
+  const fast = !realtime || speed > 1;
+  if (firstFrame || (changed && envAge > (fast ? .25 : 1)) || envAge > 60) {
+    updateEnv(); envAge = 0;
+    for (let i = 0; i < 3; i++) { envKey[i * 3] = skyC[i].r; envKey[i * 3 + 1] = skyC[i].g; envKey[i * 3 + 2] = skyC[i].b; }
+    envKey.set(extra, 9);
+  }
 
   // ---- 镜头微动 ----
-  parallaxS.lerp(parallax, Math.min(1, dt * 2));
+  // 跟随得慢一些（约 1 秒才跟上）、幅度小一些：像人站在池边轻轻侧头，而不是镜头在追着鼠标
+  parallaxS.lerp(parallax, Math.min(1, dt * 1));
   camera.position.copy(camDir).multiplyScalar(camDist).add(camTarget);
   // 镜头只跟随电脑鼠标轻微移动；不再自己缓慢漂移（会让细小的草地闪烁）
-  camera.position.x += parallaxS.x * .5;
-  camera.position.z += parallaxS.y * .3;
+  camera.position.x += parallaxS.x * .35;
+  camera.position.z += parallaxS.y * .2;
   camera.lookAt(camTarget);
   if (camOverride) { camera.position.copy(camOverride.p); camera.lookAt(camOverride.t); }   // 仅开发调试用的特写镜头
 }
 let camOverride = null;
 
 function render() {
-  renderer.shadowMap.needsUpdate = true;
+  // 阴影：太阳走得很慢，每 4 帧更新一次就够；许愿仪式里有东西在动时每帧更新
+  if (firstFrame || wish.mode !== 'idle' || ++shadowTick % 4 === 0) renderer.shadowMap.needsUpdate = true;
   water.updateMirror(camera);
 
   const hide = list => { const prev = list.map(o => o.visible); list.forEach(o => o.visible = false); return () => list.forEach((o, i) => o.visible = prev[i]); };
@@ -411,8 +432,21 @@ function render() {
 }
 
 let last = performance.now();
+let perfT = 0, perfN = 0;
+function adaptResolution(raw) {
+  if (raw > .25) { perfT = perfN = 0; return; }   // 切到后台回来的那一帧不算
+  perfT += raw; perfN++;
+  if (perfT < 2) return;
+  const avg = perfT / perfN; perfT = perfN = 0;
+  // 低于约 36 帧就降一档分辨率；高于约 55 帧再慢慢升回来（中间留出空隙，避免来回跳）
+  const next = avg > 1 / 36 ? Math.max(.6, resScale - .1) : avg < 1 / 55 ? Math.min(1, resScale + .1) : resScale;
+  if (Math.abs(next - resScale) < .01) return;
+  resScale = next; DPR = DPR_MAX * resScale;
+  renderer.setPixelRatio(DPR); resize();
+}
 function loop(now) {
-  const dt = Math.min(.05, (now - last) / 1000); last = now;
+  const raw = (now - last) / 1000, dt = Math.min(.05, raw); last = now;
+  adaptResolution(raw);
   update(dt);
   render();
   if (firstFrame) { firstFrame = false; document.getElementById('loading').classList.add('done'); }
