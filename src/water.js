@@ -131,10 +131,17 @@ void main(){
   vec3 refr = texture2D(tRefr, suv + n.xz * .025).rgb;
   vec4 rc = vRefl; rc.xy += n.xz * .05 * rc.w;
   vec3 refl = texture2DProj(tRefl, rc).rgb * .85;
+  // 由浅到深（在和倒影混合之前处理折射，斜看时也看得出来）：靠岸的浅水清亮、偏青，看得见水底的卵石；
+  // 往池心逐渐变深，井口是最暗的蓝黑。浅水的亮度跟着天光走（用倒影的亮度估计），夜里不会发亮
+  float kk0 = length(vW.xz) / Rb(atan(vW.z, vW.x));
+  float sky = clamp(dot(refl, vec3(.3, .59, .11)) * 1.6, 0., 1.);
+  float shallow = smoothstep(.62, .92, kk0);
+  refr = mix(refr, refr * vec3(1., 1.5, 1.42) + vec3(.006, .04, .044) * sky, shallow);
+  refr *= mix(1., .6, 1. - smoothstep(.45, .7, kk0));   // 井口一圈更深更暗：一眼看出这里深不见底
   vec3 col = mix(refr, refl, F * uReflAmt);
 
-  // 石头和水的交界处：一圈柔和的接触阴影（石头挡住了天光，也压在水面上）
-  col *= mix(1., .62, smoothstep(.84, .98, kk));
+  // 石头和水的交界处：窄窄一圈接触阴影（石头挡住天光、压在水面上）
+  col *= mix(1., .78, smoothstep(.93, .99, kk));
   col += uNightSheen * (.4 + .6 * F) * (.85 + .3 * n.x);   // 夜里水面淡淡的月色反光，随波纹微微起伏
 
   if (iceM > 0.) {

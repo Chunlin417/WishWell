@@ -319,15 +319,20 @@ export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) 
   scene.add(ground);
 
   // ---------- 围池石块 ----------
-  const rockMat = patch(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, envMapIntensity: .55 }),
-    { tex: { mode: 'rock', sets: [tex.rock, tex.moss], scale: [.6, .7], gray: .9, bright: .95, soft: .45, tint: [.95, .98, 1.02], crack: .55 } });   // 冷灰色花岗岩，带裂纹
+  // 三种石色：冷灰花岗岩（多数）、偏暖的黄褐色石头、深色的石头；混在一起才不像一批复制出来的
+  const rockMats = [[.95, [.95, .98, 1.02]], [.92, [1.08, .99, .88]], [.72, [.9, .94, .98]]].map(([bright, tint]) =>
+    patch(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, envMapIntensity: .55 }),
+      { tex: { mode: 'rock', sets: [tex.rock, tex.moss], scale: [.6, .7], gray: .9, bright, soft: .45, tint, crack: .55 } }));   // 带裂纹
+  const RV = rng(4711);   // 石头的颜色、倾斜用单独的随机数：不打乱后面草、花的摆放
   const geos = Array.from({ length: 6 }, (_, i) => makeRockGeo(i * 13.7 + 1.3, 4));
   const rocks = [];
   const place = (x, z, s, sx, sy, sz, sink) => {
     if (poolK(x, z) > 1.08 && Math.abs(z - FOX_Z) < 1.1 && Math.abs(x) > 4.4) return;   // 给两侧的石狐让位
-    const m = new THREE.Mesh(geos[Math.floor(R() * geos.length)], rockMat);
+    const v = RV();
+    const m = new THREE.Mesh(geos[Math.floor(R() * geos.length)], rockMats[v < .62 ? 0 : v < .84 ? 1 : 2]);
     m.scale.set(s * sx, s * sy, s * sz);
-    m.rotation.set(rand(-.15, .15), rand(0, Math.PI * 2), rand(-.15, .15));
+    const tilt = RV() < .3 ? .4 : .15;   // 约三成的石头歪得明显一些
+    m.rotation.set(rand(-.15, .15) * tilt / .15, rand(0, Math.PI * 2), rand(-.15, .15) * tilt / .15);
     m.position.set(x, floorH(x, z) + s * sy * sink, z);
     m.castShadow = m.receiveShadow = true;
     scene.add(m);
@@ -354,6 +359,32 @@ export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) 
   for (let i = 0; i < 24; i++) {
     const th = rand(0, Math.PI * 2), r = Rb(th) * rand(1.08, 1.3);
     place(Math.cos(th) * r, Math.sin(th) * r, rand(.08, .2), rand(1, 1.5), rand(.5, .8), rand(.8, 1.2), .2);
+  }
+
+  // 水里几块半露出水面的石头：水线正好横穿过它们
+  for (let i = 0; i < 7; i++) {
+    const th = RV() * Math.PI * 2, r = Rb(th) * (.86 + RV() * .08);
+    place(Math.cos(th) * r, Math.sin(th) * r, .28 + RV() * .26, 1.1 + RV() * .4, .55 + RV() * .25, .9 + RV() * .3, -.05 + RV() * .15);
+  }
+
+  // 石头脚下：一圈压暗的接触阴影，草被压没、露出泥土；石头才是"陷在土里"，不是摆在草皮上
+  {
+    const col = gGeo.attributes.color, lawn = gGeo.attributes.aLawn;
+    for (let i = 0; i < gp.count; i++) {
+      const x = gp.getX(i), z = gp.getZ(i);
+      if (poolK(x, z) > 1.7) continue;
+      let ao = 1, bare = 0;
+      for (const o of rocks) {
+        const d = Math.hypot(o.x - x, o.z - z) / o.r;
+        if (d > 1.6) continue;
+        ao *= 1 - .42 * sstep(1.6, .85, d);
+        bare = Math.max(bare, sstep(1.4, .95, d));
+      }
+      if (ao === 1 && bare === 0) continue;
+      col.setXYZ(i, col.getX(i) * ao, col.getY(i) * ao, col.getZ(i) * ao);
+      lawn.setX(i, lawn.getX(i) * (1 - bare * .85));
+    }
+    col.needsUpdate = lawn.needsUpdate = true;
   }
 
   // ---------- 水底卵石 ----------

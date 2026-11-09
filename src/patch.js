@@ -275,7 +275,7 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
           diffuseColor.rgb *= mix(1., .78 + .26 * scaleH / max(vScaleM * scaleFar, .01), vScaleM * scaleFar);   // 鳞片之间的缝更暗
         #endif
         vec3 gN = normalize(vWNrm);
-        vec3 triN = gN; float triRough = 1.0;
+        vec3 triN = gN; float triRough = 1.0; float rockWet = 0.;
         #ifdef TRI
           vec3 tb = pow(abs(gN), vec3(4.)); tb /= dot(tb, vec3(1.));
           vec3 alb = triSample(tDiff0, vWPos, tb, uTexScale.x).rgb;
@@ -388,6 +388,16 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
           diffuseColor.rgb *= alb;
           // 青苔放在去色之后再上：石头顶上一片片鲜绿的苔
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.07, .11, .045) * mossTone, mossM * .7);   // 深绿色的薄苔，不再是浅黄斑
+          #ifdef HAS_MOSS
+            // 水线（水面在 y = 0）：贴着水面一圈被浸湿——更暗、更光滑；水线上面一窄条长着深绿的湿苔，水下蒙着一层暗绿的藻
+            float wl = vWPos.y + (vnoise(vWPos.xz * 3.1 + vWPos.y) - .5) * .06;
+            float algae = smoothstep(.02, -.14, wl);
+            float mossBand = smoothstep(-.01, .04, wl) * (1. - smoothstep(.07, .24, wl)) * smoothstep(.3, .62, vnoise(vWPos.xz * 6. + vWPos.y * 9.));
+            rockWet = (1. - smoothstep(.02, .14, wl)) * (1. - algae * .5);
+            diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.055, .085, .035) * mossTone, mossBand * .8);
+            diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(.5, .66, .48), algae * .85);
+            diffuseColor.rgb *= 1. - .38 * rockWet;
+          #endif
         #endif
         float above = smoothstep(-0.03, 0.06, vWPos.y);
         ${grass ? GRASS_TONE : ''}        float snowN = vnoise(vWPos.xz * 3.0) * .35 + vnoise(vWPos.xz * 11.0) * .15;
@@ -411,6 +421,7 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
         #endif
         roughnessFactor = mix(roughnessFactor, ${grass ? '.6' : mode === 'ground' ? '.5' : '.22'}, uWet * above * (1.0 - snowM));
         roughnessFactor = mix(roughnessFactor, .8, snowM);
+        roughnessFactor = mix(roughnessFactor, .28, rockWet * .85);   // 水线附近湿漉漉的，微微反光
         roughnessFactor = mix(roughnessFactor, .55, frostM * .6);   // 霜晶在斜光下微微发亮`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
         #ifdef RIM
@@ -428,7 +439,13 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
         #endif
         #ifdef TRI
           // 积雪处把凹凸压平一些
-          normal = normalize((viewMatrix * vec4(normalize(mix(triN, gN, snowM * .7)), 0.)).xyz);
+          vec3 triV = normalize((viewMatrix * vec4(normalize(mix(triN, gN, snowM * .7)), 0.)).xyz);
+          #ifdef USE_NORMALMAP
+            // 模型自带法线贴图（石狐的雕刻细节）：保留它，再叠上石材贴图的凹凸
+            normal = normalize(normal + (triV - normalize((viewMatrix * vec4(gN, 0.)).xyz)) * .6);
+          #else
+            normal = triV;
+          #endif
         #endif
         #ifdef SCALES
           // 用屏幕空间导数做凹凸（不需要切线）：鳞片边缘起伏，随光线有明暗
