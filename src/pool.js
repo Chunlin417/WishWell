@@ -4,6 +4,7 @@ import { mergeVertices, mergeGeometries } from 'three/addons/utils/BufferGeometr
 import { rng, noise3, fbm3 } from './noise.js';
 import { patch, shared } from './patch.js';
 import { FOX_Z } from './fox.js';
+import { ROCK_SHAPES } from './rockShapes.js';
 
 const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -27,8 +28,8 @@ export const NATURE = {
   foxBase: { [-1]: { weeds: 30, ferns: 6, flowers: 5, stones: 8, dirt: 1, moss: 1 }, [1]: { weeds: 20, ferns: 3, flowers: 3, stones: 4, dirt: .8, moss: .75 } },
 };
 
-// 池子边界半径（不规则，像天然石潭）
-export const Rb = th => 3.7 + .3 * Math.sin(3 * th + .8) + .18 * Math.sin(5 * th + 2.1) + .1 * Math.sin(8 * th + .3);
+// 池子边界半径（接近圆形、边缘只有平缓的小起伏，像天然石潭；这个公式在 pool.js、patch.js、water.js 里各有一份，要一起改）
+export const Rb = th => 3.7 + .12 * Math.sin(2 * th + .8) + .1 * Math.sin(3 * th + 2.1) + .06 * Math.sin(5 * th + .3);
 export const poolK = (x, z) => Math.hypot(x, z) / Rb(Math.atan2(z, x));
 
 // 地形高度：水面在 y = 0。池边是一圈浅浅的石台，往里很快陡降，池心深约 2.8，看起来深不见底
@@ -115,27 +116,45 @@ function weatherRock(g, base, mossAmt, seed, k) {
 }
 
 
-function makeRockGeo(seed, detail) {
-  let g = new THREE.IcosahedronGeometry(1, detail);
+// 岩石的形状：来自 rocks_mossy.glb（10 块圆润的河石 / 花岗岩块，scripts/pack_night_models.py 提取成 src/rockShapes.js）。
+// 每块先归一化成"半宽 1、高约 1.15、底面在 y = -0.38"——和原来程序生成的石头一样大，后面的摆放、缩放、做旧都不用改
+const b64 = (s, T) => { const b = Uint8Array.from(atob(s), ch => ch.charCodeAt(0)); return new T(b.buffer); };
+function makeRockGeo(shape, seed) {
+  // 1. 模型的轮廓：归一化成"半宽 1、高约 1.15、底面在 y = -0.38"（和原来的石头一样大，后面的摆放、缩放、做旧都不用改）
+  const pos = b64(shape.pos, Float32Array), idx = b64(shape.idx, Uint16Array);
+  const base = new THREE.BufferGeometry();
+  base.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+  base.setIndex(new THREE.BufferAttribute(new Uint16Array(idx), 1));
+  base.computeBoundingBox();
+  const bb = base.boundingBox, cx = (bb.min.x + bb.max.x) / 2, cz = (bb.min.z + bb.max.z) / 2;
+  const half = Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z) / 2, H = bb.max.y - bb.min.y;
+  const bp = base.attributes.position;
+  for (let i = 0; i < bp.count; i++) bp.setXYZ(i, (bp.getX(i) - cx) / half, (bp.getY(i) - bb.min.y) / H * 1.15 - .38, (bp.getZ(i) - cz) / half);
+  base.computeBoundingSphere();
+  const hull = new THREE.Mesh(base, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+  // 2. 模型本身太圆太光（每块只有 160 个顶点）：用一个更密的球，沿着各个方向贴到模型的轮廓上，
+  //    再加上岩石该有的东西——几个削平的切面（风化后剥落的平面）、大小两层起伏（棱、凹坑）
+  let g = new THREE.IcosahedronGeometry(1, 4);
   g.deleteAttribute('normal'); g.deleteAttribute('uv');
   g = mergeVertices(g);
-  const p = g.attributes.position, v = new THREE.Vector3();
-  // 几个随机切面：让石头有棱角，不像面团
-  const R = rng(Math.floor(seed * 1000));
-  const cuts = Array.from({ length: 7 }, () => ({   // 更多切面：石头有清楚的棱角和平整的面
-    n: new THREE.Vector3(R() - .5, (R() - .3) * .8, R() - .5).normalize(), d: .55 + R() * .3 }));
+  const p = g.attributes.position, v = new THREE.Vector3(), c = new THREE.Vector3(0, .15, 0);
+  const ray = new THREE.Raycaster(), R = rng(Math.floor(seed * 1000));
+  const cuts = Array.from({ length: 6 }, () => ({ n: new THREE.Vector3(R() - .5, (R() - .2) * .9, R() - .5).normalize(), d: .56 + R() * .25 }));
   const rad = new Float32Array(p.count);
   for (let i = 0; i < p.count; i++) {
-    v.fromBufferAttribute(p, i);
-    const n = fbm3(v.x * 1.1 + seed, v.y * 1.1, v.z * 1.1, 4);
-    const n2 = fbm3(v.x * 3.5 + seed, v.y * 3.5 + seed, v.z * 3.5, 3);
-    const n3 = noise3(v.x * 9 + seed, v.y * 9, v.z * 9);
-    v.multiplyScalar(.68 + n * .8 + (n2 - .5) * .22 + (n3 - .5) * .03);
-    for (const c of cuts) { const dd = v.dot(c.n); if (dd > c.d) v.addScaledVector(c.n, -(dd - c.d) * .95); }
-    if (v.y < -.25) v.y = -.25 + (v.y + .25) * .25;   // 底部压平，像陷在土里
+    v.fromBufferAttribute(p, i).normalize();
+    ray.set(c, v); ray.far = 4;
+    const hit = ray.intersectObject(hull)[0];
+    const r = hit ? hit.distance : 1;
+    v.multiplyScalar(r).add(c);
+    const n1 = fbm3(v.x * 1.6 + seed, v.y * 1.6, v.z * 1.6, 3), n2 = fbm3(v.x * 4.2 + seed, v.y * 4.2 + seed, v.z * 4.2, 2);
+    v.sub(c).multiplyScalar(1 + (n1 - .5) * .34 + (n2 - .5) * .15).add(c);   // 大的起伏 + 小的棱和凹坑
+    for (const ct of cuts) { const dd = v.dot(ct.n); if (dd > ct.d) v.addScaledVector(ct.n, -(dd - ct.d) * .9); }   // 削平的切面：棱角分明的平面
+    if (v.y < -.25) v.y = -.25 + (v.y + .25) * .3;   // 底部压平，像陷在土里
     p.setXYZ(i, v.x, v.y, v.z);
     rad[i] = v.length();
   }
+  base.dispose();
   g.computeVertexNormals();
   // 顶点色只做明暗 / 冷暖微调（贴图负责细节），aMoss 标记苔藓区域
   const nrm = g.attributes.normal, col = new Float32Array(p.count * 3), moss = new Float32Array(p.count);
@@ -296,7 +315,7 @@ export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) 
     patch(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, envMapIntensity: .55 }),
       { tex: { mode: 'rock', sets: [set, tex.moss], scale: [.6, .7], gray, bright, soft: .3, contrast: 1.25, tint, crack: .3, wet: tex.wetRock } }));   // 带裂纹
   const RV = rng(4711);   // 石头的颜色、倾斜用单独的随机数：不打乱后面草、花的摆放
-  const geos = Array.from({ length: 6 }, (_, i) => makeRockGeo(i * 13.7 + 1.3, 4));
+  const geos = ROCK_SHAPES.map((shape, i) => makeRockGeo(shape, i * 13.7 + 1.3));
   const rocks = [], rockParts = [[], [], []];
   const gauss = () => (R() + R() + R() - 1.5) / 1.5;
   // 每块石头的苔藓量按 NATURE.moss 的分布抽
@@ -621,21 +640,65 @@ export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) 
   const nightMatFor = (map, extra = {}) => patch(new THREE.MeshStandardMaterial({ map, alphaTest: .5, side: THREE.DoubleSide, roughness: .55 }),
     { cell: true, grass: true, grassH: 1, sway: .25, upNormal: true, card: true, underwater: false, nightOnly: true, ...extra });
   const broadMat = nightMatFor(tex.broadleaf), moonMat = nightMatFor(tex.moonflowers, { moonGlow: true });
-  const cover = [0, 1, 2, 3].map(row => plantSet(row, [170, 190, 70, 170][row], { cells: BROADLEAF_PLANTS[row], mat: broadMat, shadow: false }));
+  const cover = [0, 1, 2, 3].map(row => plantSet(row, [440, 400, 170, 440][row], { cells: BROADLEAF_PLANTS[row], mat: broadMat, shadow: false }));
   const heights = [[.22, .36], [.16, .28], [.26, .4], [.14, .24]];   // 每行植物的株高范围（米）：玉簪大一些，小叶地被矮一些
   for (let tries = 0; tries < 30000 && cover.some(m => m.count < m.instanceMatrix.count * .9); tries++) {
-    const th = rand(0, Math.PI * 2), k = 1.05 + Math.pow(R(), 1.7) * 1.35, r = Rb(th) * k, cx = Math.cos(th) * r, cz = Math.sin(th) * r, cy = floorH(cx, cz);   // 越靠近石圈越密
-    if (cy < .05 || nearFox(cx, cz) || R() > lerp(1, .45, sstep(1.3, 2.4, k))) continue;
+    const th = rand(0, Math.PI * 2), k = 1.05 + Math.pow(R(), 1.2) * 1.8, r = Rb(th) * k, cx = Math.cos(th) * r, cz = Math.sin(th) * r, cy = floorH(cx, cz);   // 铺满整个画面（参考图里岸上到处都是阔叶地被），靠近石圈略密
+    if (cy < .05 || nearFox(cx, cz) || R() > lerp(1, .78, sstep(1.6, 2.8, k))) continue;
     if (rocks.some(o => Math.hypot(o.x - cx, o.z - cz) < o.r * .85)) continue;
     const row = Math.floor(R() * 4), m = 1 + Math.floor(R() * 3);
     for (let j = 0; j < m; j++) {   // 一处 1～3 株，同一种挤在一起
       const x = cx + gauss() * .22, z = cz + gauss() * .22, y = floorH(x, z);
-      if (y > .04 && !rocks.some(o => Math.hypot(o.x - x, o.z - z) < o.r * .75)) cover[row].put(x, y, z, rand(...heights[row]));
+      if (y > .04 && !rocks.some(o => Math.hypot(o.x - x, o.z - z) < o.r * .75)) cover[row].put(x, y, z, rand(...heights[row]) * lerp(1, 1.3, sstep(1.5, 2.6, k)))   // 外围的大一些：同样的株数盖住更多地面;
     }
   }
+  // 石头脚下的大叶子：夜景参考图里每块大石头边上都挤着几片宽大的玉簪 / 蜂斗菜叶，叶子比远处的地被大得多
+  const rimLeaves = [0, 2].map(row => plantSet(row, 70, { cells: BROADLEAF_PLANTS[row], mat: broadMat, shadow: false }));
+  for (let tries = 0; tries < 6000 && rimLeaves.some(m => m.count < 64); tries++) {
+    const o = ringRocks[Math.floor(R() * ringRocks.length)];
+    const a = Math.atan2(o.z, o.x) + gauss() * 1.1, d = o.r * rand(.75, 1.15);   // 多数在石头朝外的一侧
+    const x = o.x + Math.cos(a) * d, z = o.z + Math.sin(a) * d, y = floorH(x, z);
+    if (y < .04 || poolK(x, z) < 1.02 || nearFox(x, z) || rocks.some(q => Math.hypot(q.x - x, q.z - z) < q.r * .55)) continue;
+    rimLeaves[R() < .6 ? 0 : 1].put(x, y, z, rand(.38, .6));
+  }
+  cover.push(...rimLeaves);
+  // 近景大叶换成真正的 3D 植物（broadleaf_plants：8 株弯曲叶片的玉簪 / 蜂斗菜 / 蕨 / 虎耳草 / 细辛，带叶脉法线）。
+  // 模型异步加载：到之前先用上面的图片卡片，到了就换掉卡片（位置、大小沿用卡片的）
+  const rimSpots = [];
+  for (const m of rimLeaves) for (let i = 0; i < m.count; i++) { m.getMatrixAt(i, dummy.matrix); rimSpots.push(dummy.matrix.clone()); }
+  fetch(`${import.meta.env.BASE_URL}models/broadleaf_plants.json`).then(r => r.json()).then(async meta => {
+    const buf = await (await fetch(`${import.meta.env.BASE_URL}models/broadleaf_plants.bin`)).arrayBuffer();
+    const view = (r, T) => new T(buf, r[0], r[1]);
+    const mats = meta.materials.map(mm => patch(new THREE.MeshStandardMaterial({
+      color: new THREE.Color(...mm.color), vertexColors: true, roughness: mm.roughness, side: THREE.DoubleSide,
+      normalMap: tex.leafVeins, normalScale: new THREE.Vector2(.55, .55),
+    }), { nightOnly: true, grass: true, grassH: .4, sway: .3, underwater: false }));
+    const meshes = meta.meshes.map((mm, k) => {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(view(mm.pos, Float32Array), 3));
+      g.setAttribute('normal', new THREE.BufferAttribute(view(mm.nrm, Float32Array), 3));
+      g.setAttribute('uv', new THREE.BufferAttribute(view(mm.uv, Float32Array), 2));
+      g.setAttribute('color', new THREE.BufferAttribute(view(mm.col, Float32Array), 3));
+      g.setIndex(new THREE.BufferAttribute(view(mm.idx, Uint32Array), 1));
+      const n = Math.ceil(rimSpots.length / meta.meshes.length) + 1;
+      const im = new THREE.InstancedMesh(g, mats[mm.material], n);
+      im.count = 0; im.frustumCulled = false; im.receiveShadow = true;
+      scene.add(im); above.push(im);
+      return im;
+    });
+    const s = new THREE.Vector3(), q = new THREE.Quaternion(), p = new THREE.Vector3();
+    rimSpots.forEach((mat, i) => {
+      const im = meshes[i % meshes.length];
+      mat.decompose(p, q, s);
+      dummy.position.copy(p); dummy.quaternion.copy(q); dummy.scale.setScalar(s.y * 1.35);   // 卡片的株高 → 模型约 0.35 米高，放大到差不多的大小
+      dummy.updateMatrix(); im.setMatrixAt(im.count++, dummy.matrix);
+    });
+    meshes.forEach(im => { im.instanceMatrix.needsUpdate = true; });
+    rimLeaves.forEach(m => { m.count = 0; });
+  }).catch(e => console.warn('近景 3D 植物没有加载成功，继续用图片卡片', e));
   cover.forEach(m => m.done());
-  const moonFlowers = plantSet(0, 150, { cells: MOONFLOWERS.flat(), mat: moonMat, shadow: false });
-  for (let tries = 0; tries < 30000 && moonFlowers.count < 140; tries++) {
+  const moonFlowers = plantSet(0, 50, { cells: MOONFLOWERS.flat(), mat: moonMat, shadow: false });
+  for (let tries = 0; tries < 30000 && moonFlowers.count < 42; tries++) {
     const th = rand(0, Math.PI * 2), k = 1.04 + Math.pow(R(), 1.5) * 1.1, r = Rb(th) * k, cx = Math.cos(th) * r, cz = Math.sin(th) * r;
     if (floorH(cx, cz) < .05 || nearFox(cx, cz) || rocks.some(o => Math.hypot(o.x - cx, o.z - cz) < o.r * .85)) continue;
     for (let j = 1 + Math.floor(R() * 3); j > 0; j--) { const x = cx + gauss() * .2, z = cz + gauss() * .2; moonFlowers.put(x, floorH(x, z), z, rand(.14, .26)); }
@@ -893,7 +956,7 @@ export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) 
     const pt = new THREE.Color(...SEASON_PLANT[season]);
     for (const m of [ferns, butter, weeds, foxWeeds, foxFerns]) m.tint(pt);
     foxFlowers.tint(new THREE.Color(1, 1, 1));
-    for (const m of [...cover, moonFlowers]) m.tint(new THREE.Color(1, 1, 1));
+    for (const m of [...cover, moonFlowers]) m.tint(m === cover[0] || m === cover[1] ? new THREE.Color(.6, .7, .6) : new THREE.Color(1, 1, 1));   // 玉簪的叶缘、虎耳草的叶脉是银白 / 乳白色，夜里太亮像补丁，压暗一些
     const ir = SEASON_IRIS[season];
     const it = cardTint(ir, GRASS_CARDS.sedge);
     for (let i = 0; i < iris.count; i++) iris.setColorAt(i, c.copy(it).multiplyScalar(irisVar[i]));
@@ -919,7 +982,7 @@ export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) 
     };
     setLeaves(groundLeaves, groundLeafPos, G.n);
     // 水面上漂着的几片：新落的鲜亮枫叶和花瓣（不是地上那种褪色的枯叶），比地上的大一些，一眼看得见
-    setLeaves(floatLeaves, floatPos, 99, season === 'spring' ? [2] : [0, 1, 1, 2], new THREE.Color(1, 1, 1), 1.9);
+    setLeaves(floatLeaves, floatPos, 99, season === 'spring' ? [2] : [0, 1, 1], new THREE.Color(1, 1, 1), 1.9);
   }
 
   return { under, above, flySpots, setSeason, dressFoxes, reflSkip: [tufts] };   // reflSkip：水面倒影里不画（贴地的矮草在倒影里看不见，却要多画几万个）

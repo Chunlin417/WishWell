@@ -62,6 +62,33 @@ const GRASS_TRANS = /* glsl */`
         }
 `;
 
+const NIGHT_GLOSS_GLSL = /* glsl */`
+        #ifdef NIGHT_GLOSS
+        if (uNight > .01) {
+          vec3 nrm = normal;
+          #ifdef NIGHT_GLOSS_LEAF
+            vec2 nz = vec2(vnoise(vWPos.xz * 38.), vnoise(vWPos.xz * 38. + 17.)) - .5;   // 叶面细小的起伏：高光不是一整片，而是碎成一小块一小块
+            nrm = normalize(nrm + (viewMatrix * vec4(nz.x, 0., nz.y, 0.)).xyz * .5);
+            float glossK = .04;
+          #else
+            float glossK = .06 + .3 * clamp(rockWet + .35, 0., 1.);   // 靠水线的石头更湿、更亮
+            #ifdef USE_NORMALMAP
+              glossK *= .35;   // 石狐（自带法线贴图）：只留一点点，不要像湿漉漉的金属
+            #endif
+          #endif
+          vec3 Ld = normalize((viewMatrix * vec4(uKeyDir, 0.)).xyz);
+          vec3 Hd = normalize(Ld + normalize(vViewPosition));
+          float nh = max(dot(nrm, Hd), 0.);
+          #ifdef NIGHT_GLOSS_LEAF
+            float spec = (pow(nh, 80.) * .5 + pow(nh, 300.) * 1.) * step(.55, vnoise(vWPos.xz * 9. + 3.));   // 只有零星的叶片有光泽（否则月光方向那一侧的叶子整片发白）   // 叶面：只在叶片起伏朝着月光的地方有一点点光泽
+          #else
+            float spec = pow(nh, 40.) * .5 + pow(nh, 260.) * 1.3;   // 石头：一小点锐利的湿润高光
+          #endif
+          outgoingLight += uSunCol * 3.2 * spec * glossK * uNight * smoothstep(0., .3, dot(nrm, Ld)) * (1. - roughnessFactor * .45) * smoothstep(-.04, .04, vWPos.y);   // 水下的部分没有（月光照不到那么亮的高光）
+        }
+        #endif
+`;
+
 const GRASS_SWAY = (h, s = 1) => /* glsl */`
   vH = position.y / ${h.toFixed(3)};
   vec2 ip = vec2(instanceMatrix[3][0], instanceMatrix[3][2]);
@@ -154,6 +181,9 @@ export function patch(mat, { cell = false, nightOnly = false, moonGlow = false, 
   const mode = tex ? tex.mode : 'none';
   mat.customProgramCacheKey = () => `wish-${nightOnly}-${moonGlow}-${tex && tex.wet ? 'w' : ''}-${cell}-${grass}-${grassH}-${sway}-${upNormal}-${blade}-${card}-${rim}-${lamp}-${deepFade}-${absorb}-${underwater}-${mode}-${scales}-${glowAttr}`;
   if (cell) mat.defines = { ...(mat.defines || {}), CELL: '', ...(cell === 'flat' ? { CELL_FLAT: '' } : {}) };   // 每个实例自带图集里的 uv 范围（aCell）
+  // 夜里的潮湿反光：石头（按潮湿程度）和叶片（叶面带细小起伏）上，被月光照到的地方有一小点锐利的冷色高光；白天 uNight = 0，不起作用
+  if (tex && tex.mode === 'rock') mat.defines = { ...(mat.defines || {}), NIGHT_GLOSS: '' };
+  else if (grass && cell) mat.defines = { ...(mat.defines || {}), NIGHT_GLOSS: '', NIGHT_GLOSS_LEAF: '' };   // 只有宽叶植物（图集里的蕨、地被、蜂斗菜）；草簇很细很密，加高光会变成一片白噪点
   if (nightOnly) mat.defines = { ...(mat.defines || {}), NIGHT_ONLY: '' };   // 只在夜里长出来（顶点着色器按 uNight 缩放）
   if (moonGlow) mat.defines = { ...(mat.defines || {}), MOON_GLOW: '' };     // 白色的花瓣在月光下微微发亮
   if (upNormal) mat.defines = { ...(mat.defines || {}), UP_NORMAL: '' };
@@ -424,7 +454,7 @@ export function patch(mat, { cell = false, nightOnly = false, moonGlow = false, 
             // 水边湿沙：水线往上一窄条，边缘被噪声打乱
             // （只在池边：按 pool.js 的 Rb 算出到池中心的相对距离 k，远处低洼的地方不出沙）
             float th = atan(lp.y, lp.x);
-            float poolK = length(lp) / (3.7 + .3 * sin(3. * th + .8) + .18 * sin(5. * th + 2.1) + .1 * sin(8. * th + .3));
+            float poolK = length(lp) / (3.7 + .12 * sin(2. * th + .8) + .1 * sin(3. * th + 2.1) + .06 * sin(5. * th + .3));
             float sandW = (1. - smoothstep(.06, .24, vWPos.y + (vnoise(lp * 1.7 + 5.) - .5) * .16))
                         * (1. - smoothstep(1.12, 1.3, poolK + (vnoise(lp * 2.2) - .5) * .1));
 
@@ -472,7 +502,7 @@ export function patch(mat, { cell = false, nightOnly = false, moonGlow = false, 
         #endif
         float above = smoothstep(-0.03, 0.06, vWPos.y);
         ${grass ? GRASS_TONE : ''}
-        ${grass ? 'diffuseColor.rgb = mix(diffuseColor.rgb, vec3(dot(diffuseColor.rgb, vec3(.3, .59, .11))) * vec3(.86, 1., .9), uNight * .4) * (1. - .22 * uNight);   // 夜里植物：低饱和的深绿、略暗——不比石狐和池塘显眼' : ''}
+        ${grass ? 'diffuseColor.rgb = mix(diffuseColor.rgb, vec3(dot(diffuseColor.rgb, vec3(.3, .59, .11))) * vec3(.86, 1., .9), uNight * .2) * (1. - .1 * uNight);   // 夜里植物：低饱和的深绿、略暗——不比石狐和池塘显眼' : ''}
         float snowN = vnoise(vWPos.xz * 3.0) * .35 + vnoise(vWPos.xz * 11.0) * .15;
         float snowM = smoothstep(.25, .65, triN.y + snowN - .25) * uSnow * above;
         ${grass ? 'snowM = uSnow * smoothstep(.2, 1.0, vH) * .85;' : ''}
@@ -512,7 +542,7 @@ export function patch(mat, { cell = false, nightOnly = false, moonGlow = false, 
           totalEmissiveRadiance += frostM * uNight * (vec3(.01, .015, .024) + fsp * vec3(.1, .14, .2));
         }
         #ifdef MOON_GLOW
-          totalEmissiveRadiance += diffuseColor.rgb * uNight * .55 * smoothstep(.5, .85, dot(diffuseColor.rgb, vec3(.3, .59, .11)));   // 只有纯白的花瓣微微发亮，叶子不亮
+          totalEmissiveRadiance += diffuseColor.rgb * uNight * .3 * smoothstep(.5, .85, dot(diffuseColor.rgb, vec3(.3, .59, .11)));   // 只有纯白的花瓣微微发亮，叶子不亮
         #endif
         #ifdef RIM
           {
@@ -549,6 +579,8 @@ export function patch(mat, { cell = false, nightOnly = false, moonGlow = false, 
           }
         #endif`);
 
+    sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `${NIGHT_GLOSS_GLSL}
+        #include <opaque_fragment>`);
     if (grass) sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `${GRASS_TRANS}
         #include <opaque_fragment>`);
     if (lamp) sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `${LAMP_GLSL}

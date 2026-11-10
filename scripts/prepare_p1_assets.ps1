@@ -15,7 +15,10 @@ param(
   [string] $BroadleafAtlas,
   [string] $WhiteFlowerAtlas,
   [string] $WetRockHeight,
-  [string] $NightReference
+  [string] $NightReference,
+  [string] $LeafVeins,
+  [string] $NightPanorama,
+  [string] $RippleRings
 )
 
 Add-Type -AssemblyName System.Drawing
@@ -257,6 +260,33 @@ public static class WishAssetTools {
     }
   }
 
+  public static Bitmap HorizontalPanorama(string path, int width, int height, int band) {
+    using (Bitmap resized = CenterCropResize(path, width, height))
+    using (Bitmap src = ToArgb(resized)) {
+      int stride;
+      byte[] pixels = ReadBgra(src, out stride);
+      for (int d = 0; d < band; d++) {
+        double u = 1.0 - d / (double)band;
+        double weight = u * u * (3.0 - 2.0 * u);
+        int left = d, right = width - 1 - d;
+        for (int y = 0; y < height; y++) {
+          int a = y * stride + left * 4, b = y * stride + right * 4;
+          for (int c = 0; c < 3; c++) {
+            int average = (pixels[a + c] + pixels[b + c]) / 2;
+            pixels[a + c] = (byte)Math.Round(pixels[a + c] * (1.0 - weight) + average * weight);
+            pixels[b + c] = (byte)Math.Round(pixels[b + c] * (1.0 - weight) + average * weight);
+          }
+        }
+      }
+      Bitmap output = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+      Rectangle rect = new Rectangle(0, 0, width, height);
+      BitmapData data = output.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+      Marshal.Copy(pixels, 0, data.Scan0, pixels.Length);
+      output.UnlockBits(data);
+      return output;
+    }
+  }
+
   public static Bitmap Roughness(Bitmap source, int center, double variation) {
     using (Bitmap src = ToArgb(source)) {
       int stride;
@@ -457,5 +487,21 @@ if ($BroadleafAtlas -and $WhiteFlowerAtlas -and $WetRockHeight -and $NightRefere
   try { Save-Png ([WishAssetTools]::EqualizeEdges([WishAssetTools]::NormalFromHeight($wetRock, 3.4))) 'wet_rock_detail_nor_gl.png' }
   finally { $wetRock.Dispose() }
   Save-Png ([WishAssetTools]::CenterCropResize($NightReference, 2560, 1440)) 'reference_night_wishing_pool.png'
+}
+
+if ($LeafVeins) {
+  $leafHeight = [WishAssetTools]::PeriodicBlend($LeafVeins, 1024, 128)
+  try { Save-Png ([WishAssetTools]::EqualizeEdges([WishAssetTools]::NormalFromHeight($leafHeight, 2.0))) 'leaf_veins_nor_gl.png' }
+  finally { $leafHeight.Dispose() }
+}
+
+if ($NightPanorama) {
+  Save-Png ([WishAssetTools]::HorizontalPanorama($NightPanorama, 4096, 2048, 384)) 'night_canopy_panorama.png'
+}
+
+if ($RippleRings) {
+  $rings = [WishAssetTools]::PeriodicBlend($RippleRings, 1024, 128)
+  try { Save-Png ([WishAssetTools]::EqualizeEdges([WishAssetTools]::NormalFromHeight($rings, 2.2))) 'ripple_rings_nor_gl.png' }
+  finally { $rings.Dispose() }
 }
 

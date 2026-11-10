@@ -68,10 +68,12 @@ const NIGHT = {
   moonI: .5,                 // 真实月亮的最大强度（满月、高悬）
   floorI: .4,                // 没有月亮时"天光"的强度：方向光，石头顶上和石狐轮廓有柔和的亮面
   ambient: .2,                // 均匀补光（原来 .4：把石头、草、石狐全照成一样的蓝灰色）
-  fill: .34,                  // 夜空的半球光：上面冷蓝、下面暗绿褐——暗部有层次，但不是死黑
+  fill: .42,                  // 夜空的半球光：上面冷蓝、下面暗绿褐——暗部有层次，但不是死黑
   fireflies: .15,             // 萤火虫的多少（夏夜；夜景参考图里没有，只留零星几只）
-  vignette: .5,               // 夜里的暗角：四周压暗，视线集中在池子上
-  exposure: 2.2,              // 夜里的曝光（原来 3：满月时石头被照得发白）
+  vignette: .18,              // 夜里的暗角：只轻轻压一点四角（太重会只剩池子一圈是亮的，参考图里四周的植物也看得清）
+  exposure: 2.35,              // 夜里的曝光（原来 3：满月时石头被照得发白）
+  // 夜里的镜头（只在横屏）：比白天更低、更近，池子和石头填满画面（像夜景参考图）；随着天黑慢慢推过去，不会跳
+  cam: { dir: [0, .9, 1], dist: .9, target: [0, -.35, .75] },
 };
 const ambient = new THREE.AmbientLight(0x8d98a6, .05);   // 夜间补光：冷灰（不偏紫）
 key.layers.enable(1); ambient.layers.enable(1);   // 第 1 层（许愿签悬在空中时）也要被照亮
@@ -112,7 +114,7 @@ const pool = buildPool(scene, { grassCount: isMobile ? 3500 : 4800, tuftCount: i
 // 横屏两侧的一对守愿石狐
 const foxes = buildFoxes(scene, { floorH, poolK, tex: texSets, onLayout: pool.dressFoxes });   // 底座四周的泥土、苔藓、小草跟着石狐走
 const ripples = new Ripples(renderer, 256, 5);
-const water = createWater(ripples, 5, texSets.waterNormal);
+const water = createWater(ripples, 5, texSets.waterNormal, { pano: texSets.nightPano, rings: texSets.ripplesRings });
 scene.add(water.mesh);
 const sfx = createWishAudio();
 const wish = createWish({ scene, ripples, floorH, sound: sfx, tex: texSets.dragon });
@@ -166,6 +168,8 @@ composer.addPass(grade);
 // ================= 镜头 =================
 // 横屏：斜俯视；竖屏：更接近正俯视、拉近，池子略偏上，给底部以后的操作区留位置
 const camTarget = new THREE.Vector3(), camDir = new THREE.Vector3();
+const viewDir = new THREE.Vector3(), viewTarget = new THREE.Vector3();   // 这一帧实际用的镜头方向和注视点（白天 = camDir / camTarget，夜里推向夜间镜头）
+const nightCamDir = new THREE.Vector3(...NIGHT.cam.dir).normalize(), nightCamTarget = new THREE.Vector3(...NIGHT.cam.target);
 let camDist = 11, portrait = false;
 const parallax = new THREE.Vector2(), parallaxS = new THREE.Vector2();
 function resize() {
@@ -224,7 +228,7 @@ async function init() {
 // ================= 每帧更新 =================
 const sunDir = new THREE.Vector3(), moonDir = new THREE.Vector3(), tmpC = new THREE.Color();
 const nightDir = new THREE.Vector3(), twiDir = new THREE.Vector3();
-const MOON_REFL_DIR = new THREE.Vector3(-.08, .72, -.69).normalize();   // 水面月光倒影的方向：固定在池子后方偏上——无论真实月亮在哪，夜里总有一条银蓝色亮带落在池面上半部中间（像参考图）
+const MOON_REFL_DIR = new THREE.Vector3(-.08, .56, -.82).normalize();   // 水面月光倒影的方向：固定在池子后方偏上——无论真实月亮在哪，夜里总有一条银蓝色亮带落在池面上半部中间（像参考图）
 const NIGHT_DIR = new THREE.Vector3(-.25, .6, -.76).normalize();   // 没有月亮时的夜光：从池子左后上方照来——石头顶上、石狐头顶和面部有柔和的亮面，水面后方反出一道月光
 const dirOf = (alt, az, face, out) => {
   const r = (az - face) * RAD, a = alt * RAD;
@@ -420,11 +424,15 @@ function update(dt) {
   // ---- 镜头微动 ----
   // 跟随得慢一些（约 1 秒才跟上）、幅度小一些：像人站在池边轻轻侧头，而不是镜头在追着鼠标
   parallaxS.lerp(parallax, Math.min(1, dt * 1));
-  camera.position.copy(camDir).multiplyScalar(camDist).add(camTarget);
+  // 夜里镜头慢慢压低、推近（竖屏不变：竖屏的构图另有安排）
+  const nc = portrait ? 0 : smooth(nightF);
+  viewDir.copy(camDir).lerp(nightCamDir, nc).normalize();
+  viewTarget.copy(camTarget).lerp(nightCamTarget, nc);
+  camera.position.copy(viewDir).multiplyScalar(camDist * lerp(1, NIGHT.cam.dist, nc)).add(viewTarget);
   // 镜头只跟随电脑鼠标轻微移动；不再自己缓慢漂移（会让细小的草地闪烁）
   camera.position.x += parallaxS.x * .35;
   camera.position.z += parallaxS.y * .2;
-  camera.lookAt(camTarget);
+  camera.lookAt(viewTarget);
   if (camOverride) { camera.position.copy(camOverride.p); camera.lookAt(camOverride.t); }   // 仅开发调试用的特写镜头
 }
 let camOverride = null;
