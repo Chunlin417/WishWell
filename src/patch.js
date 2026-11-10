@@ -506,6 +506,11 @@ export function patch(mat, { cell = false, nightOnly = false, moonGlow = false, 
         roughnessFactor = mix(roughnessFactor, .28, rockWet * .85);   // 水线附近湿漉漉的，微微反光
         roughnessFactor = mix(roughnessFactor, .55, frostM * .6);   // 霜晶在斜光下微微发亮`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        // 冬夜的霜：月光下细碎的冰晶反光——一层很淡的冷色底光，加上零星几粒更亮的晶点（只在有霜的地方、只在夜里）
+        if (uFrost > 0.) {
+          float fsp = step(.94, hash12(floor(vWPos.xz * 64. + vWPos.y * 9.)));
+          totalEmissiveRadiance += frostM * uNight * (vec3(.01, .015, .024) + fsp * vec3(.1, .14, .2));
+        }
         #ifdef MOON_GLOW
           totalEmissiveRadiance += diffuseColor.rgb * uNight * .55 * smoothstep(.5, .85, dot(diffuseColor.rgb, vec3(.3, .59, .11)));   // 只有纯白的花瓣微微发亮，叶子不亮
         #endif

@@ -1,5 +1,6 @@
-// 天气粒子：雨、雪、萤火虫
+// 天气粒子：雨、雪、萤火虫、飘落的枫叶
 import * as THREE from 'three';
+import { patch } from './patch.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 
@@ -165,5 +166,57 @@ export class Fireflies {
         f.base.z + Math.cos(T * .33 + f.p) * .4);
       f.s.material.opacity = amount * Math.pow(.5 + .5 * Math.sin(T * 2.1 + f.p * 3), 3);
     }
+  }
+}
+
+// 秋天飘落的枫叶：几十片红叶 / 橙叶从高处缓缓落下，一边左右摆动一边翻转；落在水面上会荡开一圈很小的涟漪，落在地上就在上面重新生成。
+// 用落叶图集（leaves_atlas）里的第 0、1 行（暗红、橙黄枫叶）；一个 InstancedMesh，每片自带它在图集里的 uv（aCell）
+export class FallingLeaves {
+  constructor({ map, cells, groundAt, onWater, count = 30 }) {
+    this.g = groundAt; this.onWater = onWater; this.n = count; this.d = [];
+    const geo = new THREE.PlaneGeometry(1, 1, 3, 3); geo.rotateX(-Math.PI / 2);
+    const p = geo.attributes.position;
+    for (let i = 0; i < p.count; i++) p.setY(i, (p.getX(i) ** 2 + p.getZ(i) ** 2) * .5);   // 略微卷翘
+    geo.computeVertexNormals();
+    this.cell = new Float32Array(count * 4);
+    geo.setAttribute('aCell', new THREE.InstancedBufferAttribute(this.cell, 4));
+    const mat = patch(new THREE.MeshStandardMaterial({ map, alphaTest: .5, side: THREE.DoubleSide, roughness: .8 }), { cell: 'flat', underwater: false });
+    this.mesh = new THREE.InstancedMesh(geo, mat, count);
+    this.mesh.frustumCulled = false; this.mesh.count = 0;
+    this.obj = this.mesh;
+    this.dummy = new THREE.Object3D();
+    for (let i = 0; i < count; i++) {
+      const d = { i }; this.spawn(d, false);
+      const [u0, v0, u1, v1] = cells[Math.floor(Math.random() * 2)][Math.floor(Math.random() * 5)].uv;   // 暗红或橙黄的一片
+      this.cell.set([u0, v0, u1 - u0, v1 - v0], i * 4);
+      this.d.push(d);
+    }
+    geo.attributes.aCell.needsUpdate = true;
+  }
+  spawn(d, top) {
+    // 主要落在池子和石圈附近（镜头看得见的地方），高度错开，不会同时落下
+    d.x = rand(-6, 6); d.z = rand(-5, 6); d.y = top ? rand(5, 7) : rand(0, 7);
+    d.v = rand(.28, .5); d.p = rand(0, 6.28); d.s = rand(.16, .26); d.spin = rand(.6, 1.6) * (Math.random() < .5 ? -1 : 1);
+  }
+  update(dt, amount, wind, T) {
+    const n = Math.floor(amount * this.n), o = this.dummy;
+    for (let i = 0; i < n; i++) {
+      const d = this.d[i];
+      d.y -= d.v * dt;
+      d.x += (Math.sin(T * .9 + d.p) * .35 + wind * .8) * dt;
+      d.z += Math.cos(T * .7 + d.p * 1.7) * .25 * dt;
+      const gy = this.g(d.x, d.z);
+      if (d.y < gy + .02) {
+        if (gy <= .01) this.onWater?.(d.x, d.z);   // 落在水面上
+        this.spawn(d, true);
+      }
+      o.position.set(d.x, d.y, d.z);
+      o.rotation.set(Math.sin(T * 1.7 + d.p) * .9, T * d.spin + d.p, Math.cos(T * 1.3 + d.p * 2) * .9);   // 翻转着飘落
+      o.scale.setScalar(d.s); o.updateMatrix();
+      this.mesh.setMatrixAt(i, o.matrix);
+    }
+    this.mesh.count = n;
+    this.mesh.instanceMatrix.needsUpdate = true;
+    this.mesh.visible = n > 0;
   }
 }

@@ -10,10 +10,10 @@ import { PRESETS, PRESET_NAME, WX_NAME, targetsFromLive, fetchWeather } from './
 import { shared } from './patch.js';
 import { loadAll } from './textures.js';
 import { buildFoxes, FOX_Z } from './fox.js';
-import { buildPool, floorH, poolK } from './pool.js';
+import { buildPool, floorH, poolK, LEAF_CARDS } from './pool.js';
 import { createSky } from './sky.js';
 import { Ripples, createWater } from './water.js';
-import { Rain, Snow, Fireflies } from './fx.js';
+import { Rain, Snow, Fireflies, FallingLeaves } from './fx.js';
 import { createWish, DRAGON_ENABLED } from './wish.js';
 import { createWishAudio } from './audio.js';
 // 临时开关：false = 许愿签功能关闭（点左边的石狐没有反应，也不会出现手形光标）。要恢复改成 true 即可
@@ -123,7 +123,8 @@ const rain = new Rain(groundAt, (x, z) => {
 }, isMobile ? 1600 : 2600);
 const snow = new Snow(groundAt, isMobile ? 2000 : 3500);
 const flies = new Fireflies(pool.flySpots);
-scene.add(rain.obj, snow.obj, flies.obj);
+const fallLeaves = new FallingLeaves({ map: texSets.leaves, cells: LEAF_CARDS, groundAt, onWater: (x, z) => { if (poolK(x, z) < .93) ripples.add(x, z, .06, .1); }, count: isMobile ? 18 : 30 });
+scene.add(rain.obj, snow.obj, flies.obj, fallLeaves.obj);
 
 // 反射 / 折射贴图
 const rtOpt = { type: THREE.HalfFloatType };
@@ -133,7 +134,7 @@ water.uniforms.tRefr.value = refrRT.texture;
 const clipAbove = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);      // 保留水面以上
 const clipBelow = new THREE.Plane(new THREE.Vector3(0, -1, 0), .02);   // 保留水面以下
 const hideInRefl = [...pool.under, ...pool.reflSkip, water.mesh, rain.obj, snow.obj, flies.obj];
-const hideInRefr = [...pool.above, ...foxes.objects, sky.mesh, water.mesh, rain.obj, snow.obj, flies.obj];
+const hideInRefr = [...pool.above, ...foxes.objects, sky.mesh, water.mesh, rain.obj, snow.obj, flies.obj, fallLeaves.obj];
 
 // 后期：泛光 + 色调映射 + 暗角
 const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
@@ -385,7 +386,9 @@ function update(dt) {
   flies.update(T, (1 - dread) * deepNight * clamp(1 - rn * 8) * clamp(1 - wx.snow * 8) * ({ summer: 1, spring: .4 }[season] || 0) * NIGHT.fireflies);
   const light = .12 + .88 * dayF;
   rain.update(dt, rn, wind, light);
-  snow.update(dt, wx.snow, wind, T, light);
+  // 冬天：不下雪的时候也有一层很稀的细雪（每个冬夜都能看见一点）；秋天：枫叶缓缓飘落（雨天少一些）
+  snow.update(dt, Math.max(wx.snow, winter * .1 * (1 - clamp(rn * 5))), wind, T, light);
+  fallLeaves.update(dt, (season === 'autumn' ? 1 : 0) * (1 - .7 * rn), wind, T);
 
   nextAmbient -= dt;
   if (nextAmbient < 0 && dread < .05) {   // 偶尔有小鱼或水滴扰动水面（许愿时一片死寂，不再有）
