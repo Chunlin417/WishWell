@@ -48,7 +48,7 @@ function weather(geo, seed = 0, mossAmt = 1) {
     const warm = (blot - .5) * .1 + grime * .05;
     col[i * 3] = b * .98 * (1 + warm); col[i * 3 + 1] = b * (1 + warm * .4); col[i * 3 + 2] = b * 1.01 * (1 - warm) * (1 - .08 * grime);
     moss[i] = Math.max(sstep(.55, .92, ny) * sstep(.58 - .08 * mossAmt, .7 - .06 * mossAmt, fbm3(x * S * .8 + 7 + seed, y * S * .8, z * S * .8, 3)) * mossAmt,
-                       (1 - sstep(.04, .1 + .12 * mossAmt, u)) * .85 * mossAmt * sstep(.4, .58, fbm3(x * S + 3 + seed, y * S, z * S + 3, 3)));
+                       (1 - sstep(.04, .16 + .18 * mossAmt, u)) * .95 * mossAmt * sstep(.32, .5, fbm3(x * S + 3 + seed, y * S, z * S + 3, 3)));
   }
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   geo.setAttribute('aMoss', new THREE.BufferAttribute(moss, 1));
@@ -87,11 +87,11 @@ export function buildFoxes(scene, { floorH, poolK, tex = null, onLayout = null }
     const stone = tex?.rock && s.map;
     // 两只各用一份几何体、各自做旧：左边那只（许愿的入口）苔多、更旧，右边那只干净一些
     const geos = { [-1]: src.geometry, [1]: stone ? src.geometry.clone() : src.geometry };
-    if (stone) { weather(geos[-1], 0, 1); weather(geos[1], 31.7, .55); }
+    if (stone) { weather(geos[-1], 0, 1.35); weather(geos[1], 31.7, .8); }
     const mat = stone
       ? patch(new THREE.MeshStandardMaterial({
           map: detailFromMap(s.map), normalMap: s.normalMap, vertexColors: true, roughness: 1, metalness: 0, envMapIntensity: .55,
-        }), { underwater: false, tex: { mode: 'rock', sets: [tex.rock, tex.moss], scale: [2.2, 2.4], gray: .9, bright: 1.7, soft: .8, contrast: .45, tint: [1.03, 1, .94], crack: 0 } })   // 略偏暖：花岗岩被晒了很多年，不再发蓝
+        }), { underwater: false, tex: { mode: 'rock', sets: [tex.foxStone, tex.moss], scale: [1.1, 2.4], gray: .05, bright: .72, soft: .5, contrast: .75, tint: [1.12, 1, .8], crack: 0 } })   // 浅米色风化花岗岩（fox_stone）：保留它自己的颜色，不再去色
       : patch(new THREE.MeshStandardMaterial({   // 没有石材贴图时：还用模型自带的贴图
           map: s.map, normalMap: s.normalMap, roughnessMap: s.roughnessMap, metalnessMap: s.metalnessMap,
           roughness: 1, metalness: s.metalnessMap ? 1 : 0, envMapIntensity: .6,

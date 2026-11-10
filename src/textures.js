@@ -24,9 +24,9 @@ export function loadSet(name, renderer) {
 // 岸上地面的 5 套贴图（自己生成的，原图在 textures-src/*_2k.webp，改了之后运行 scripts/pack_ground_textures.py）
 // 只有颜色 + 法线，没有粗糙度贴图（见那个脚本的说明）；mean 是颜色贴图的平均色（线性），rough 是平均粗糙度
 export const GROUND = {
-  grass:  { file: 'lawn_grass',  scale: 1.1, mean: [.0389, .0536, .0180], rough: .89 },
+  grass:  { file: 'ground_mossgrass', scale: 1.1, mean: [.0684, .1448, .0041], rough: .88 },   // 苔藓草地（原来的 lawn_grass 不再用）
   soil:   { file: 'wet_soil',    scale: .9,  mean: [.0294, .0183, .0137], rough: .62 },
-  sand:   { file: 'wet_sand',    scale: .8,  mean: [.0649, .0543, .0398], rough: .59 },
+  sand:   { file: 'shore_mud',   scale: .8,  mean: [.1261, .0642, .0294], rough: .78 },   // 水边一圈湿泥（原来的 wet_sand 不再用）
   moss:   { file: 'moss_ground', scale: 1.0, mean: [.0220, .0328, .0078], rough: .86 },
   litter: { file: 'leaf_litter', scale: .7,  mean: [.0688, .0401, .0283], rough: .82 },
 };
@@ -38,6 +38,13 @@ function loadGrassAtlas(renderer) {
   return t;
 }
 
+// 带透明通道的图集（不平铺）：植物、落叶
+function loadAtlas(file, renderer) {
+  const t = load(file, true, renderer);
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  return t;
+}
+
 export function loadAll(renderer, { dragon = true } = {}) {
   const ground = {};
   for (const [k, g] of Object.entries(GROUND)) {
@@ -45,6 +52,13 @@ export function loadAll(renderer, { dragon = true } = {}) {
   }
   return {
     rock: loadSet('lichen_rock', renderer),
+    rocks: ['rock_mossy_a', 'rock_mossy_b', 'rock_lichen'].map(n => loadSet(n, renderer)),   // 围池石块：大片苔藓花岗岩 / 细苔深色花岗岩 / 浅色地衣花岗岩
+    foxStone: loadSet('fox_stone', renderer),               // 石狐：浅米色风化花岗岩
+    riverbed: loadSet('riverbed_pebbles', renderer),        // 水下的河床卵石
+    plants: loadAtlas('groundplants_atlas.webp', renderer), // 三叶草 / 蕨 / 蜂斗菜 / 白花
+    leaves: loadAtlas('leaves_atlas.webp', renderer),       // 枫叶 / 花瓣
+    waterNormal: load('water_ripple_nor_gl.webp', false, renderer),   // 水面细小的波纹法线
+    canopy: load('canopy_mask.webp', false, renderer),   // 树荫光斑遮罩（R 粗 / G 细）
     moss: loadSet('mossy_rock', renderer),
     pebbles: loadSet('ganges_river_pebbles', renderer),
     ground,

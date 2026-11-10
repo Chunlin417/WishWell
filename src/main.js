@@ -93,11 +93,12 @@ let assetsReady = false, readyFrames = 0, revealed = false;
 THREE.DefaultLoadingManager.onLoad = () => { assetsReady = true; };
 setTimeout(() => { assetsReady = true; }, 15000);
 const texSets = loadAll(renderer, { dragon: DRAGON_ENABLED });
+shared.tCanopy.value = texSets.canopy;   // 树荫光斑遮罩
 const pool = buildPool(scene, { grassCount: isMobile ? 3500 : 4800, tuftCount: isMobile ? 16000 : 36000, tex: texSets });
 // 横屏两侧的一对守愿石狐
 const foxes = buildFoxes(scene, { floorH, poolK, tex: texSets, onLayout: pool.dressFoxes });   // 底座四周的泥土、苔藓、小草跟着石狐走
 const ripples = new Ripples(renderer, 256, 5);
-const water = createWater(ripples, 5);
+const water = createWater(ripples, 5, texSets.waterNormal);
 scene.add(water.mesh);
 const sfx = createWishAudio();
 const wish = createWish({ scene, ripples, floorH, sound: sfx, tex: texSets.dragon });
@@ -316,12 +317,19 @@ function update(dt) {
   // 环境光是用天空本身生成的：日落时天边的橙光会从四面八方把石头整个染红。黄昏时减弱它，暗面交给上面的冷色天空光
   scene.environmentIntensity *= 1 - .35 * duskK * (1 - cloud);   // 太阳落山后才逐渐增强，黄昏的暗面不发紫
 
+  // ---- 树荫光斑 ----
+  // 日本时间 10:00～14:00 阳光透过树叶落下来（和参考图一致）；前后各用 45 分钟渐入渐出，其余时间没有。
+  // 只在有直射阳光时才有：阴天、雾天、太阳不够高、许愿时都会淡掉；夏天最全，春秋叶子少一些，冬天几乎没有
+  const canopyWin = smooth(clamp((h - 9.25) / .75)) * (1 - smooth(clamp((h - 14) / .75)));
+  const canopySeason = { summer: 1, spring: .8, autumn: .7, winter: .25 }[season] ?? 1;
+  shared.uCanopy.value = canopyWin * canopySeason * sunUp * clamp(1 - cloud * 1.3) * (1 - fog * .7) * (1 - dread);
+
   // ---- 材质共享参数 ----
   shared.uTime.value = T;
   shared.uSunCol.value.copy(key.color).multiplyScalar(key.intensity * .55);
   shared.uKeyDir.value.copy(key.position).normalize();
   shared.uCaustic.value = 1 - rn * .5;
-  shared.uWaterCol.value.setRGB(.0018, .022, .027).multiplyScalar(.22 + .78 * dayF * (1 - .25 * cloud));   // 深处的幽暗深青色（夜里也留一点，池子不会变成黑洞）
+  shared.uWaterCol.value.setRGB(.004, .04, .042).multiplyScalar(.22 + .78 * dayF * (1 - .25 * cloud));   // 深处的幽暗深青色（夜里也留一点，池子不会变成黑洞）
   const windNow = wind * (1 - .92 * dread);   // 风停了：草不动、水面变得像镜子一样
   shared.uSnow.value = snowCover; shared.uWet.value = wet; shared.uWind.value = windNow;
   shared.uFrost.value = frost;
@@ -337,6 +345,7 @@ function update(dt) {
   renderer.toneMappingExposure = lerp(3, 1, smooth(clamp((el + 10) / 14))) + .4 * duskK;   // 太阳还在地平线上时不额外提亮：黄昏保留明暗对比，天黑后才慢慢拉高
   // 白天少加饱和度（草不再是荧光绿）；黄昏不额外加饱和度，金色才不会像涂上去的；许愿时颜色褪去一些
   grade.uniforms.saturation.value = (lerp(1.12, 1.03, sunUp * (1 - duskK)) - .14 * duskK) * (1 - .3 * dread);
+  grade.uniforms.dayWarm.value = sunUp * (1 - duskK) * (1 - cloud * .6) * (1 - dread);   // 白天的暖调（夏日午后）
   grade.uniforms.night.value = 1 - smooth(clamp((el + 9) / 8));   // 月夜调色：太阳落下后才慢慢开始，黄昏保留暖色
   wu.uNightSheen.value.setRGB(.008, .016, .038).multiplyScalar(grade.uniforms.night.value * (1 - .4 * cloud));   // 阴天不再额外提亮，否则石头发白
 

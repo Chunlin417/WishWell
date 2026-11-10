@@ -1,6 +1,7 @@
 // 水面：GPU 波动方程涟漪模拟 + 折射 / 反射 / 菲涅尔 / 高光
 import * as THREE from 'three';
-import { NOISE_GLSL } from './shaders.js';
+import { NOISE_GLSL, CANOPY_GLSL } from './shaders.js';
+import { shared } from './patch.js';
 
 const QUAD_VS = /* glsl */`varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0., 1.); }`;
 
@@ -95,8 +96,11 @@ uniform sampler2D tRefl; uniform sampler2D tRefr; uniform sampler2D tRip;
 uniform vec2 uRes; uniform float uTime; uniform float uE; uniform float uWind; uniform float uRain; uniform float uTexel;
 uniform vec3 uSunDir; uniform vec3 uSunCol; uniform vec3 uMoonDir; uniform vec3 uMoonCol; uniform float uReflAmt; uniform vec3 uNightSheen;
 uniform float uIce;   // 冬天结冰的程度（0～1）：池边一圈薄冰，越冷越往池心长
+uniform sampler2D tWN;   // 水面细小波纹的法线贴图
+uniform float uCanopy;
 varying vec3 vW; varying vec4 vRefl;
 ${NOISE_GLSL}
+${CANOPY_GLSL}
 float Rb(float t){ return 3.7 + .3 * sin(3. * t + .8) + .18 * sin(5. * t + 2.1) + .1 * sin(8. * t + .3); }
 // 风吹出的细长涟漪：沿风向拉长的几层小波纹，不再是一块块的圆斑
 float wh(vec2 p, float t){
@@ -116,6 +120,9 @@ void main(){
   // 风不是均匀地吹：水面上一块块细碎的波纹（猫爪风）和一块块几乎静止的镜面交替，缓慢漂移
   float gust = .5 + .85 * smoothstep(.25, .8, vnoise(vW.xz * .32 + t * vec2(.05, .03)) * .7 + vnoise(vW.xz * .9 - t * vec2(.04, .07)) * .3);
   wg *= (.012 + .05 * uWind + .03 * uRain) * gust;
+  // 再叠一层真实水波的法线（两个尺度、朝不同方向缓慢漂移）：细小、不规则，随风和阵风起伏
+  vec2 w1 = texture2D(tWN, vW.xz * .23 + t * vec2(.011, .006)).xy * 2. - 1., w2 = texture2D(tWN, vW.xz * .61 - t * vec2(.007, .013) + .37).xy * 2. - 1.;
+  wg += (w1 * .6 + w2 * .4) * (.05 + .22 * uWind + .1 * uRain) * gust;
   vec3 n = normalize(vec3(-(wg.x + rg.x), 1., -(wg.y + rg.y)));
 
   // 薄冰：从石头边往里长一圈，内缘不规则；冰面上没有波纹
@@ -138,12 +145,11 @@ void main(){
   float kk0 = length(vW.xz) / Rb(atan(vW.z, vW.x));
   float sky = clamp(dot(refl, vec3(.3, .59, .11)) * 1.6, 0., 1.);
   // 浅水：清澈的青绿色（只轻轻提亮，水底卵石的颜色透得出来）；往里经过一段渐变，到井口是幽暗的深青色
-  float shallow = smoothstep(.6, .92, kk0);
-  refr = mix(refr, refr * vec3(1.04, 1.3, 1.2) + vec3(.004, .03, .026) * sky, shallow);
+  float shallow = smoothstep(.5, .9, kk0);
+  refr = mix(refr, refr * vec3(1.1, 1.55, 1.38) + vec3(.01, .05, .042) * sky, shallow);
   refr *= mix(vec3(1.), vec3(.82, .93, .92), (1. - shallow) * smoothstep(.45, .65, kk0));
-  refr *= mix(vec3(1.), vec3(.5, .64, .62), 1. - smoothstep(.45, .7, kk0));   // 井口一圈更深更暗：一眼看出这里深不见底
+  refr *= mix(vec3(1.), vec3(.58, .72, .7), 1. - smoothstep(.45, .7, kk0));   // 井口一圈更深更暗：一眼看出这里深不见底
   vec3 col = mix(refr, refl, F * uReflAmt);
-
   // 石头和水的交界处：窄窄一圈接触阴影（石头挡住天光、压在水面上）
   col *= mix(1., .78, smoothstep(.93, .99, kk));
   col += uNightSheen * (.4 + .6 * F) * (.85 + .3 * n.x);   // 夜里水面淡淡的月色反光，随波纹微微起伏
@@ -176,7 +182,7 @@ void main(){
   #include <fog_fragment>
 }`;
 
-export function createWater(ripples, extent = 5) {
+export function createWater(ripples, extent = 5, waterNormal = null) {
   const uniforms = THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
     tRefl: { value: null }, tRefr: { value: null }, tRip: { value: null },
     uTexMat: { value: new THREE.Matrix4() }, uRes: { value: new THREE.Vector2(1, 1) },
@@ -184,6 +190,8 @@ export function createWater(ripples, extent = 5) {
     uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uSunCol: { value: new THREE.Color() },
     uMoonDir: { value: new THREE.Vector3(0, 1, 0) }, uMoonCol: { value: new THREE.Color() }, uReflAmt: { value: 1 }, uNightSheen: { value: new THREE.Color() }, uIce: { value: 0 },
   }]);
+  uniforms.tWN = { value: waterNormal };
+  uniforms.tCanopy = shared.tCanopy; uniforms.uCanopy = shared.uCanopy;   // 和岸上用同一份（同一个对象，不是复制）
   const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: WATER_VS, fragmentShader: WATER_FS, fog: true });
   const geo = new THREE.PlaneGeometry(2 * extent, 2 * extent); geo.rotateX(-Math.PI / 2);
   const mesh = new THREE.Mesh(geo, mat);
