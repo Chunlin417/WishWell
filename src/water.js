@@ -97,7 +97,6 @@ uniform vec2 uRes; uniform float uTime; uniform float uE; uniform float uWind; u
 uniform vec3 uSunDir; uniform vec3 uSunCol; uniform vec3 uMoonDir; uniform vec3 uMoonCol; uniform float uReflAmt; uniform vec3 uNightSheen;
 uniform float uIce;   // 冬天结冰的程度（0～1）：池边一圈薄冰，越冷越往池心长
 uniform sampler2D tWN;   // 水面细小波纹的法线贴图
-uniform sampler2D tCanopy;   // 叶影遮罩：夜里水面映出岸上树冠的剪影
 uniform float uNight;   // 夜的程度：夜里水面更平静、透明度低一些、月光反射柔和集中
 varying vec3 vW; varying vec4 vRefl;
 ${NOISE_GLSL}
@@ -156,13 +155,6 @@ void main(){
   vec3 col = mix(refr, refl, F * uReflAmt);
   // 石头和水的交界处：窄窄一圈接触阴影（石头挡住天光、压在水面上）
   col *= mix(1., .78, smoothstep(.93, .99, kk));
-  // 夜里水面映出岸上树冠：深色的树叶剪影，叶隙里透着一点暗蓝的天光（只在夜里）
-  if (uNight > .01) {
-    vec3 Rr = reflect(-V, normalize(mix(vec3(0., 1., 0.), n, .35)));
-    float gap = smoothstep(.4, .62, texture2D(tCanopy, (vW.xz + Rr.xz * 5.) / 11. + vec2(.3, .1)).r);
-    vec3 treeCol = mix(vec3(.002, .006, .008), vec3(.018, .03, .05), gap);
-    col = mix(col, treeCol, uNight * mix(.12, .42, smoothstep(.45, .9, kk0)) * mix(.8, 1., F));
-  }
   col += uNightSheen * (.4 + .6 * F) * (.85 + .3 * n.x);   // 夜里水面淡淡的月色反光，随波纹微微起伏
 
   if (iceM > 0.) {
@@ -204,7 +196,7 @@ export function createWater(ripples, extent = 5, waterNormal = null) {
     uMoonDir: { value: new THREE.Vector3(0, 1, 0) }, uMoonCol: { value: new THREE.Color() }, uReflAmt: { value: 1 }, uNightSheen: { value: new THREE.Color() }, uIce: { value: 0 },
   }]);
   uniforms.tWN = { value: waterNormal };
-  uniforms.uNight = shared.uNight; uniforms.tCanopy = shared.tCanopy;   // 和岸上用同一份（同一个对象，不是复制）
+  uniforms.uNight = shared.uNight;   // 和岸上用同一份（同一个对象，不是复制）
   const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: WATER_VS, fragmentShader: WATER_FS, fog: true });
   const geo = new THREE.PlaneGeometry(2 * extent, 2 * extent); geo.rotateX(-Math.PI / 2);
   const mesh = new THREE.Mesh(geo, mat);
