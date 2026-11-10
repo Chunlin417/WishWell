@@ -11,7 +11,11 @@ param(
   [string] $RockLichen,
   [string] $Caustics,
   [string] $ShoreMud,
-  [string] $ColorReference
+  [string] $ColorReference,
+  [string] $BroadleafAtlas,
+  [string] $WhiteFlowerAtlas,
+  [string] $WetRockHeight,
+  [string] $NightReference
 )
 
 Add-Type -AssemblyName System.Drawing
@@ -290,7 +294,8 @@ public static class WishAssetTools {
           int b = pixels[p], g = pixels[p + 1], r = pixels[p + 2], a = pixels[p + 3];
           bool neonRed = r > 225 && g < 55 && b < 55;
           bool neonYellow = r > 225 && g > 205 && b < 75;
-          foreground[y * src.Width + x] = a >= 18 && !neonRed && !neonYellow;
+          bool neonGreen = g > 215 && r < 100 && b < 100;
+          foreground[y * src.Width + x] = a >= 18 && !neonRed && !neonYellow && !neonGreen;
         }
       }
 
@@ -328,6 +333,65 @@ public static class WishAssetTools {
           int index = y * src.Width + x;
           int p = y * stride + x * 4;
           if (!keep[index]) pixels[p + 3] = 0;
+        }
+      }
+      Bitmap cleaned = new Bitmap(src.Width, src.Height, PixelFormat.Format32bppArgb);
+      Rectangle rect = new Rectangle(0, 0, cleaned.Width, cleaned.Height);
+      BitmapData data = cleaned.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+      Marshal.Copy(pixels, 0, data.Scan0, pixels.Length);
+      cleaned.UnlockBits(data);
+      Bitmap output = Resize(cleaned, size, size, PixelFormat.Format32bppArgb);
+      cleaned.Dispose();
+      return output;
+    }
+  }
+
+  public static Bitmap CleanFlowerAtlas(string path, int size) {
+    using (Bitmap original = new Bitmap(path))
+    using (Bitmap src = ToArgb(original)) {
+      int stride;
+      byte[] pixels = ReadBgra(src, out stride);
+      int count = src.Width * src.Height;
+      int[] distance = new int[count];
+      for (int i = 0; i < count; i++) distance[i] = Int32.MaxValue;
+      int[] queue = new int[count];
+      int head = 0, tail = 0;
+      for (int y = 0; y < src.Height; y++) {
+        for (int x = 0; x < src.Width; x++) {
+          int p = y * stride + x * 4;
+          int b = pixels[p], g = pixels[p + 1], r = pixels[p + 2], a = pixels[p + 3];
+          bool neonGreen = g > 215 && r < 100 && b < 100;
+          bool neonYellow = r > 225 && g > 205 && b < 75;
+          bool greenAnchor = a >= 24 && !neonGreen && !neonYellow && g > 55 && g > r + 3 && g > b + 6;
+          if (greenAnchor) {
+            int index = y * src.Width + x;
+            distance[index] = 0;
+            queue[tail++] = index;
+          }
+        }
+      }
+      int[] dx = new int[] { -1, 1, 0, 0 };
+      int[] dy = new int[] { 0, 0, -1, 1 };
+      while (head < tail) {
+        int current = queue[head++];
+        int d = distance[current];
+        if (d >= 36) continue;
+        int cx = current % src.Width, cy = current / src.Width;
+        for (int k = 0; k < 4; k++) {
+          int nx = cx + dx[k], ny = cy + dy[k];
+          if (nx < 0 || ny < 0 || nx >= src.Width || ny >= src.Height) continue;
+          int next = ny * src.Width + nx;
+          if (distance[next] > d + 1) { distance[next] = d + 1; queue[tail++] = next; }
+        }
+      }
+      for (int y = 0; y < src.Height; y++) {
+        for (int x = 0; x < src.Width; x++) {
+          int index = y * src.Width + x;
+          int p = y * stride + x * 4;
+          int b = pixels[p], g = pixels[p + 1], r = pixels[p + 2];
+          bool neonGreen = g > 215 && r < 100 && b < 100;
+          bool neonYellow = r > 225 && g > 205 && b < 75;
+          if (distance[index] > 36 || neonGreen || neonYellow || pixels[p + 3] < 18) pixels[p + 3] = 0;
         }
       }
       Bitmap cleaned = new Bitmap(src.Width, src.Height, PixelFormat.Format32bppArgb);
@@ -384,5 +448,14 @@ if ($Caustics -and $ShoreMud -and $ColorReference) {
   Save-Png ([WishAssetTools]::GrayscaleTexture($Caustics, 1024, 160)) 'caustics.png'
   Write-PbrSet $ShoreMud 'shore_mud' 2.2 190 0.18
   Save-Png ([WishAssetTools]::CenterCropResize($ColorReference, 2560, 1440)) 'reference_summer_wishing_pool.png'
+}
+
+if ($BroadleafAtlas -and $WhiteFlowerAtlas -and $WetRockHeight -and $NightReference) {
+  Save-Png ([WishAssetTools]::CleanAtlas($BroadleafAtlas, 2048, 16)) 'broadleaf_groundplants_atlas.png'
+  Save-Png ([WishAssetTools]::CleanFlowerAtlas($WhiteFlowerAtlas, 1024)) 'whiteflowers_moonglow_atlas.png'
+  $wetRock = [WishAssetTools]::PeriodicBlend($WetRockHeight, 2048, 320)
+  try { Save-Png ([WishAssetTools]::EqualizeEdges([WishAssetTools]::NormalFromHeight($wetRock, 3.4))) 'wet_rock_detail_nor_gl.png' }
+  finally { $wetRock.Dispose() }
+  Save-Png ([WishAssetTools]::CenterCropResize($NightReference, 2560, 1440)) 'reference_night_wishing_pool.png'
 }
 

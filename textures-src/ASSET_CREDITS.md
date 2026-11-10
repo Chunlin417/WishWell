@@ -16,4 +16,8 @@
 | `caustics.png` | 2026-11-10 使用 OpenAI 图像生成工具生成水下焦散母图；由 `scripts/prepare_p1_assets.ps1` 做 1K 非镜像周期化和严格灰度转换 | 项目自有生成素材，无第三方素材来源；按适用于本项目的 OpenAI 条款使用 |
 | `shore_mud_diff.png` / `_nor_gl.png` / `_rough.png` | 2026-11-10 使用 OpenAI 图像生成工具生成湿泥细沙母图；由 `scripts/prepare_p1_assets.ps1` 周期化并派生 2K OpenGL 法线和粗糙度 | 项目自有生成素材，无第三方素材来源；按适用于本项目的 OpenAI 条款使用 |
 | `reference_summer_wishing_pool.png` | 2026-11-10 使用 OpenAI 图像生成工具生成夏季晴天、树荫斑驳的日式许愿池配色参考；由 `scripts/prepare_p1_assets.ps1` 输出为 2560×1440 | 项目自有生成素材，无第三方素材来源；按适用于本项目的 OpenAI 条款使用 |
+| `broadleaf_groundplants_atlas.png` | 2026-11-10 使用 OpenAI 图像生成工具生成 4×4 阔叶地被图集；由 `scripts/prepare_p1_assets.ps1` 清理透明边缘、彩色溢边和零散区域并输出 2K RGBA | 项目自有生成素材，无第三方素材来源；按适用于本项目的 OpenAI 条款使用 |
+| `whiteflowers_moonglow_atlas.png` | 2026-11-10 使用 OpenAI 图像生成工具生成 4×4 小白花图集；由 `scripts/prepare_p1_assets.ps1` 使用茎叶锚点距离清理透明背景并输出 1K RGBA | 项目自有生成素材，无第三方素材来源；按适用于本项目的 OpenAI 条款使用 |
+| `wet_rock_detail_nor_gl.png` | 2026-11-10 使用 OpenAI 图像生成工具生成湿润岩石微表面高度母图；由 `scripts/prepare_p1_assets.ps1` 周期化并派生 2K OpenGL 法线 | 项目自有生成素材，无第三方素材来源；按适用于本项目的 OpenAI 条款使用 |
+| `reference_night_wishing_pool.png` | 2026-11-10 使用 OpenAI 图像生成工具生成月光下的日式许愿池夜景参考；由 `scripts/prepare_p1_assets.ps1` 输出为 2560×1440 | 项目自有生成素材，无第三方素材来源；按适用于本项目的 OpenAI 条款使用 |
 

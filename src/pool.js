@@ -204,6 +204,20 @@ const GROUND_PLANTS = [
   [{ uv: [0.0088, 0.2700, 0.2432, 0.4741], aspect: 1.148, mean: [0.1948, 0.3195, 0.0571] }, { uv: [0.2441, 0.2832, 0.4917, 0.4355], aspect: 1.625, mean: [0.2253, 0.3494, 0.1056] }, { uv: [0.4990, 0.2720, 0.7344, 0.4790], aspect: 1.137, mean: [0.2371, 0.3689, 0.0861] }, { uv: [0.7422, 0.2798, 0.9883, 0.4585], aspect: 1.377, mean: [0.2322, 0.3693, 0.0986] }],
   [{ uv: [0.0186, 0.0234, 0.2314, 0.2378], aspect: 0.993, mean: [0.2923, 0.3781, 0.1292] }, { uv: [0.2495, 0.0391, 0.4927, 0.2021], aspect: 1.491, mean: [0.2829, 0.3607, 0.1216] }, { uv: [0.5146, 0.0215, 0.7305, 0.2349], aspect: 1.011, mean: [0.2914, 0.3791, 0.1151] }, { uv: [0.7510, 0.0356, 0.9863, 0.2192], aspect: 1.282, mean: [0.2848, 0.3689, 0.0992] }],
 ];
+// 夜景地被图集（broadleaf_groundplants_atlas.webp）：4 行 × 4 个形态——玉簪 / 虎耳草 / 蜂斗菜幼株 / 酢浆草与常春藤
+const BROADLEAF_PLANTS = [
+  [{ uv: [0.0044, 0.7754, 0.2495, 0.9521], aspect: 1.387, mean: [0.1201, 0.2186, 0.1622] }, { uv: [0.2607, 0.7637, 0.4966, 0.9541], aspect: 1.238, mean: [0.2141, 0.2773, 0.1181] }, { uv: [0.5000, 0.7700, 0.7417, 0.9531], aspect: 1.320, mean: [0.2021, 0.3496, 0.0509] }, { uv: [0.7505, 0.7759, 0.9946, 0.9473], aspect: 1.425, mean: [0.1664, 0.2662, 0.1130] }],
+  [{ uv: [0.0083, 0.5415, 0.2476, 0.7188], aspect: 1.350, mean: [0.1650, 0.2345, 0.1321] }, { uv: [0.2520, 0.5342, 0.4980, 0.7217], aspect: 1.312, mean: [0.1017, 0.1883, 0.0647] }, { uv: [0.5063, 0.5415, 0.7432, 0.7202], aspect: 1.325, mean: [0.1261, 0.2273, 0.0663] }, { uv: [0.7539, 0.5405, 0.9946, 0.7212], aspect: 1.332, mean: [0.1027, 0.1877, 0.0802] }],
+  [{ uv: [0.0103, 0.2910, 0.2466, 0.4883], aspect: 1.198, mean: [0.1608, 0.2952, 0.0647] }, { uv: [0.2559, 0.2925, 0.4907, 0.4712], aspect: 1.314, mean: [0.1712, 0.3161, 0.0516] }, { uv: [0.5054, 0.2930, 0.7456, 0.4692], aspect: 1.363, mean: [0.1422, 0.2680, 0.0624] }, { uv: [0.7520, 0.2959, 0.9917, 0.4731], aspect: 1.353, mean: [0.1796, 0.3118, 0.0695] }],
+  [{ uv: [0.0068, 0.0562, 0.2476, 0.2388], aspect: 1.318, mean: [0.1484, 0.2688, 0.0605] }, { uv: [0.2529, 0.0508, 0.4854, 0.2397], aspect: 1.230, mean: [0.1421, 0.2014, 0.0736] }, { uv: [0.5049, 0.0513, 0.7397, 0.2275], aspect: 1.332, mean: [0.1336, 0.2601, 0.0730] }, { uv: [0.7549, 0.0513, 0.9888, 0.2266], aspect: 1.334, mean: [0.1585, 0.3226, 0.0166] }],
+];
+// 月光下的小白花图集（whiteflowers_moonglow_atlas.webp）：16 个形态，花瓣是纯白的
+const MOONFLOWERS = [
+  [{ uv: [0.0674, 0.7734, 0.1816, 0.9404], aspect: 0.684, mean: [0.3545, 0.3821, 0.2854] }, { uv: [0.2930, 0.7705, 0.4297, 0.9551], aspect: 0.741, mean: [0.3977, 0.4156, 0.3350] }, { uv: [0.5371, 0.7705, 0.7129, 0.9707], aspect: 0.878, mean: [0.4008, 0.4187, 0.3324] }, { uv: [0.7695, 0.7725, 0.9580, 0.9482], aspect: 1.072, mean: [0.4227, 0.4367, 0.3731] }],
+  [{ uv: [0.0654, 0.5254, 0.2139, 0.7129], aspect: 0.792, mean: [0.4027, 0.4231, 0.3362] }, { uv: [0.2998, 0.5264, 0.4639, 0.6973], aspect: 0.960, mean: [0.3969, 0.4192, 0.3197] }, { uv: [0.5420, 0.5254, 0.7148, 0.7236], aspect: 0.872, mean: [0.4152, 0.4333, 0.3504] }, { uv: [0.8223, 0.5254, 0.9375, 0.7100], aspect: 0.624, mean: [0.3527, 0.3806, 0.2726] }],
+  [{ uv: [0.0508, 0.2744, 0.2129, 0.4756], aspect: 0.806, mean: [0.4287, 0.4473, 0.3707] }, { uv: [0.3105, 0.2754, 0.4336, 0.4355], aspect: 0.768, mean: [0.3561, 0.3807, 0.2848] }, { uv: [0.5713, 0.2744, 0.7031, 0.4648], aspect: 0.692, mean: [0.3803, 0.4014, 0.3119] }, { uv: [0.7891, 0.2754, 0.9502, 0.4736], aspect: 0.813, mean: [0.4163, 0.4347, 0.3499] }],
+  [{ uv: [0.0566, 0.0342, 0.1846, 0.2090], aspect: 0.732, mean: [0.3978, 0.4191, 0.3406] }, { uv: [0.2861, 0.0342, 0.4600, 0.2275], aspect: 0.899, mean: [0.4025, 0.4231, 0.3439] }, { uv: [0.5635, 0.0342, 0.6816, 0.2246], aspect: 0.621, mean: [0.3463, 0.3742, 0.2733] }, { uv: [0.7930, 0.0361, 0.9609, 0.2080], aspect: 0.977, mean: [0.3986, 0.4159, 0.3434] }],
+];
 // 落叶花瓣图集（leaves_atlas.webp）：3 行 × 5 片——暗红枫叶 / 橙黄枫叶 / 白色花瓣
 const LEAF_CARDS = [
   [{ uv: [0.0054, 0.6924, 0.2065, 0.9229], aspect: 0.873, mean: [0.3109, 0.0119, 0.0187] }, { uv: [0.2144, 0.7002, 0.3931, 0.8853], aspect: 0.966, mean: [0.3317, 0.0220, 0.0248] }, { uv: [0.3921, 0.6782, 0.5957, 0.8975], aspect: 0.929, mean: [0.3218, 0.0113, 0.0144] }, { uv: [0.6084, 0.7046, 0.8018, 0.8804], aspect: 1.100, mean: [0.3114, 0.0189, 0.0234] }, { uv: [0.8115, 0.6782, 0.9922, 0.8979], aspect: 0.822, mean: [0.2358, 0.0055, 0.0089] }],
@@ -280,7 +294,7 @@ export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) 
   // 程序生成的苔藓（aMoss）仍然叠在上面，所以每块石头的苔多少不同
   const rockMats = [[tex.rocks[0], .26, .86, [1, 1, 1]], [tex.rocks[1], .3, 1.3, [1, 1, .99]], [tex.rocks[2], .3, .54, [1.02, 1, .96]]].map(([set, gray, bright, tint]) =>
     patch(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, envMapIntensity: .55 }),
-      { tex: { mode: 'rock', sets: [set, tex.moss], scale: [.6, .7], gray, bright, soft: .3, contrast: 1.25, tint, crack: .3 } }));   // 带裂纹
+      { tex: { mode: 'rock', sets: [set, tex.moss], scale: [.6, .7], gray, bright, soft: .3, contrast: 1.25, tint, crack: .3, wet: tex.wetRock } }));   // 带裂纹
   const RV = rng(4711);   // 石头的颜色、倾斜用单独的随机数：不打乱后面草、花的摆放
   const geos = Array.from({ length: 6 }, (_, i) => makeRockGeo(i * 13.7 + 1.3, 4));
   const rocks = [], rockParts = [[], [], []];
@@ -578,17 +592,18 @@ export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) 
   const plantMat = patch(new THREE.MeshStandardMaterial({ map: tex.plants, alphaTest: .5, side: THREE.DoubleSide, roughness: .8 }),
     { cell: true, grass: true, grassH: 1, sway: .45, upNormal: true, card: true, underwater: false });
   // row：图集里的行（0 三叶草，1 蕨，2 蜂斗菜，3 白花）；put 放一株：h 是株高（米）、v 是第几个形态
-  const plantSet = (row, N) => {
-    const geo = plantCardGeo.clone(), cell = new Float32Array(N * 4), bright = [];
+  // opts：mat 换材质（夜景的地被、小白花用自己的图集）、cells 换 uv 表（默认 GROUND_PLANTS[row]）、shadow 是否投影
+  const plantSet = (row, N, opts = {}) => {
+    const cells = opts.cells || GROUND_PLANTS[row], geo = plantCardGeo.clone(), cell = new Float32Array(N * 4), bright = [];
     geo.setAttribute('aCell', new THREE.InstancedBufferAttribute(cell, 4));
-    const m = new THREE.InstancedMesh(geo, plantMat, N);
-    m.count = 0; m.frustumCulled = false; m.receiveShadow = m.castShadow = true;
+    const m = new THREE.InstancedMesh(geo, opts.mat || plantMat, N);
+    m.count = 0; m.frustumCulled = false; m.receiveShadow = true; m.castShadow = opts.shadow ?? true;
     let base = new THREE.Color(1, 1, 1);
-    m.put = (x, y, z, h, v = Math.floor(R() * 4), b = rand(.88, 1.1)) => {
+    m.put = (x, y, z, h, v = Math.floor(R() * cells.length), b = rand(.88, 1.1)) => {
       const i = m.count; if (i >= N) return false;
       dummy.position.set(x, y - .015, z); dummy.rotation.set(rand(-.08, .08), rand(0, 6.28), rand(-.08, .08)); dummy.scale.setScalar(h);
       dummy.updateMatrix(); m.setMatrixAt(i, dummy.matrix);
-      const [u0, v0, u1, v1] = GROUND_PLANTS[row][v].uv; cell.set([u0, v0, u1 - u0, v1 - v0], i * 4);
+      const [u0, v0, u1, v1] = cells[v % cells.length].uv; cell.set([u0, v0, u1 - u0, v1 - v0], i * 4);
       bright[i] = b; m.setColorAt(i, c.copy(base).multiplyScalar(b)); m.count = i + 1;
       return true;
     };
@@ -598,6 +613,34 @@ export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) 
     return m;
   };
   const ringRocks = rocks.filter(o => poolK(o.x, o.z) < 1.35);
+
+  // ---------- 夜景：石圈外的阔叶地被和月光下的小白花 ----------
+  // 夜景参考图里岸上没有草坪，是一层密密的阔叶地被（玉簪、虎耳草、蜂斗菜幼株、酢浆草 / 常春藤）加零星发亮的小白花。
+  // 白天不要这些（白天的画面已经调好了）：材质带 nightOnly，着色器里按"夜的程度"把它们从无到有"长"出来（太阳落到 -5° 以下才开始），
+  // 所以日落到夜晚、夜晚到日出是渐变的，没有突然出现；不投影（投影用的是另一套着色器，缩不掉）
+  const nightMatFor = (map, extra = {}) => patch(new THREE.MeshStandardMaterial({ map, alphaTest: .5, side: THREE.DoubleSide, roughness: .55 }),
+    { cell: true, grass: true, grassH: 1, sway: .25, upNormal: true, card: true, underwater: false, nightOnly: true, ...extra });
+  const broadMat = nightMatFor(tex.broadleaf), moonMat = nightMatFor(tex.moonflowers, { moonGlow: true });
+  const cover = [0, 1, 2, 3].map(row => plantSet(row, [170, 190, 70, 170][row], { cells: BROADLEAF_PLANTS[row], mat: broadMat, shadow: false }));
+  const heights = [[.22, .36], [.16, .28], [.26, .4], [.14, .24]];   // 每行植物的株高范围（米）：玉簪大一些，小叶地被矮一些
+  for (let tries = 0; tries < 30000 && cover.some(m => m.count < m.instanceMatrix.count * .9); tries++) {
+    const th = rand(0, Math.PI * 2), k = 1.05 + Math.pow(R(), 1.7) * 1.35, r = Rb(th) * k, cx = Math.cos(th) * r, cz = Math.sin(th) * r, cy = floorH(cx, cz);   // 越靠近石圈越密
+    if (cy < .05 || nearFox(cx, cz) || R() > lerp(1, .45, sstep(1.3, 2.4, k))) continue;
+    if (rocks.some(o => Math.hypot(o.x - cx, o.z - cz) < o.r * .85)) continue;
+    const row = Math.floor(R() * 4), m = 1 + Math.floor(R() * 3);
+    for (let j = 0; j < m; j++) {   // 一处 1～3 株，同一种挤在一起
+      const x = cx + gauss() * .22, z = cz + gauss() * .22, y = floorH(x, z);
+      if (y > .04 && !rocks.some(o => Math.hypot(o.x - x, o.z - z) < o.r * .75)) cover[row].put(x, y, z, rand(...heights[row]));
+    }
+  }
+  cover.forEach(m => m.done());
+  const moonFlowers = plantSet(0, 150, { cells: MOONFLOWERS.flat(), mat: moonMat, shadow: false });
+  for (let tries = 0; tries < 30000 && moonFlowers.count < 140; tries++) {
+    const th = rand(0, Math.PI * 2), k = 1.04 + Math.pow(R(), 1.5) * 1.1, r = Rb(th) * k, cx = Math.cos(th) * r, cz = Math.sin(th) * r;
+    if (floorH(cx, cz) < .05 || nearFox(cx, cz) || rocks.some(o => Math.hypot(o.x - cx, o.z - cz) < o.r * .85)) continue;
+    for (let j = 1 + Math.floor(R() * 3); j > 0; j--) { const x = cx + gauss() * .2, z = cz + gauss() * .2; moonFlowers.put(x, floorH(x, z), z, rand(.14, .26)); }
+  }
+  moonFlowers.done();
 
   // ---------- 蕨类：池边潮湿处成丛生长 ----------
   // 一处 1～3 株挤在一起，大小不一；背阴的一侧（朝 +z）多一些
@@ -850,6 +893,7 @@ export function buildPool(scene, { grassCount = 3000, tuftCount = 12000, tex }) 
     const pt = new THREE.Color(...SEASON_PLANT[season]);
     for (const m of [ferns, butter, weeds, foxWeeds, foxFerns]) m.tint(pt);
     foxFlowers.tint(new THREE.Color(1, 1, 1));
+    for (const m of [...cover, moonFlowers]) m.tint(new THREE.Color(1, 1, 1));
     const ir = SEASON_IRIS[season];
     const it = cardTint(ir, GRASS_CARDS.sedge);
     for (let i = 0; i < iris.count; i++) iris.setColorAt(i, c.copy(it).multiplyScalar(irisVar[i]));

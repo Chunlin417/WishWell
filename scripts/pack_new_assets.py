@@ -56,13 +56,23 @@ def bleed(img):
     return Image.fromarray(np.uint8(np.clip(np.concatenate([out, a[..., 3:]], -1), 0, 255)), "RGBA")
 
 
-def atlas(name, size, q, rows, cols, var, merge=14):
+def atlas(name, size, q, rows, cols, var, merge=14, grid=False):
     """var：JS 里的变量名。元素按"行（从上到下）、行内从左到右"排序"""
     im = Image.open(SRC / f"{name}.png").convert("RGBA")
     al = np.asarray(im)[..., 3]
-    lab, n = ndimage.label(ndimage.binary_dilation(al > 8, iterations=merge))
     boxes = []
-    for i, sl in enumerate(ndimage.find_objects(lab)):
+    if grid:   # 元素排得很紧、连通域会连在一起时：按等分的格子取每格里不透明像素的包围盒
+        ch, cw = im.height // rows, im.width // cols
+        for r in range(rows):
+            for c in range(cols):
+                sub = al[r * ch:(r + 1) * ch, c * cw:(c + 1) * cw] > 8
+                ys, xs = np.nonzero(sub)
+                boxes.append((c * cw + xs.min(), r * ch + ys.min(), c * cw + xs.max() + 1, r * ch + ys.max() + 1))
+                if xs.min() == 0 or xs.max() == cw - 1 or ys.min() == 0 or ys.max() == ch - 1: print(f"  警告：{name} 第 {r + 1} 行第 {c + 1} 个碰到了格子边缘")
+        lab, n = None, 0
+    else:
+        lab, n = ndimage.label(ndimage.binary_dilation(al > 8, iterations=merge))
+    for i, sl in enumerate([] if grid else ndimage.find_objects(lab)):
         m = (lab[sl] == i + 1) & (al[sl] > 8)
         ys, xs = np.nonzero(m)
         y0, y1 = sl[0].start + ys.min(), sl[0].start + ys.max() + 1
@@ -109,6 +119,9 @@ def main():
         plain(f"{n}_rough", 512, 80, gray=True)
     atlas("groundplants_atlas", 1536, 85, 4, 4, "GROUND_PLANTS")
     atlas("leaves_atlas", 1024, 85, 3, 5, "LEAF_CARDS", merge=3)
+    atlas("broadleaf_groundplants_atlas", 1536, 85, 4, 4, "BROADLEAF_PLANTS", grid=True)
+    atlas("whiteflowers_moonglow_atlas", 1024, 85, 4, 4, "MOONFLOWERS", grid=True)
+    plain("wet_rock_detail_nor_gl", 1024, 90)
 
 
 if __name__ == "__main__":

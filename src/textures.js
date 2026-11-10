@@ -56,7 +56,10 @@ export function loadAll(renderer, { dragon = true } = {}) {
     foxStone: loadSet('fox_stone', renderer),               // 石狐：浅米色风化花岗岩
     riverbed: loadSet('riverbed_pebbles', renderer),        // 水下的河床卵石
     plants: loadAtlas('groundplants_atlas.webp', renderer), // 三叶草 / 蕨 / 蜂斗菜 / 白花
-    leaves: loadAtlas('leaves_atlas.webp', renderer),       // 枫叶 / 花瓣
+    leaves: loadAtlas('leaves_atlas.webp', renderer),
+    broadleaf: loadAtlas('broadleaf_groundplants_atlas.webp', renderer),   // 夜景：石圈外的阔叶地被
+    moonflowers: loadAtlas('whiteflowers_moonglow_atlas.webp', renderer),  // 夜景：月光下发亮的小白花
+    wetRock: load('wet_rock_detail_nor_gl.webp', false, renderer),          // 夜里石头表面的湿润细节（法线）       // 枫叶 / 花瓣
     waterNormal: load('water_ripple_nor_gl.webp', false, renderer),   // 水面细小的波纹法线
     canopy: load('canopy_mask.webp', false, renderer),   // 树荫光斑遮罩（R 粗 / G 细）
     moss: loadSet('mossy_rock', renderer),

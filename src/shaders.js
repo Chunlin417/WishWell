@@ -32,10 +32,10 @@ float canopyLit(vec3 wp, vec3 L, float t){
 // 调色：对比度 + 饱和度，作用于整个画面（输出到屏幕前的 sRGB 颜色）
 export const GradeShader = {
   // night：夜里的"月夜"调色——暗处褪色、偏冷蓝；被灯照亮的亮处保留原本的暖色
-  uniforms: { tDiffuse: { value: null }, contrast: { value: 1.1 }, saturation: { value: 1.12 }, night: { value: 0 }, dayWarm: { value: 0 } },
+  uniforms: { tDiffuse: { value: null }, contrast: { value: 1.1 }, saturation: { value: 1.12 }, night: { value: 0 }, dayWarm: { value: 0 }, vig: { value: 0 } },
   vertexShader: /* glsl */`varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`,
   fragmentShader: /* glsl */`
-    uniform sampler2D tDiffuse; uniform float contrast; uniform float saturation; uniform float night; uniform float dayWarm; varying vec2 vUv;
+    uniform sampler2D tDiffuse; uniform float contrast; uniform float saturation; uniform float night; uniform float dayWarm; uniform float vig; varying vec2 vUv;
     void main(){
       vec4 c = texture2D(tDiffuse, vUv);
       vec3 col = (c.rgb - .5) * contrast + .5;
@@ -52,10 +52,11 @@ export const GradeShader = {
         // 判断"被灯照亮"看的是暖色程度（红比蓝多），而不是亮度：月光下的亮处也会褪色
         float warm = clamp((col.r - col.b) * 4., 0., 1.);
         float teal = clamp((min(col.g, col.b) - col.r) * 3., 0., 1.);   // 池心的青色微光也保留颜色（绿色植物不算，蓝色分量不够）
-        float lit = smoothstep(.12, .35, l) * max(warm, teal);
-        vec3 moon = mix(vec3(l), col, .25) * vec3(.82, .93, 1.15);
+        float lit = smoothstep(.12, .35, l) * max(warm, teal * .35);   // 浅水的青色不再整片保留：不让池子发光
+        vec3 moon = mix(vec3(l), col, .5) * vec3(.9, .97, 1.07);   // 月夜：保留一半原色（石头的灰绿、植物的深绿），只轻轻偏冷，不整体刷成蓝灰
         col = mix(col, mix(moon, col, lit), night);
       }
+      if (vig > 0.) col *= 1. - vig * smoothstep(.3, .95, length((vUv - .5) * vec2(1.25, 1.)));   // 夜里的暗角
       gl_FragColor = vec4(clamp(col, 0., 1.), c.a);
     }`,
 };
