@@ -113,7 +113,9 @@ void main(){
   // 风吹出的细小水波
   float e = .02, t = uTime, h0 = wh(vW.xz, t);
   vec2 wg = vec2(wh(vW.xz + vec2(e, 0.), t) - h0, wh(vW.xz + vec2(0., e), t) - h0) / e;
-  wg *= .012 + .05 * uWind + .03 * uRain;
+  // 风不是均匀地吹：水面上一块块细碎的波纹（猫爪风）和一块块几乎静止的镜面交替，缓慢漂移
+  float gust = .5 + .85 * smoothstep(.25, .8, vnoise(vW.xz * .32 + t * vec2(.05, .03)) * .7 + vnoise(vW.xz * .9 - t * vec2(.04, .07)) * .3);
+  wg *= (.012 + .05 * uWind + .03 * uRain) * gust;
   vec3 n = normalize(vec3(-(wg.x + rg.x), 1., -(wg.y + rg.y)));
 
   // 薄冰：从石头边往里长一圈，内缘不规则；冰面上没有波纹
@@ -135,9 +137,11 @@ void main(){
   // 往池心逐渐变深，井口是最暗的蓝黑。浅水的亮度跟着天光走（用倒影的亮度估计），夜里不会发亮
   float kk0 = length(vW.xz) / Rb(atan(vW.z, vW.x));
   float sky = clamp(dot(refl, vec3(.3, .59, .11)) * 1.6, 0., 1.);
-  float shallow = smoothstep(.62, .92, kk0);
-  refr = mix(refr, refr * vec3(1., 1.5, 1.42) + vec3(.006, .04, .044) * sky, shallow);
-  refr *= mix(1., .6, 1. - smoothstep(.45, .7, kk0));   // 井口一圈更深更暗：一眼看出这里深不见底
+  // 浅水：清澈的青绿色（只轻轻提亮，水底卵石的颜色透得出来）；往里经过一段渐变，到井口是幽暗的深青色
+  float shallow = smoothstep(.6, .92, kk0);
+  refr = mix(refr, refr * vec3(1.04, 1.3, 1.2) + vec3(.004, .03, .026) * sky, shallow);
+  refr *= mix(vec3(1.), vec3(.82, .93, .92), (1. - shallow) * smoothstep(.45, .65, kk0));
+  refr *= mix(vec3(1.), vec3(.5, .64, .62), 1. - smoothstep(.45, .7, kk0));   // 井口一圈更深更暗：一眼看出这里深不见底
   vec3 col = mix(refr, refl, F * uReflAmt);
 
   // 石头和水的交界处：窄窄一圈接触阴影（石头挡住天光、压在水面上）
@@ -159,8 +163,10 @@ void main(){
     col = mix(col, iceCol, iceM);
   }
 
+  // 阳光的反光：细小的点点闪光 + 一层很淡的光晕；总量封顶，不会在水面上烧出一大片白（泛光也就不会溢到石头上）
   vec3 Hs = normalize(uSunDir + V); float sh = max(dot(n, Hs), 0.);
-  col += uSunCol * (pow(sh, 900.) * 9. + pow(sh, 90.) * .1) * step(0., uSunDir.y) * (1. - iceM * .85);
+  float glint = min(pow(sh, 1400.) * 2.2 + pow(sh, 140.) * .035 + pow(sh, 24.) * .01, .9);
+  col += uSunCol * glint * step(0., uSunDir.y) * (1. - iceM * .85);
   vec3 Hm = normalize(uMoonDir + V);
   col += uMoonCol * pow(max(dot(n, Hm), 0.), 700.) * 8. * step(0., uMoonDir.y);
 

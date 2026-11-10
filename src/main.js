@@ -70,6 +70,11 @@ scene.add(ambient);
 const skyFill = new THREE.HemisphereLight(0x7f97c8, 0x1c1a14, 0);
 skyFill.layers.enable(1);
 scene.add(skyFill);
+// 白天的柔和间接光：上面是略带天青的白，下面是草地反上来的暖橄榄绿——阴影不再发黑发蓝，
+// 石头、草地和石狐的暗面被同一层环境光托起来（亮面不变，明暗对比还在）
+const bounce = new THREE.HemisphereLight(0xd4d8cf, 0x6a7244, 0);
+bounce.layers.enable(1);
+scene.add(bounce);
 
 const sky = createSky();
 scene.add(sky.mesh);
@@ -90,7 +95,7 @@ setTimeout(() => { assetsReady = true; }, 15000);
 const texSets = loadAll(renderer, { dragon: DRAGON_ENABLED });
 const pool = buildPool(scene, { grassCount: isMobile ? 3500 : 4800, tuftCount: isMobile ? 16000 : 36000, tex: texSets });
 // 横屏两侧的一对守愿石狐
-const foxes = buildFoxes(scene, { floorH, poolK, tex: texSets });
+const foxes = buildFoxes(scene, { floorH, poolK, tex: texSets, onLayout: pool.dressFoxes });   // 底座四周的泥土、苔藓、小草跟着石狐走
 const ripples = new Ripples(renderer, 256, 5);
 const water = createWater(ripples, 5);
 scene.add(water.mesh);
@@ -307,6 +312,7 @@ function update(dt) {
   // 黄昏（太阳高度约 -6° 到 10°）：冷色天空光补在暗面上
   const duskK = smooth(clamp((el + 6) / 4)) * (1 - smooth(clamp((el - 6) / 10)));
   skyFill.intensity = 1.1 * duskK * (1 - .5 * cloud) * (1 - .35 * dread);
+  bounce.intensity = .62 * sunUp * (1 - duskK) * (1 - .45 * cloud) * (1 - .35 * dread);
   // 环境光是用天空本身生成的：日落时天边的橙光会从四面八方把石头整个染红。黄昏时减弱它，暗面交给上面的冷色天空光
   scene.environmentIntensity *= 1 - .35 * duskK * (1 - cloud);   // 太阳落山后才逐渐增强，黄昏的暗面不发紫
 
@@ -315,7 +321,7 @@ function update(dt) {
   shared.uSunCol.value.copy(key.color).multiplyScalar(key.intensity * .55);
   shared.uKeyDir.value.copy(key.position).normalize();
   shared.uCaustic.value = 1 - rn * .5;
-  shared.uWaterCol.value.setRGB(.0015, .016, .03).multiplyScalar(.22 + .78 * dayF * (1 - .25 * cloud));   // 深处的幽蓝（夜里也留一点，池子不会变成黑洞）
+  shared.uWaterCol.value.setRGB(.0018, .022, .027).multiplyScalar(.22 + .78 * dayF * (1 - .25 * cloud));   // 深处的幽暗深青色（夜里也留一点，池子不会变成黑洞）
   const windNow = wind * (1 - .92 * dread);   // 风停了：草不动、水面变得像镜子一样
   shared.uSnow.value = snowCover; shared.uWet.value = wet; shared.uWind.value = windNow;
   shared.uFrost.value = frost;
@@ -329,7 +335,8 @@ function update(dt) {
   setSRGB(scene.fog.color, hor, .2 + .8 * dayF);
   scene.fog.density = .004 + fog * .07 + rn * .012;
   renderer.toneMappingExposure = lerp(3, 1, smooth(clamp((el + 10) / 14))) + .4 * duskK;   // 太阳还在地平线上时不额外提亮：黄昏保留明暗对比，天黑后才慢慢拉高
-  grade.uniforms.saturation.value = (1.12 - .14 * duskK) * (1 - .3 * dread);   // 黄昏不额外加饱和度，金色才不会像涂上去的   // 颜色褪去一些
+  // 白天少加饱和度（草不再是荧光绿）；黄昏不额外加饱和度，金色才不会像涂上去的；许愿时颜色褪去一些
+  grade.uniforms.saturation.value = (lerp(1.12, 1.03, sunUp * (1 - duskK)) - .14 * duskK) * (1 - .3 * dread);
   grade.uniforms.night.value = 1 - smooth(clamp((el + 9) / 8));   // 月夜调色：太阳落下后才慢慢开始，黄昏保留暖色
   wu.uNightSheen.value.setRGB(.008, .016, .038).multiplyScalar(grade.uniforms.night.value * (1 - .4 * cloud));   // 阴天不再额外提亮，否则石头发白
 

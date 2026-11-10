@@ -17,6 +17,8 @@ export const shared = {
   uLawnA: { value: new THREE.Color() }, uLawnB: { value: new THREE.Color() }, uLawnMoss: { value: new THREE.Color() },
   uDeepGlow: { value: 0 }, uDeepGlowCol: { value: new THREE.Color(.22, .8, .75) },   // 夜里池心深处的微光
   uFoxGlow: { value: 0 }, uFoxGlowCol: { value: new THREE.Color(.3, .95, .85) },
+  // 两只石狐底座的位置（左 xy、右 zw）、底座半宽、[左泥土, 右泥土, 左苔藓, 右苔藓]：地面在底座四周露土、长苔、压暗（pool.dressFoxes 设置）
+  uFoxBase: { value: new THREE.Vector4(1e3, 1e3, 1e3, 1e3) }, uFoxFoot: { value: new THREE.Vector2(1, 1) }, uFoxAmt: { value: new THREE.Vector4(0, 0, 0, 0) },
 };
 
 // 草叶从根到尖的颜色：根部暗、偏冷（埋在草丛里照不到光），尖端亮、微微发黄（老叶尖）；BLADE 再画一条浅色中脉
@@ -239,6 +241,7 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
         #endif
         #ifdef LAWN
           varying vec3 vLawn; uniform vec3 uLawnA; uniform vec3 uLawnB; uniform vec3 uLawnMoss;
+          uniform vec4 uFoxBase; uniform vec2 uFoxFoot; uniform vec4 uFoxAmt;
         #endif
         #ifdef SCALES
           varying float vScaleM; varying vec3 vOPos; varying vec3 vONrm;
@@ -351,6 +354,13 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
             float bl0 = clamp(dot(grassDetail, vec3(.3, .59, .11)) * .5, 0., 1.);
             // 苔藓：边缘被噪声打散、和草混着长，颜色压暗一点，不是一块块鲜绿的补丁
             float gMoss = vLawn.y * smoothstep(.2, .75, vLawn.y + (vnoise(lp * 3.3) - .5) * .7 + (bl0 - .5) * .4) * .8;
+            // 石狐底座四周：草被踩秃、露出泥土，贴着底座长一圈不连续的苔藓，越靠近底座越暗（左右两只程度不同）
+            float fxN = (vnoise(lp * 2.7 + 13.) - .5) * .5 + (vnoise(lp * 8.3) - .5) * .18;
+            float fr1 = length(lp - uFoxBase.xy) / uFoxFoot.x + fxN, fr2 = length(lp - uFoxBase.zw) / uFoxFoot.y + fxN;
+            float foxDirt = max((1. - smoothstep(1.15, 1.95, fr1)) * uFoxAmt.x, (1. - smoothstep(1.15, 1.95, fr2)) * uFoxAmt.y);
+            float foxMoss = max((1. - smoothstep(1., 1.6, fr1 - fxN * .6)) * uFoxAmt.z, (1. - smoothstep(1., 1.6, fr2 - fxN * .6)) * uFoxAmt.w);
+            float foxAO = max(1. - smoothstep(.95, 1.5, fr1 - fxN * .8), 1. - smoothstep(.95, 1.5, fr2 - fxN * .8)) * step(.01, uFoxAmt.x + uFoxAmt.y);
+            gMoss = max(gMoss, foxMoss * smoothstep(.35, .65, bl0 + fxN * 1.2));
             vec3 lawnAlb = mix(lawn * grassDetail, uLawnMoss * .8 * (mossC / G_moss_M), gMoss);
             // 一簇簇草堆：缝隙稍暗，草尖略亮略黄（贴图已经有细节，这里只轻轻叠一层）
             float tuft = lawnTuft(lp);
@@ -362,7 +372,7 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
             float bl = bl0;
             float bare = vnoise(lp * .55 + 40.) * .65 + vnoise(lp * 2.1 + 9.) * .35 + dry * .18;
             bare = smoothstep(.68, .78, bare + (bl - .5) * .25 + (tuft - .5) * .1) * (1. - vLawn.y);
-            float cover = vLawn.x * (1. - bare * .9);
+            float cover = vLawn.x * (1. - bare * .9) * (1. - foxDirt * .85);
             cover = clamp(cover + (bl - .5) * .9 * cover * (1. - cover) * 4., 0., 1.);
             cover = max(cover, gMoss * .9 * step(.03, vWPos.y));   // 苔藓不受草地覆盖度限制
 
@@ -379,7 +389,7 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
             float sandW = (1. - smoothstep(.06, .24, vWPos.y + (vnoise(lp * 1.7 + 5.) - .5) * .16))
                         * (1. - smoothstep(1.12, 1.3, poolK + (vnoise(lp * 2.2) - .5) * .1));
 
-            vec3 landAlb = mix(soilAlb, lawnAlb, cover);
+            vec3 landAlb = mix(soilAlb, lawnAlb, cover) * (1. - .24 * foxAO);
             vec2 landN = mix(soilNx, mix(grassN, mossN, gMoss), cover);
             float landR = mix(soilR, mix(G_grass_R, G_moss_R, gMoss), cover);
             landAlb = mix(landAlb, sandC * G_sand_B, sandW);
@@ -399,7 +409,9 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
           #endif
           diffuseColor.rgb *= alb;
           // 青苔放在去色之后再上：石头顶上一片片鲜绿的苔
-          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.07, .11, .045) * mossTone, mossM * .7);   // 深绿色的薄苔，不再是浅黄斑
+          // 苔的颜色不统一：向阳的顶面偏黄绿，背阴和凹处是深绿，按大块噪声交错（每块石头看起来都不一样）
+          float mossHue = smoothstep(.3, .75, vnoise(vWPos.xz * 1.7 + vWPos.y) * .7 + gN.y * .35);
+          diffuseColor.rgb = mix(diffuseColor.rgb, mix(vec3(.06, .095, .04), vec3(.11, .135, .045), mossHue) * mossTone, mossM * .72);
           #ifdef HAS_MOSS
             // 水线（水面在 y = 0）：贴着水面一圈被浸湿——更暗、更光滑；水线上面一窄条长着深绿的湿苔，水下蒙着一层暗绿的藻
             float wl = vWPos.y + (vnoise(vWPos.xz * 3.1 + vWPos.y) - .5) * .06;
@@ -485,9 +497,9 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
           float cs = caustic(vWPos.xz * 1.15, uTime * .9) * (.35 + .65 * vnoise(vWPos.xz * .5 + uTime * .05));
           float att = exp(-dW * 1.4);
           outgoingLight += uSunCol * cs * att * uCaustic * max(triN.y, 0.0) * (diffuseColor.rgb + .08) * .55;
-          outgoingLight *= mix(vec3(1.), vec3(.6, .8, .9), smoothstep(0., .12, dW));   // 一入水就带上青蓝色调（浸在水里的石头不再是棕色）
-          // 越深越被水"吃掉"：红光最先消失，然后是绿光，深处只剩幽暗的蓝绿色
-          vec3 tr = exp(-dW * vec3(2.6, 1.05, .82));
+          outgoingLight *= mix(vec3(1.), vec3(.68, .88, .86), smoothstep(0., .12, dW));   // 一入水就带上青绿色调（浸在水里的石头不再是棕色）
+          // 越深越被水"吃掉"：红光最先消失，绿、蓝留得久——浅处清澈的青绿，深处是幽暗的深青色（泉水那样，不是海蓝）
+          vec3 tr = exp(-dW * vec3(2.1, .7, .76));
           outgoingLight = outgoingLight * tr + uWaterCol * (1.0 - tr.b);
           // 夜里池心深处一团柔和的微光：越深越亮，缓慢地呼吸
           if (uDeepGlow > 0.0) {

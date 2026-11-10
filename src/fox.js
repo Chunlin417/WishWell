@@ -31,18 +31,24 @@ function detailFromMap(map) {
   return t;
 }
 
-// 风化：底座下半截发暗、沾泥；朝上的面和底座脚下零星长苔
-function weather(geo) {
+// 风化：底座下半截发暗、沾泥（略偏黄褐）；大块的深浅、冷暖斑驳；雨水从上往下冲出的竖向暗纹；零星浅色地衣；
+// 朝上的面零星长苔，底座脚下的苔往上爬一截。seed / mossAmt 让两只石狐各不相同（不是一个模子的镜像）
+function weather(geo, seed = 0, mossAmt = 1) {
   geo.computeBoundingBox();
   const { min, max } = geo.boundingBox, H = max.y - min.y, S = 6 / H;
   const p = geo.attributes.position, nr = geo.attributes.normal;
   const col = new Float32Array(p.count * 3), moss = new Float32Array(p.count);
   for (let i = 0; i < p.count; i++) {
-    const x = p.getX(i), y = p.getY(i), z = p.getZ(i), u = (y - min.y) / H;
-    const b = (.55 + .45 * sstep(0, .24, u)) * (.9 + .2 * fbm3(x * S, y * S, z * S, 3));
-    col[i * 3] = b * .98; col[i * 3 + 1] = b; col[i * 3 + 2] = b * 1.01;
-    moss[i] = Math.max(sstep(.55, .92, nr.getY(i)) * sstep(.5, .66, fbm3(x * S * .8 + 7, y * S * .8, z * S * .8, 3)),
-                       (1 - sstep(.04, .2, u)) * .8 * sstep(.42, .6, fbm3(x * S + 3, y * S, z * S + 3, 3)));
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i), u = (y - min.y) / H, ny = nr.getY(i);
+    const blot = fbm3(x * S * .6 + seed, y * S * .6, z * S * .6 - seed, 3);
+    const streak = sstep(.56, .72, fbm3(x * S * 3 + seed, y * S * .35, z * S * 3, 2)) * (1 - sstep(.45, .85, ny));
+    const lichen = sstep(.72, .8, fbm3(x * S * 2.4 - seed, y * S * 2.4, z * S * 2.4, 2)) * sstep(.08, .2, u);
+    const grime = 1 - sstep(.02, .2, u);
+    const b = (.55 + .45 * sstep(0, .24, u)) * (.9 + .2 * fbm3(x * S + seed, y * S, z * S, 3)) * (.88 + .22 * blot) * (1 - .16 * streak) * (1 + .18 * lichen);
+    const warm = (blot - .5) * .1 + grime * .05;
+    col[i * 3] = b * .98 * (1 + warm); col[i * 3 + 1] = b * (1 + warm * .4); col[i * 3 + 2] = b * 1.01 * (1 - warm) * (1 - .08 * grime);
+    moss[i] = Math.max(sstep(.55, .92, ny) * sstep(.58 - .08 * mossAmt, .7 - .06 * mossAmt, fbm3(x * S * .8 + 7 + seed, y * S * .8, z * S * .8, 3)) * mossAmt,
+                       (1 - sstep(.04, .1 + .12 * mossAmt, u)) * .85 * mossAmt * sstep(.4, .58, fbm3(x * S + 3 + seed, y * S, z * S + 3, 3)));
   }
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   geo.setAttribute('aMoss', new THREE.BufferAttribute(moss, 1));
@@ -52,7 +58,10 @@ const SCALE = 3.3;   // 比最初大约一半，是许愿入口，要一眼注�
 const YAW = -Math.PI / 2;   // 模型本身面朝 +x，转到 +z
 export const FOX_Z = 1.3;   // 石狐所在的 z：池子最宽处稍靠镜头一侧；pool.js 会在这附近避开摆放零散的石头
 
-export function buildFoxes(scene, { floorH, poolK, tex = null }) {
+const FOOT = .255;   // 底座半宽（模型单位：底座是正方形，原点在底面中心）
+
+// onLayout：每次摆放后回调 [{ x, z, angle, foot, side, visible }]，pool.js 用它在底座四周铺泥土、苔藓和小草
+export function buildFoxes(scene, { floorH, poolK, tex = null, onLayout = null }) {
   const root = new THREE.Group(); scene.add(root);
   const items = [];
   let show = true, gap = 1.4, sizeK = 1, ready = false;
@@ -67,6 +76,7 @@ export function buildFoxes(scene, { floorH, poolK, tex = null }) {
     it.g.scale.set(SCALE * sizeK * (it.side > 0 ? -1 : 1), SCALE * sizeK, SCALE * sizeK);
     it.g.visible = show;
   }
+  const notify = () => onLayout?.(items.map(it => ({ x: it.g.position.x, z: it.g.position.z, angle: it.g.rotation.y, foot: FOOT * SCALE * sizeK, side: it.side, visible: show })));
 
   new GLTFLoader().load(`${import.meta.env.BASE_URL}models/shihu-tripo.glb`, gltf => {
     let src = null;
@@ -74,29 +84,34 @@ export function buildFoxes(scene, { floorH, poolK, tex = null }) {
     const s = src.material;
     // 和池边的石头同一种花岗岩（同一套贴图、同样的冷灰色），颗粒细一点、颜色浅一点、裂纹少：
     // 看得出是被人雕出来、又被雨水磨了很多年的；雕刻的细节来自模型自带的法线贴图和原贴图的明暗
-    const mat = tex?.rock && s.map
-      ? (weather(src.geometry), patch(new THREE.MeshStandardMaterial({
+    const stone = tex?.rock && s.map;
+    // 两只各用一份几何体、各自做旧：左边那只（许愿的入口）苔多、更旧，右边那只干净一些
+    const geos = { [-1]: src.geometry, [1]: stone ? src.geometry.clone() : src.geometry };
+    if (stone) { weather(geos[-1], 0, 1); weather(geos[1], 31.7, .55); }
+    const mat = stone
+      ? patch(new THREE.MeshStandardMaterial({
           map: detailFromMap(s.map), normalMap: s.normalMap, vertexColors: true, roughness: 1, metalness: 0, envMapIntensity: .55,
-        }), { underwater: false, tex: { mode: 'rock', sets: [tex.rock, tex.moss], scale: [2.2, 2.4], gray: .9, bright: 1.7, soft: .8, contrast: .45, tint: [.97, .98, 1.01], crack: 0 } }))
+        }), { underwater: false, tex: { mode: 'rock', sets: [tex.rock, tex.moss], scale: [2.2, 2.4], gray: .9, bright: 1.7, soft: .8, contrast: .45, tint: [1.03, 1, .94], crack: 0 } })   // 略偏暖：花岗岩被晒了很多年，不再发蓝
       : patch(new THREE.MeshStandardMaterial({   // 没有石材贴图时：还用模型自带的贴图
           map: s.map, normalMap: s.normalMap, roughnessMap: s.roughnessMap, metalnessMap: s.metalnessMap,
           roughness: 1, metalness: s.metalnessMap ? 1 : 0, envMapIntensity: .6,
         }), { underwater: false });
     for (const side of [-1, 1]) {
       const g = new THREE.Group();
-      const m = new THREE.Mesh(src.geometry, mat); m.castShadow = m.receiveShadow = true; m.rotation.y = YAW; g.add(m);
+      const m = new THREE.Mesh(geos[side], mat); m.castShadow = m.receiveShadow = true; m.rotation.y = YAW; g.add(m);
       g.scale.set(SCALE * (side > 0 ? -1 : 1), SCALE, SCALE);
       root.add(g);
       const it = { g, side }; items.push(it); place(it);
     }
     ready = true;
+    notify();
   });
 
   return {
     objects: [root],   // 折射时要隐藏（都在水面以上）
     // 横屏时按屏幕宽度摆到两侧；竖屏没有空间就不显示
     // g：石狐离池边的距离；k：大小系数
-    layout(s, g, k = 1) { show = s; gap = g; sizeK = k; if (ready) items.forEach(place); },
+    layout(s, g, k = 1) { show = s; gap = g; sizeK = k; if (ready) { items.forEach(place); notify(); } },
     // 点到了哪只石狐：返回 side（-1 / 1，模型所在的一侧）和点中的位置；没点到返回 null
     pick(raycaster) {
       if (!ready || !show) return null;
