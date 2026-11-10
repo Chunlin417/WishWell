@@ -53,7 +53,7 @@ export const GradeShader = {
         float warm = clamp((col.r - col.b) * 4., 0., 1.);
         float teal = clamp((min(col.g, col.b) - col.r) * 3., 0., 1.);   // 池心的青色微光也保留颜色（绿色植物不算，蓝色分量不够）
         float lit = smoothstep(.12, .35, l) * max(warm, teal * .35);   // 浅水的青色不再整片保留：不让池子发光
-        vec3 moon = mix(vec3(l), col, .5) * vec3(.9, .97, 1.07);   // 月夜：保留一半原色（石头的灰绿、植物的深绿），只轻轻偏冷，不整体刷成蓝灰
+        vec3 moon = mix(vec3(l), col, .78) * vec3(.9, .99, 1.07);   // 月夜：保留一半原色（石头的灰绿、植物的深绿），只轻轻偏冷，不整体刷成蓝灰
         col = mix(col, mix(moon, col, lit), night);
       }
       if (vig > 0.) col *= 1. - vig * smoothstep(.3, .95, length((vUv - .5) * vec2(1.25, 1.)));   // 夜里的暗角

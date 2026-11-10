@@ -7,7 +7,7 @@ const QUAD_VS = /* glsl */`varying vec2 vUv; void main(){ vUv = uv; gl_Position 
 
 const SIM_FS = /* glsl */`
 uniform sampler2D tPrev; uniform vec2 delta; uniform float uE; varying vec2 vUv;
-float Rb(float t){ return 3.7 + .3 * sin(3. * t + .8) + .18 * sin(5. * t + 2.1) + .1 * sin(8. * t + .3); }
+float Rb(float t){ return 3.7 + .12 * sin(2. * t + .8) + .1 * sin(3. * t + 2.1) + .06 * sin(5. * t + .3); }
 void main(){
   vec2 w = (vUv * 2. - 1.) * uE;
   float k = length(w) / Rb(atan(w.y, w.x));
@@ -97,10 +97,12 @@ uniform vec2 uRes; uniform float uTime; uniform float uE; uniform float uWind; u
 uniform vec3 uSunDir; uniform vec3 uSunCol; uniform vec3 uMoonDir; uniform vec3 uMoonCol; uniform float uReflAmt; uniform vec3 uNightSheen;
 uniform float uIce;   // 冬天结冰的程度（0～1）：池边一圈薄冰，越冷越往池心长
 uniform sampler2D tWN;   // 水面细小波纹的法线贴图
+uniform sampler2D tPano;    // 夜空与树冠全景图（等距柱状投影）：夜里水面的倒影
+uniform sampler2D tRings;   // 同心圆涟漪法线
 uniform float uNight;   // 夜的程度：夜里水面更平静、透明度低一些、月光反射柔和集中
 varying vec3 vW; varying vec4 vRefl;
 ${NOISE_GLSL}
-float Rb(float t){ return 3.7 + .3 * sin(3. * t + .8) + .18 * sin(5. * t + 2.1) + .1 * sin(8. * t + .3); }
+float Rb(float t){ return 3.7 + .12 * sin(2. * t + .8) + .1 * sin(3. * t + 2.1) + .06 * sin(5. * t + .3); }
 // 风吹出的细长涟漪：沿风向拉长的几层小波纹，不再是一块块的圆斑
 float wh(vec2 p, float t){
   vec2 q = vec2(p.x * .55 + p.y * .2, p.y * 1.35 - p.x * .15);   // 拉长、略微倾斜
@@ -122,9 +124,11 @@ void main(){
   // 再叠一层真实水波的法线（两个尺度、朝不同方向缓慢漂移）：细小、不规则，随风和阵风起伏
   vec2 w1 = texture2D(tWN, vW.xz * .23 + t * vec2(.011, .006)).xy * 2. - 1., w2 = texture2D(tWN, vW.xz * .61 - t * vec2(.007, .013) + .37).xy * 2. - 1.;
   wg += (w1 * .6 + w2 * .4) * (.05 + .22 * uWind + .1 * uRain) * gust;
-  wg *= mix(1., .4, uNight);
+  wg *= mix(1., .8, uNight);
+  // 夜里水面零星几处一圈圈的涟漪（两层错开、缓慢漂移），把倒影打碎
+  wg += ((texture2D(tRings, vW.xz * .2 + t * vec2(.004, .002)).xy * 2. - 1.) + (texture2D(tRings, vW.xz * .13 + .5 - t * vec2(.003, .005)).xy * 2. - 1.)) * .35 * uNight;   // 夜里细波纹只比白天少一点：月光倒影要靠它们碎成一粒粒的亮点（太平的水面反光会糊成一整块）
   // 夜里再加几处缓慢、不规则的大波纹（几十厘米到一米）：月光倒影被它们打碎成一块块亮斑，其余水面保持平静
-  wg += (vec2(vnoise(vW.xz * .85 + t * .05), vnoise(vW.xz * .85 + 31. - t * .04)) - .5) * .1 * uNight;   // 夜里风小：细碎的高频波纹少了，只剩缓慢的大块起伏
+  wg += (vec2(vnoise(vW.xz * .85 + t * .05), vnoise(vW.xz * .85 + 31. - t * .04)) - .5) * .05 * uNight;   // 夜里风小：细碎的高频波纹少了，只剩缓慢的大块起伏
   vec3 n = normalize(vec3(-(wg.x + rg.x), 1., -(wg.y + rg.y)));
 
   // 薄冰：从石头边往里长一圈，内缘不规则；冰面上没有波纹
@@ -149,13 +153,29 @@ void main(){
   // 浅水：清澈的青绿色（只轻轻提亮，水底卵石的颜色透得出来）；往里经过一段渐变，到井口是幽暗的深青色
   float shallow = smoothstep(.5, .9, kk0);
   refr = mix(refr, refr * mix(vec3(1.1, 1.55, 1.38), vec3(1.05, 1.3, 1.22), uNight) + vec3(.01, .05, .042) * sky, shallow);   // 夜里浅水只留极弱的青绿
-  refr *= mix(1., .86, uNight);   // 夜里透明度低一些：岸边的石头看得见，但池心是深蓝黑
+  refr *= mix(1., mix(.8, .95, shallow), uNight);   // 夜里：岸边浅水仍然清澈（水下的石头看得见），往里才变成深蓝黑
+  refr += vec3(0., .01, .012) * shallow * uNight;   // 浅水一层很淡的青绿（参考图里靠镜头那一侧的水是青绿色的）
   refr *= mix(vec3(1.), vec3(.82, .93, .92), (1. - shallow) * smoothstep(.45, .65, kk0));
   refr *= mix(vec3(1.), vec3(.58, .72, .7), 1. - smoothstep(.45, .7, kk0));   // 井口一圈更深更暗：一眼看出这里深不见底
   vec3 col = mix(refr, refl, F * uReflAmt);
   // 石头和水的交界处：窄窄一圈接触阴影（石头挡住天光、压在水面上）
   col *= mix(1., .78, smoothstep(.93, .99, kk));
-  col += uNightSheen * (.4 + .6 * F) * (.85 + .3 * n.x);   // 夜里水面淡淡的月色反光，随波纹微微起伏
+  // 夜里的倒影：用全景图（夜空、月亮、四周黑色剪影的树冠），月亮的倒影被波纹打碎成一块块亮斑；靠岸的浅水倒影淡一些，透出水底
+  if (uNight > .01) {
+    vec3 Rr = reflect(-V, n);
+    vec2 puv = vec2(atan(Rr.x, -Rr.z) / 6.28318 + .5, acos(clamp(Rr.y, -1., 1.)) / 3.14159);
+    vec3 pano = texture2D(tPano, puv).rgb;
+    pano = min(pano * pano * 3., vec3(.1)) * vec3(.7, 1., .95);   // 压暗、偏青；全景图里的月亮也封顶（月亮的倒影由上面那道亮带负责，不要在近处再出现一团白）
+    col = mix(col, col * .8 + pano * .3, uNight * mix(.3, .75, smoothstep(.4, .9, kk0) * .5 + F));
+  }
+  col += uNightSheen * (.4 + .6 * F) * (.85 + .3 * n.x);
+  // 夜里池水的颜色（参考图）：不是饱和的宝蓝，而是偏青绿的深蓝——浅水带一点青绿，池心接近蓝黑
+  if (uNight > .01) {
+    float lw = dot(col, vec3(.3, .59, .11));
+    vec3 teal = mix(col * vec3(.68, 1.05, .86), vec3(lw) * vec3(.62, .9, .92), .3);
+    col = mix(col, teal, uNight * .75);
+    col *= mix(1., mix(.72, 1., shallow), uNight);
+  }   // 夜里水面淡淡的月色反光，随波纹微微起伏
 
   if (iceM > 0.) {
     // 冰的颜色：半透明的灰白，透出一点水下；亮度跟着天光走（夜里不会发白）。靠近内缘的冰更薄更透
@@ -179,7 +199,7 @@ void main(){
   vec3 Hm = normalize(uMoonDir + V);
   // 月光的倒影：一道柔和的银蓝色亮带（宽而淡），里面夹着少量细小的闪点；总量封顶，不会在水面上铺满白点
   float mh = max(dot(n, Hm), 0.);
-  col += uMoonCol * min(pow(mh, 1100.) * .22 + pow(mh, 3000.) * 1.1, .6) * step(0., uMoonDir.y);
+  col += uMoonCol * min(pow(mh, 2600.) * 1.3 + pow(mh, 600.) * .02, .7) * step(0., uMoonDir.y);
 
   gl_FragColor = vec4(col, 1.);
   #include <tonemapping_fragment>
@@ -187,7 +207,7 @@ void main(){
   #include <fog_fragment>
 }`;
 
-export function createWater(ripples, extent = 5, waterNormal = null) {
+export function createWater(ripples, extent = 5, waterNormal = null, night = {}) {
   const uniforms = THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
     tRefl: { value: null }, tRefr: { value: null }, tRip: { value: null },
     uTexMat: { value: new THREE.Matrix4() }, uRes: { value: new THREE.Vector2(1, 1) },
@@ -196,6 +216,7 @@ export function createWater(ripples, extent = 5, waterNormal = null) {
     uMoonDir: { value: new THREE.Vector3(0, 1, 0) }, uMoonCol: { value: new THREE.Color() }, uReflAmt: { value: 1 }, uNightSheen: { value: new THREE.Color() }, uIce: { value: 0 },
   }]);
   uniforms.tWN = { value: waterNormal };
+  uniforms.tPano = { value: night.pano || null }; uniforms.tRings = { value: night.rings || null };
   uniforms.uNight = shared.uNight;   // 和岸上用同一份（同一个对象，不是复制）
   const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: WATER_VS, fragmentShader: WATER_FS, fog: true });
   const geo = new THREE.PlaneGeometry(2 * extent, 2 * extent); geo.rotateX(-Math.PI / 2);
