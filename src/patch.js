@@ -1,6 +1,6 @@
 // 给 MeshStandardMaterial 注入：三平面 PBR 贴图、水下焦散 + 水体吸收、积雪、雨湿、草叶随风摆动
 import * as THREE from 'three';
-import { NOISE_GLSL, CAUSTIC_GLSL } from './shaders.js';
+import { NOISE_GLSL, CAUSTIC_GLSL, CANOPY_GLSL } from './shaders.js';
 
 export const shared = {
   uTime: { value: 0 },
@@ -17,6 +17,11 @@ export const shared = {
   uLawnA: { value: new THREE.Color() }, uLawnB: { value: new THREE.Color() }, uLawnMoss: { value: new THREE.Color() },
   uDeepGlow: { value: 0 }, uDeepGlowCol: { value: new THREE.Color(.22, .8, .75) },   // 夜里池心深处的微光
   uFoxGlow: { value: 0 }, uFoxGlowCol: { value: new THREE.Color(.3, .95, .85) },
+  // 两只石狐底座的位置（左 xy、右 zw）、底座半宽、[左泥土, 右泥土, 左苔藓, 右苔藓]：地面在底座四周露土、长苔、压暗（pool.dressFoxes 设置）
+  // 树荫光斑：两张叶影遮罩、强度（0～1，main.js 按钟点 / 季节 / 天气算）、树荫里直射光剩下的比例
+  tCanopy: { value: null }, uCanopy: { value: 0 }, uCanopyDark: { value: .2 },
+  uNight: { value: 0 },   // 夜的程度（0 白天 ～ 1 深夜），main.js 每帧更新；夜里植物褪色、不再透光
+  uFoxBase: { value: new THREE.Vector4(1e3, 1e3, 1e3, 1e3) }, uFoxFoot: { value: new THREE.Vector2(1, 1) }, uFoxAmt: { value: new THREE.Vector4(0, 0, 0, 0) },
 };
 
 // 草叶从根到尖的颜色：根部暗、偏冷（埋在草丛里照不到光），尖端亮、微微发黄（老叶尖）；BLADE 再画一条浅色中脉
@@ -53,7 +58,7 @@ const GRASS_TRANS = /* glsl */`
           vec3 V = normalize(cameraPosition - vWPos), L = normalize(uKeyDir);
           float back = pow(clamp(dot(-V, L), 0., 1.), 5.);
           float trans = (back * .8 + .08) * pow(clamp(vH, 0., 1.), .8) * smoothstep(-.05, .15, L.y);
-          outgoingLight += uSunCol * trans * diffuseColor.rgb * vec3(1., 1.2, .55) * .13;
+          outgoingLight += uSunCol * canopyK * (1. - .85 * uNight) * trans * diffuseColor.rgb * vec3(1., 1.2, .55) * .13;
         }
 `;
 
@@ -98,7 +103,7 @@ vec3 triNormal(sampler2D t, vec3 p, vec3 n, vec3 b, float s){
 
 // 地面贴图：tex.ground 里每套的缩放 / 平均色 / 粗糙度 / 亮度直接写进 GLSL 常量
 const GROUND_KEYS = ['grass', 'soil', 'sand', 'moss', 'litter'];
-const GROUND_BRIGHT = { grass: 1, soil: 1.5, sand: 1.25, moss: 1, litter: 1.1 };
+const GROUND_BRIGHT = { grass: 1, soil: 1.5, sand: .62, moss: 1, litter: 1.1 };
 const f3 = v => v.toFixed(4);
 function groundGLSL(g) {
   return GROUND_KEYS.map(k => `
@@ -145,9 +150,12 @@ float scaleField(vec3 p, vec3 n){
 // deepFade：不透明的实体越往深处越暗（exp(-深度 × deepFade)，只变暗、略偏冷，没有任何叠加的雾或发光）——用在龙身上，它是从黑暗里浮上来的真实物体，不是半透明的影子
 // absorb：水的吸收按深度的多少倍算（龙用 0.45：在 2 米深处还看得清鳞片，否则只剩一个青色的剪影）
 // card：贴草丛照片的交叉面片（map + alphaTest）——远处按 mipmap 级别加厚 alpha，草不会越远越稀
-export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = false, blade = false, card = false, rim = false, lamp = false, deepFade = 0, absorb = 1, underwater = true, tex = null, scales = false, glowAttr = false } = {}) {
+export function patch(mat, { cell = false, nightOnly = false, moonGlow = false, grass = false, grassH = .42, sway = 1, upNormal = false, blade = false, card = false, rim = false, lamp = false, deepFade = 0, absorb = 1, underwater = true, tex = null, scales = false, glowAttr = false } = {}) {
   const mode = tex ? tex.mode : 'none';
-  mat.customProgramCacheKey = () => `wish-${grass}-${grassH}-${sway}-${upNormal}-${blade}-${card}-${rim}-${lamp}-${deepFade}-${absorb}-${underwater}-${mode}-${scales}-${glowAttr}`;
+  mat.customProgramCacheKey = () => `wish-${nightOnly}-${moonGlow}-${tex && tex.wet ? 'w' : ''}-${cell}-${grass}-${grassH}-${sway}-${upNormal}-${blade}-${card}-${rim}-${lamp}-${deepFade}-${absorb}-${underwater}-${mode}-${scales}-${glowAttr}`;
+  if (cell) mat.defines = { ...(mat.defines || {}), CELL: '', ...(cell === 'flat' ? { CELL_FLAT: '' } : {}) };   // 每个实例自带图集里的 uv 范围（aCell）
+  if (nightOnly) mat.defines = { ...(mat.defines || {}), NIGHT_ONLY: '' };   // 只在夜里长出来（顶点着色器按 uNight 缩放）
+  if (moonGlow) mat.defines = { ...(mat.defines || {}), MOON_GLOW: '' };     // 白色的花瓣在月光下微微发亮
   if (upNormal) mat.defines = { ...(mat.defines || {}), UP_NORMAL: '' };
   if (blade) mat.defines = { ...(mat.defines || {}), BLADE: '' };
   if (card) mat.defines = { ...(mat.defines || {}), CARD: '' };
@@ -159,6 +167,7 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
     mat.defines = { ...(mat.defines || {}), TRI: '' };
     if (mode === 'rock') mat.defines.TRI_TWO = '';
     if (mode === 'rock') mat.defines.HAS_MOSS = '';
+    if (mode === 'rock' && tex.wet) mat.defines.HAS_WET = '';   // 夜里石头表面的湿润细节
     if (mode === 'ground') { mat.defines.TRI_TOP = ''; mat.defines.LAWN = ''; }
   }
   mat.onBeforeCompile = sh => {
@@ -173,6 +182,7 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
         uContrast: { value: tex.contrast ?? 1 },
         uTint: { value: new THREE.Vector3(...(tex.tint || [1, 1, 1])) }, uCrack: { value: tex.crack ?? 0 },
       });
+      if (tex.wet) sh.uniforms.tWetN = { value: tex.wet };
       if (tex.ground) for (const k of GROUND_KEYS) {
         sh.uniforms[`tG_${k}D`] = { value: tex.ground[k].diff };
         sh.uniforms[`tG_${k}N`] = { value: tex.ground[k].nor };
@@ -196,7 +206,17 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
         #ifdef BLADE
           varying float vBladeU;
         #endif
+        #ifdef CELL
+          attribute vec4 aCell;
+        #endif
+        #ifdef NIGHT_ONLY
+          uniform float uNight;
+        #endif
         uniform float uTime; uniform float uWind;`)
+      .replace('#include <uv_vertex>', `#include <uv_vertex>
+        #ifdef CELL
+          vMapUv = uv * aCell.zw + aCell.xy;
+        #endif`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         vH = 1.0; vMoss = 0.0;
         #ifdef HAS_MOSS
@@ -214,6 +234,17 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
         #ifdef BLADE
           vBladeU = uv.x;
         #endif
+        #ifdef CELL
+          // 图集里每一格宽高比不同：宽度按它放大（植物绕中心各个方向一起放大；平放的落叶只放大 x）
+          #ifdef CELL_FLAT
+            transformed.x *= aCell.z / aCell.w;
+          #else
+            transformed.xz *= aCell.z / aCell.w;
+          #endif
+        #endif
+        #ifdef NIGHT_ONLY
+          transformed *= smoothstep(.18, .6, uNight);   // 白天是 0（看不见），太阳落下后慢慢长出来
+        #endif
         ${grass ? GRASS_SWAY(grassH, sway) : ''}`)
       .replace('#include <fog_vertex>', `#include <fog_vertex>
         vec4 wp4 = vec4(transformed, 1.0);
@@ -230,7 +261,7 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
       .replace('#include <common>', `#include <common>
         varying vec3 vWPos; varying vec3 vWNrm; varying float vH; varying float vMoss;
         uniform float uTime; uniform float uCaustic; uniform float uSnow; uniform float uWet; uniform float uFrost;
-        uniform vec3 uSunCol; uniform vec3 uWaterCol; uniform float uDeepGlow; uniform vec3 uDeepGlowCol; uniform vec3 uKeyDir;
+        uniform vec3 uSunCol; uniform vec3 uWaterCol; uniform float uDeepGlow; uniform float uNight; uniform vec3 uDeepGlowCol; uniform vec3 uKeyDir;
         #ifdef LAMP
           uniform vec3 uLampDir; uniform vec3 uLampCol;
         #endif
@@ -239,6 +270,7 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
         #endif
         #ifdef LAWN
           varying vec3 vLawn; uniform vec3 uLawnA; uniform vec3 uLawnB; uniform vec3 uLawnMoss;
+          uniform vec4 uFoxBase; uniform vec2 uFoxFoot; uniform vec4 uFoxAmt;
         #endif
         #ifdef SCALES
           varying float vScaleM; varying vec3 vOPos; varying vec3 vONrm;
@@ -247,12 +279,17 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
         #ifdef GLOWATTR
           varying float vGlow; uniform float uFoxGlow; uniform vec3 uFoxGlowCol;
         #endif
+        #ifdef HAS_WET
+          uniform sampler2D tWetN;
+        #endif
         ${NOISE_GLSL}
         #ifdef LAWN
           // 草丛的"高度场"：一簇簇的草堆（约 15cm），用来做明暗和凹凸
           float lawnTuft(vec2 p){ return vnoise(p * 6.5) * .6 + vnoise(p * 17. + 3.1) * .4; }
           ${tex && tex.ground ? groundGLSL(tex.ground) : ''}
         #endif
+        uniform float uCanopy; uniform float uCanopyDark;
+        ${CANOPY_GLSL}
         ${underwater ? CAUSTIC_GLSL : ''}
         ${tex ? TRI_GLSL : ''}`)
       .replace('#include <color_fragment>', `#include <color_fragment>
@@ -286,7 +323,11 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
             if (landPre < .999) {
           #endif
           alb = triSample(tDiff0, vWPos, tb, uTexScale.x).rgb;
-          triRough = triSample(tRough0, vWPos, tb, uTexScale.x).r;
+          #ifdef LAWN
+            triRough = .8;   // 地面着色器的贴图单元已经满了（16 个）：水下卵石的粗糙度取常数，省一个
+          #else
+            triRough = triSample(tRough0, vWPos, tb, uTexScale.x).r;
+          #endif
           triN = triNormal(tNor0, vWPos, gN, tb, uTexScale.x);
           #ifdef LAWN
             }
@@ -351,6 +392,13 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
             float bl0 = clamp(dot(grassDetail, vec3(.3, .59, .11)) * .5, 0., 1.);
             // 苔藓：边缘被噪声打散、和草混着长，颜色压暗一点，不是一块块鲜绿的补丁
             float gMoss = vLawn.y * smoothstep(.2, .75, vLawn.y + (vnoise(lp * 3.3) - .5) * .7 + (bl0 - .5) * .4) * .8;
+            // 石狐底座四周：草被踩秃、露出泥土，贴着底座长一圈不连续的苔藓，越靠近底座越暗（左右两只程度不同）
+            float fxN = (vnoise(lp * 2.7 + 13.) - .5) * .5 + (vnoise(lp * 8.3) - .5) * .18;
+            float fr1 = length(lp - uFoxBase.xy) / uFoxFoot.x + fxN, fr2 = length(lp - uFoxBase.zw) / uFoxFoot.y + fxN;
+            float foxDirt = max((1. - smoothstep(1.15, 1.95, fr1)) * uFoxAmt.x, (1. - smoothstep(1.15, 1.95, fr2)) * uFoxAmt.y);
+            float foxMoss = max((1. - smoothstep(1., 2.1, fr1 - fxN * .6)) * uFoxAmt.z, (1. - smoothstep(1., 2.1, fr2 - fxN * .6)) * uFoxAmt.w);
+            float foxAO = max(1. - smoothstep(.95, 1.5, fr1 - fxN * .8), 1. - smoothstep(.95, 1.5, fr2 - fxN * .8)) * step(.01, uFoxAmt.x + uFoxAmt.y);
+            gMoss = max(gMoss, foxMoss * smoothstep(.35, .65, bl0 + fxN * 1.2));
             vec3 lawnAlb = mix(lawn * grassDetail, uLawnMoss * .8 * (mossC / G_moss_M), gMoss);
             // 一簇簇草堆：缝隙稍暗，草尖略亮略黄（贴图已经有细节，这里只轻轻叠一层）
             float tuft = lawnTuft(lp);
@@ -361,14 +409,15 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
             // 露土：边缘用草地贴图自己的明暗打碎（像草叶盖在土上），土包上更容易露
             float bl = bl0;
             float bare = vnoise(lp * .55 + 40.) * .65 + vnoise(lp * 2.1 + 9.) * .35 + dry * .18;
-            bare = smoothstep(.68, .78, bare + (bl - .5) * .25 + (tuft - .5) * .1) * (1. - vLawn.y);
-            float cover = vLawn.x * (1. - bare * .9);
+            bare = smoothstep(.66, .84, bare + (bl - .5) * .25 + (tuft - .5) * .1) * (1. - vLawn.y);   // 边缘放宽、变软：草一点点稀下去，不是一刀切出泥斑
+            float cover = vLawn.x * (1. - bare * .72) * (1. - foxDirt * .85);
             cover = clamp(cover + (bl - .5) * .9 * cover * (1. - cover) * 4., 0., 1.);
             cover = max(cover, gMoss * .9 * step(.03, vWPos.y));   // 苔藓不受草地覆盖度限制
 
             // 泥土和落叶：落叶一片片地盖在泥土上，石头脚下和草地边缘多一些
             float litW = smoothstep(.55, .72, vnoise(lp * .7 + 31.) * .65 + vnoise(lp * 2.9 + 3.) * .35 + vLawn.y * .25);
             vec3 soilAlb = mix(soilC * G_soil_B, litC * G_litter_B, litW);
+            soilAlb = mix(soilAlb, uLawnMoss * .8 * (mossC / G_moss_M), .38);   // 露出来的也是长着一层苔的湿土，不是光秃秃的褐色
             vec2 soilNx = mix(soilN, litN, litW);
             float soilR = mix(G_soil_R, G_litter_R, litW);
 
@@ -379,7 +428,7 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
             float sandW = (1. - smoothstep(.06, .24, vWPos.y + (vnoise(lp * 1.7 + 5.) - .5) * .16))
                         * (1. - smoothstep(1.12, 1.3, poolK + (vnoise(lp * 2.2) - .5) * .1));
 
-            vec3 landAlb = mix(soilAlb, lawnAlb, cover);
+            vec3 landAlb = mix(soilAlb, lawnAlb, cover) * (1. - .24 * foxAO);
             vec2 landN = mix(soilNx, mix(grassN, mossN, gMoss), cover);
             float landR = mix(soilR, mix(G_grass_R, G_moss_R, gMoss), cover);
             landAlb = mix(landAlb, sandC * G_sand_B, sandW);
@@ -399,7 +448,9 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
           #endif
           diffuseColor.rgb *= alb;
           // 青苔放在去色之后再上：石头顶上一片片鲜绿的苔
-          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.07, .11, .045) * mossTone, mossM * .7);   // 深绿色的薄苔，不再是浅黄斑
+          // 苔的颜色不统一：向阳的顶面偏黄绿，背阴和凹处是深绿，按大块噪声交错（每块石头看起来都不一样）
+          float mossHue = smoothstep(.3, .75, vnoise(vWPos.xz * 1.7 + vWPos.y) * .7 + gN.y * .35);
+          diffuseColor.rgb = mix(diffuseColor.rgb, mix(vec3(.085, .125, .04), vec3(.16, .2, .055), mossHue) * mossTone, mossM * .78);   // 苔：偏黄绿、够亮，读起来是苔，不是污渍
           #ifdef HAS_MOSS
             // 水线（水面在 y = 0）：贴着水面一圈被浸湿——更暗、更光滑；水线上面一窄条长着深绿的湿苔，水下蒙着一层暗绿的藻
             float wl = vWPos.y + (vnoise(vWPos.xz * 3.1 + vWPos.y) - .5) * .06;
@@ -410,9 +461,19 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
             diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(.5, .66, .48), algae * .85);
             diffuseColor.rgb *= 1. - .38 * rockWet;
           #endif
+          #ifdef HAS_WET
+            // 夜里的湿润感：露水和潮气让石头表面更光滑、多一层细碎的起伏（靠水线的更湿，各块石头不一样）；白天 uNight = 0，不起作用
+            {
+              float wetK = uNight * clamp(.3 + .7 * rockWet + .35 * (vnoise(vWPos.xz * 2.1 + vWPos.y * 3.) - .4), 0., 1.);
+              triN = normalize(mix(triN, triNormal(tWetN, vWPos, gN, tb, 1.7), wetK * .5));
+              triRough = mix(triRough, triRough * .5, wetK);
+            }
+          #endif
         #endif
         float above = smoothstep(-0.03, 0.06, vWPos.y);
-        ${grass ? GRASS_TONE : ''}        float snowN = vnoise(vWPos.xz * 3.0) * .35 + vnoise(vWPos.xz * 11.0) * .15;
+        ${grass ? GRASS_TONE : ''}
+        ${grass ? 'diffuseColor.rgb = mix(diffuseColor.rgb, vec3(dot(diffuseColor.rgb, vec3(.3, .59, .11))) * vec3(.86, 1., .9), uNight * .4) * (1. - .22 * uNight);   // 夜里植物：低饱和的深绿、略暗——不比石狐和池塘显眼' : ''}
+        float snowN = vnoise(vWPos.xz * 3.0) * .35 + vnoise(vWPos.xz * 11.0) * .15;
         float snowM = smoothstep(.25, .65, triN.y + snowN - .25) * uSnow * above;
         ${grass ? 'snowM = uSnow * smoothstep(.2, 1.0, vH) * .85;' : ''}
         diffuseColor.rgb *= 1.0 - .4 * uWet * above;
@@ -427,6 +488,15 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
           vec3 frostCol = diffuseColor.rgb * .45 + vec3(.42, .46, .5);
           diffuseColor.rgb = mix(diffuseColor.rgb, frostCol, frostM);
         }`)
+      .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+        // 树荫光斑：只压直射光（太阳 / 月亮），天空光、环境光不动，树荫里不是黑的
+        float canopyK = 1.;
+        if (uCanopy > .001) {
+          // 水面以下（池底、水里的石头）不受树荫影响：池面上没有树影
+          float onLand = smoothstep(-.04, .04, vWPos.y);
+          canopyK = mix(1., mix(uCanopyDark, 1., canopyLit(vWPos, normalize(uKeyDir), uTime)), uCanopy * onLand);
+          reflectedLight.directDiffuse *= canopyK; reflectedLight.directSpecular *= canopyK;
+        }`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
         #ifdef TRI
           roughnessFactor *= triRough;
@@ -436,6 +506,9 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
         roughnessFactor = mix(roughnessFactor, .28, rockWet * .85);   // 水线附近湿漉漉的，微微反光
         roughnessFactor = mix(roughnessFactor, .55, frostM * .6);   // 霜晶在斜光下微微发亮`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        #ifdef MOON_GLOW
+          totalEmissiveRadiance += diffuseColor.rgb * uNight * .55 * smoothstep(.5, .85, dot(diffuseColor.rgb, vec3(.3, .59, .11)));   // 只有纯白的花瓣微微发亮，叶子不亮
+        #endif
         #ifdef RIM
           {
             float fr = 1. - abs(dot(normalize(normal), normalize(vViewPosition)));
@@ -484,10 +557,10 @@ export function patch(mat, { grass = false, grassH = .42, sway = 1, upNormal = f
         if (dW > 0.0) {
           float cs = caustic(vWPos.xz * 1.15, uTime * .9) * (.35 + .65 * vnoise(vWPos.xz * .5 + uTime * .05));
           float att = exp(-dW * 1.4);
-          outgoingLight += uSunCol * cs * att * uCaustic * max(triN.y, 0.0) * (diffuseColor.rgb + .08) * .55;
-          outgoingLight *= mix(vec3(1.), vec3(.6, .8, .9), smoothstep(0., .12, dW));   // 一入水就带上青蓝色调（浸在水里的石头不再是棕色）
-          // 越深越被水"吃掉"：红光最先消失，然后是绿光，深处只剩幽暗的蓝绿色
-          vec3 tr = exp(-dW * vec3(2.6, 1.05, .82));
+          outgoingLight += uSunCol * canopyK * cs * att * uCaustic * max(triN.y, 0.0) * (diffuseColor.rgb + .08) * 1.4;
+          outgoingLight *= mix(vec3(1.), vec3(.74, .93, .88), smoothstep(0., .12, dW));   // 一入水就带上青绿色调（浸在水里的石头不再是棕色）
+          // 越深越被水"吃掉"：红光最先消失，绿、蓝留得久——浅处清澈的青绿，深处是幽暗的深青色（泉水那样，不是海蓝）
+          vec3 tr = exp(-dW * vec3(1.8, .55, .65));
           outgoingLight = outgoingLight * tr + uWaterCol * (1.0 - tr.b);
           // 夜里池心深处一团柔和的微光：越深越亮，缓慢地呼吸
           if (uDeepGlow > 0.0) {

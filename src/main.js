@@ -62,7 +62,18 @@ key.shadow.mapSize.setScalar(isMobile ? 1536 : 2048);
 Object.assign(key.shadow.camera, { left: -10, right: 10, top: 10, bottom: -10, near: 1, far: 70 });
 key.shadow.bias = -.0005; key.shadow.normalBias = .03;
 scene.add(key, key.target);
-const ambient = new THREE.AmbientLight(0x93a4bd, .05);   // 夜间补光：冷灰蓝（不偏紫）
+// 夜景参数集中在这里调（都只在夜里起作用：按 night = 太阳落下后的程度 0～1 渐入渐出，白天不受影响）
+const NIGHT = {
+  keyCol: [.74, .81, 1],      // 月光的颜色：低饱和的冷蓝白（原来 .55,.65,.95 太蓝）
+  moonI: .5,                 // 真实月亮的最大强度（满月、高悬）
+  floorI: .4,                // 没有月亮时"天光"的强度：方向光，石头顶上和石狐轮廓有柔和的亮面
+  ambient: .2,                // 均匀补光（原来 .4：把石头、草、石狐全照成一样的蓝灰色）
+  fill: .34,                  // 夜空的半球光：上面冷蓝、下面暗绿褐——暗部有层次，但不是死黑
+  fireflies: .15,             // 萤火虫的多少（夏夜；夜景参考图里没有，只留零星几只）
+  vignette: .5,               // 夜里的暗角：四周压暗，视线集中在池子上
+  exposure: 2.2,              // 夜里的曝光（原来 3：满月时石头被照得发白）
+};
+const ambient = new THREE.AmbientLight(0x8d98a6, .05);   // 夜间补光：冷灰（不偏紫）
 key.layers.enable(1); ambient.layers.enable(1);   // 第 1 层（许愿签悬在空中时）也要被照亮
 scene.add(ambient);
 // 黄昏的天空光：上面是冷蓝的天、下面是暗的地。太阳很低时，背光的一面被它照成冷蓝灰，
@@ -70,6 +81,14 @@ scene.add(ambient);
 const skyFill = new THREE.HemisphereLight(0x7f97c8, 0x1c1a14, 0);
 skyFill.layers.enable(1);
 scene.add(skyFill);
+const nightFill = new THREE.HemisphereLight(0x6f819f, 0x1d2419, 0);   // 夜空的天光：朝上的面略亮、朝下的面暗绿褐
+nightFill.layers.enable(1);
+scene.add(nightFill);
+// 白天的柔和间接光：上面是略带天青的白，下面是草地反上来的暖橄榄绿——阴影不再发黑发蓝，
+// 石头、草地和石狐的暗面被同一层环境光托起来（亮面不变，明暗对比还在）
+const bounce = new THREE.HemisphereLight(0xd4d8cf, 0x6a7244, 0);
+bounce.layers.enable(1);
+scene.add(bounce);
 
 const sky = createSky();
 scene.add(sky.mesh);
@@ -88,11 +107,12 @@ let assetsReady = false, readyFrames = 0, revealed = false;
 THREE.DefaultLoadingManager.onLoad = () => { assetsReady = true; };
 setTimeout(() => { assetsReady = true; }, 15000);
 const texSets = loadAll(renderer, { dragon: DRAGON_ENABLED });
+shared.tCanopy.value = texSets.canopy;   // 树荫光斑遮罩
 const pool = buildPool(scene, { grassCount: isMobile ? 3500 : 4800, tuftCount: isMobile ? 16000 : 36000, tex: texSets });
 // 横屏两侧的一对守愿石狐
-const foxes = buildFoxes(scene, { floorH, poolK, tex: texSets });
+const foxes = buildFoxes(scene, { floorH, poolK, tex: texSets, onLayout: pool.dressFoxes });   // 底座四周的泥土、苔藓、小草跟着石狐走
 const ripples = new Ripples(renderer, 256, 5);
-const water = createWater(ripples, 5);
+const water = createWater(ripples, 5, texSets.waterNormal);
 scene.add(water.mesh);
 const sfx = createWishAudio();
 const wish = createWish({ scene, ripples, floorH, sound: sfx, tex: texSets.dragon });
@@ -203,7 +223,8 @@ async function init() {
 // ================= 每帧更新 =================
 const sunDir = new THREE.Vector3(), moonDir = new THREE.Vector3(), tmpC = new THREE.Color();
 const nightDir = new THREE.Vector3(), twiDir = new THREE.Vector3();
-const NIGHT_DIR = new THREE.Vector3(-.08, .5, -.86).normalize();   // 没有月亮时的夜光：从池子后上方照来，石头顶上勾出亮边，水面朝镜头反出一道亮带
+const MOON_REFL_DIR = new THREE.Vector3(-.08, .72, -.69).normalize();   // 水面月光倒影的方向：固定在池子后方偏上——无论真实月亮在哪，夜里总有一条银蓝色亮带落在池面上半部中间（像参考图）
+const NIGHT_DIR = new THREE.Vector3(-.25, .6, -.76).normalize();   // 没有月亮时的夜光：从池子左后上方照来——石头顶上、石狐头顶和面部有柔和的亮面，水面后方反出一道月光
 const dirOf = (alt, az, face, out) => {
   const r = (az - face) * RAD, a = alt * RAD;
   return out.set(Math.sin(r) * Math.cos(a), Math.sin(a), -Math.cos(r) * Math.cos(a));
@@ -275,11 +296,11 @@ function update(dt) {
   const sunI = 4.2 * sunUp * lerp(1.15, 1, clamp(el / 30)) * (1 - .8 * cloud) * (1 - .5 * fog);
   // 晴天时天空环境光弱一些（减少石头上的蓝灰色），阴天时环境光就是主要光源
   scene.environmentIntensity = lerp(.55, .78, cloud);
-  const moonI = .5 * moonIllum * clamp(moon.alt / 8) * clamp(-el / 6) * (1 - .85 * cloud);
+  const moonI = NIGHT.moonI * moonIllum * clamp(moon.alt / 8) * clamp(-el / 6) * (1 - .85 * cloud);
   // 夜里的主光：真实的月亮够亮时用月亮；没有月亮（新月、月亮在地平线下）时，用一盏从池子后上方照来的冷色"天光"保底，
   // 池子、石头的轮廓和水面的一道亮带在任何一夜都看得见，不会变成一片黑
   const nightK = 1 - smooth(clamp((el + 5) / 7));
-  const floorI = .3 * nightK * (1 - .6 * cloud) * (1 - .4 * fog);
+  const floorI = NIGHT.floorI * nightK * (1 - .6 * cloud) * (1 - .4 * fog);
   const moonW = clamp(moonI / .25);
   nightDir.copy(NIGHT_DIR).lerp(moonDir, moonW).normalize();
   const nightI = Math.max(moonI, floorI);
@@ -293,7 +314,7 @@ function update(dt) {
     const w = twiI / (twiI + nightI + 1e-5);
     const tw = clamp((-el - 1) / 7);   // 暮光的颜色：刚落山是橙红，天黑前是蓝灰
     tmpC.setRGB(lerp(1, .5, tw), lerp(.82, .58, tw), lerp(.68, .85, tw));
-    key.color.setRGB(.55, .65, .95).lerp(tmpC, w);
+    key.color.setRGB(...NIGHT.keyCol).lerp(tmpC, w);
     key.intensity = twiI * w + nightI * (1 - w);
     key.position.copy(nightDir).lerp(twiDir, w);
   }
@@ -303,19 +324,30 @@ function update(dt) {
   const dread = wish.dread;
   key.intensity *= 1 - .35 * dread;
   scene.environmentIntensity *= 1 - .4 * dread;
-  ambient.intensity = .03 + .4 * (1 - smooth(clamp((el + 9) / 8))) + flash * 3;
+  const nightF = 1 - smooth(clamp((el + 9) / 8));   // 夜的程度：太阳落到 -1° 以下才开始，-17° 全黑夜
+  ambient.intensity = .03 + NIGHT.ambient * nightF + flash * 3;
+  nightFill.intensity = NIGHT.fill * nightF * (1 - .5 * cloud);
+  shared.uNight.value = nightF;
   // 黄昏（太阳高度约 -6° 到 10°）：冷色天空光补在暗面上
   const duskK = smooth(clamp((el + 6) / 4)) * (1 - smooth(clamp((el - 6) / 10)));
   skyFill.intensity = 1.1 * duskK * (1 - .5 * cloud) * (1 - .35 * dread);
+  bounce.intensity = .62 * sunUp * (1 - duskK) * (1 - .45 * cloud) * (1 - .35 * dread);
   // 环境光是用天空本身生成的：日落时天边的橙光会从四面八方把石头整个染红。黄昏时减弱它，暗面交给上面的冷色天空光
   scene.environmentIntensity *= 1 - .35 * duskK * (1 - cloud);   // 太阳落山后才逐渐增强，黄昏的暗面不发紫
+
+  // ---- 树荫光斑 ----
+  // 日本时间 10:00～14:00 阳光透过树叶落下来（和参考图一致）；前后各用 45 分钟渐入渐出，其余时间没有。
+  // 只在有直射阳光时才有：阴天、雾天、太阳不够高、许愿时都会淡掉；夏天最全，春秋叶子少一些，冬天几乎没有
+  const canopyWin = smooth(clamp((h - 9.25) / .75)) * (1 - smooth(clamp((h - 14) / .75)));
+  const canopySeason = { summer: 1, spring: .8, autumn: .7, winter: .25 }[season] ?? 1;
+  shared.uCanopy.value = canopyWin * canopySeason * sunUp * clamp(1 - cloud * 1.3) * (1 - fog * .7) * (1 - dread);
 
   // ---- 材质共享参数 ----
   shared.uTime.value = T;
   shared.uSunCol.value.copy(key.color).multiplyScalar(key.intensity * .55);
   shared.uKeyDir.value.copy(key.position).normalize();
   shared.uCaustic.value = 1 - rn * .5;
-  shared.uWaterCol.value.setRGB(.0015, .016, .03).multiplyScalar(.22 + .78 * dayF * (1 - .25 * cloud));   // 深处的幽蓝（夜里也留一点，池子不会变成黑洞）
+  shared.uWaterCol.value.setRGB(.004, .04, .042).multiplyScalar(.34 + .66 * dayF * (1 - .25 * cloud));   // 深处的幽暗深青色（夜里也留一点，池子不会变成黑洞）
   const windNow = wind * (1 - .92 * dread);   // 风停了：草不动、水面变得像镜子一样
   shared.uSnow.value = snowCover; shared.uWet.value = wet; shared.uWind.value = windNow;
   shared.uFrost.value = frost;
@@ -324,14 +356,17 @@ function update(dt) {
   wu.uTime.value = T; wu.uWind.value = windNow; wu.uRain.value = rn; wu.uIce.value = ice;
   wu.uReflAmt.value = lerp(1, .5, cloud * dayF);   // 阴天的灰白天空倒影减半，水才不会像牛奶
   wu.uSunDir.value.copy(sunDir); wu.uSunCol.value.copy(su.uSunCol.value).multiplyScalar(sunI / 20 * (1 - cloud * .9) * (1 + 2.5 * duskK));   // 夕阳在水面上拉出一道金色亮带
-  wu.uMoonDir.value.copy(nightDir); wu.uMoonCol.value.setRGB(.7, .76, 1).multiplyScalar(nightI * 1.2 * (1 - smooth(clamp((el + 2) / 6))));   // 水面上的月光亮带（没有月亮时是天光的反光）
+  wu.uMoonDir.value.copy(MOON_REFL_DIR); wu.uMoonCol.value.setRGB(.5, .62, .86).multiplyScalar(nightI * (1 - smooth(clamp((el + 2) / 6))));   // 水面上的月光倒影：固定在池子后方的一条银蓝色亮带（强度跟着月相走，没有月亮时用天光）
 
   setSRGB(scene.fog.color, hor, .2 + .8 * dayF);
   scene.fog.density = .004 + fog * .07 + rn * .012;
-  renderer.toneMappingExposure = lerp(3, 1, smooth(clamp((el + 10) / 14))) + .4 * duskK;   // 太阳还在地平线上时不额外提亮：黄昏保留明暗对比，天黑后才慢慢拉高
-  grade.uniforms.saturation.value = (1.12 - .14 * duskK) * (1 - .3 * dread);   // 黄昏不额外加饱和度，金色才不会像涂上去的   // 颜色褪去一些
+  renderer.toneMappingExposure = lerp(NIGHT.exposure, 1, smooth(clamp((el + 10) / 14))) + .4 * duskK;   // 太阳还在地平线上时不额外提亮：黄昏保留明暗对比，天黑后才慢慢拉高
+  // 白天少加饱和度（草不再是荧光绿）；黄昏不额外加饱和度，金色才不会像涂上去的；许愿时颜色褪去一些
+  grade.uniforms.saturation.value = (lerp(1.12, 1.03, sunUp * (1 - duskK)) - .14 * duskK) * (1 - .3 * dread);
+  grade.uniforms.vig.value = nightF * NIGHT.vignette;
+  grade.uniforms.dayWarm.value = sunUp * (1 - duskK) * (1 - cloud * .6) * (1 - dread);   // 白天的暖调（夏日午后）
   grade.uniforms.night.value = 1 - smooth(clamp((el + 9) / 8));   // 月夜调色：太阳落下后才慢慢开始，黄昏保留暖色
-  wu.uNightSheen.value.setRGB(.008, .016, .038).multiplyScalar(grade.uniforms.night.value * (1 - .4 * cloud));   // 阴天不再额外提亮，否则石头发白
+  wu.uNightSheen.value.setRGB(.003, .007, .014).multiplyScalar(grade.uniforms.night.value * (1 - .4 * cloud));   // 阴天不再额外提亮，否则石头发白
 
   // ---- 雷电 ----
   if (wx.thunder > .5 && Math.random() < dt * .08) flash = 1;
@@ -341,13 +376,13 @@ function update(dt) {
   // ---- 灯笼 / 萤火虫 / 落叶 / 粒子 ----
   // 石灯笼：太阳落到地平线附近开始点亮，天黑后全亮；阴雨天的傍晚会早一点亮
   // 池心微光：天黑后慢慢亮起（下雨时水面被打乱，稍弱一些）
-  shared.uDeepGlow.value = (1 - smooth(clamp((el + 6) / 8))) * (1 - rn * .4) * .028;
+  shared.uDeepGlow.value = 0;   // 池心平时不发光：保持幽深、安静（以后池底的龙出现时才有光）
   // 许愿时：等待龙的那几秒，池底深处慢慢亮起来（白天也看得到一点）
   wish.update(dt, { day: dayF });
   shared.uDeepGlow.value += wish.glow * (.05 + .05 * dayF);
   sfx.level(wish.dread);
   const deepNight = 1 - smooth(clamp((el + 10) / 8));   // 萤火虫：夏夜（晚春也有一点），天完全黑了才出来
-  flies.update(T, (1 - dread) * deepNight * clamp(1 - rn * 8) * clamp(1 - wx.snow * 8) * ({ summer: 1, spring: .4 }[season] || 0));
+  flies.update(T, (1 - dread) * deepNight * clamp(1 - rn * 8) * clamp(1 - wx.snow * 8) * ({ summer: 1, spring: .4 }[season] || 0) * NIGHT.fireflies);
   const light = .12 + .88 * dayF;
   rain.update(dt, rn, wind, light);
   snow.update(dt, wx.snow, wind, T, light);
