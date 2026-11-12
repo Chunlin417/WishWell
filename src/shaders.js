@@ -27,6 +27,12 @@ float canopyLit(vec3 wp, vec3 L, float t){
   float m = smoothstep(.4, .56, c), d = smoothstep(.34, .6, f);
   return m * (.7 + .3 * d) + (1. - m) * .16 * d;
 }
+// 夜里月光穿过树冠的明暗（给植被用）：只查粗的那张叶影图、不摇晃只缓慢漂移——一次贴图采样，比白天的光斑便宜一半。
+// 投影方式和 canopyLit 一样（沿主光方向投到 9 米高的树冠平面），所以月影的方向跟着月亮走
+float moonDapple(vec3 wp, vec3 L, float t){
+  vec2 q = wp.xz + L.xz / max(L.y, .25) * (9. - wp.y) + t * vec2(.004, .0025);
+  return smoothstep(.36, .62, texture2D(tCanopy, q / 9. + vec2(.61, .17)).r);
+}
 `;
 
 // 调色：对比度 + 饱和度，作用于整个画面（输出到屏幕前的 sRGB 颜色）

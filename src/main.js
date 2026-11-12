@@ -74,6 +74,50 @@ const NIGHT = {
   exposure: 2.35,              // 夜里的曝光（原来 3：满月时石头被照得发白）
   // 夜里的镜头（只在横屏）：比白天更低、更近，池子和石头填满画面（像夜景参考图）；随着天黑慢慢推过去，不会跳
   cam: { dir: [0, .9, 1], dist: .9, target: [0, -.35, .75] },
+  // ---- 水面 ----
+  water: {
+    moonCol: [.5, .63, .88],   // 水面月光亮带的颜色：柔和的银蓝（再乘上当晚的月光强度）
+    glowW: .05,                // 亮带底下那层光晕的宽度（水面倾斜量：越大越宽）
+    stretch: 1.25,             // 亮带顺着月光方向拉长几倍
+    glowI: .06,                // 光晕的亮度
+    fleckI: .4,                // 碎光的亮度
+    fleckAmp: 3,               // 算碎光时细波纹放大几倍（越大碎光铺得越开、越碎；太大又会变回密集的细线）
+    fleckSoft: .033,           // 碎光的柔和度（越大每一点越大、越软；越小越细、越稀）
+    peak: .36,                 // 月光反射的亮度上限（平滑封顶；原来是硬封顶 .7，整片烧成同一种白）
+    ripple: .6,                // 夜里细波纹剩下的比例（白天 = 1，原来 .8）
+    rings: .2,                 // 同心圆涟漪的幅度（原来 .35 且整池都有；现在只在零星几片水面上）
+    swell: .06,                // 缓慢大波纹的幅度（亮带的边缘跟着它起伏）
+    speed: .7,                 // 夜里水波的速度（白天 = 1）
+    absorb: [1.9, .62, .58],   // 池水每米吸收多少（红、绿、蓝）：红光先没，蓝光留得最久——越深越蓝
+    deepCol: [.0015, .0118, .0165],   // 深处的水色：蓝黑（原来偏青绿 .0017, .0156, .0156）
+    depthK: .9,                // 水色随深度变暗的快慢（每米）
+    shallowCol: [0, .011, .014],      // 浅水叠加的一层淡青蓝
+    deepTint: [.56, .71, .74],        // 深水的颜色倍数
+    deepRefl: .6,              // 深水区的夜空反光随水面起伏变化多少（池心不是一整块均匀的黑；0 = 不变化）
+  },
+  // ---- 岩石 ----
+  rock: {
+    dryRough: .6,              // 干燥的石面夜里的粗糙度往 1 推多少（0 = 贴图原样，1 = 完全漫反射）
+    wetRough: .38,             // 潮湿处的粗糙度（白天水线处是 .28；越小越亮、越像镜面）
+    wetReach: .34,             // 潮气沿水线往上爬多高（米；上缘被噪声搅得参差不齐）
+    seep: .35,                 // 远离水线的零星潮斑有多少（0 = 没有）
+    glossDry: .03,             // 月光高光：干燥的石面
+    glossWet: .1,              // 月光高光：潮湿的石面
+  },
+  // ---- 石狐（不加灯：只调已有的月光和天光怎么落在石雕上）----
+  fox: {
+    fill: .25,                 // 暗部的天光多出的比例
+    wrap: .45,                 // 月光绕过明暗交界线多少（0 = 不绕）
+    rim: .3,                   // 朝月一侧、视线擦过石面处的一线月色（0 = 没有）
+  },
+  // ---- 植被 ----
+  veg: {
+    desat: .3,                 // 褪色（原来 .2）
+    dim: 1.1,                  // 压暗：越浅的叶片压得越多（深绿的叶子约 -7%，发白的浅色叶片约 -25%；原来统一 -10%）
+    dapple: 1,                 // 月光穿过树冠的明暗有多明显（0 = 所有叶片一样亮）
+    shade: .76,                // 月影里直射月光剩下的比例（太低背景会出现成片的黑）
+    lit: 1.35,                 // 被月光照到的叶片的亮度
+  },
 };
 const ambient = new THREE.AmbientLight(0x8d98a6, .05);   // 夜间补光：冷灰（不偏紫）
 key.layers.enable(1); ambient.layers.enable(1);   // 第 1 层（许愿签悬在空中时）也要被照亮
@@ -116,6 +160,23 @@ const foxes = buildFoxes(scene, { floorH, poolK, tex: texSets, onLayout: pool.dr
 const ripples = new Ripples(renderer, 256, 5);
 const water = createWater(ripples, 5, texSets.waterNormal, { pano: texSets.nightPano, rings: texSets.ripplesRings });
 scene.add(water.mesh);
+// 夜景参数写进着色器（这些只在夜里起作用：着色器里都乘着"夜的程度"）。
+// 开发时可以在控制台改 __wish.NIGHT 里的数值再调 __wish.applyNight()，不用刷新就能看到效果
+function applyNight() {
+  const W = NIGHT.water, R = NIGHT.rock, F = NIGHT.fox, V = NIGHT.veg, wu = water.uniforms;
+  wu.uNightWave.value.set(W.ripple, W.rings, W.swell);
+  wu.uMoonSpec.value.set(W.glowW, W.stretch, W.peak, W.fleckSoft);
+  wu.uMoonGain.value.set(W.glowI, W.fleckI, W.fleckAmp);
+  wu.uNightDepth.value.set(W.depthK, W.deepRefl);
+  wu.uNightShallow.value.setRGB(...W.shallowCol);
+  wu.uNightDeepTint.value.setRGB(...W.deepTint);
+  shared.uAbsorbNight.value.set(...W.absorb);
+  shared.uRockNight.value.set(R.dryRough, R.wetRough, R.wetReach, R.seep);
+  shared.uRockGloss.value.set(R.glossDry, R.glossWet);
+  shared.uFoxNight.value.set(F.fill, F.wrap, F.rim);
+  shared.uVegNight.value.set(V.desat, V.dim, V.shade, V.lit);
+}
+applyNight();
 const sfx = createWishAudio();
 const wish = createWish({ scene, ripples, floorH, sound: sfx, tex: texSets.dragon });
 
@@ -229,12 +290,13 @@ async function init() {
 const sunDir = new THREE.Vector3(), moonDir = new THREE.Vector3(), tmpC = new THREE.Color();
 const nightDir = new THREE.Vector3(), twiDir = new THREE.Vector3();
 const MOON_REFL_DIR = new THREE.Vector3(-.08, .56, -.82).normalize();   // 水面月光倒影的方向：固定在池子后方偏上——无论真实月亮在哪，夜里总有一条银蓝色亮带落在池面上半部中间（像参考图）
+const MOON_SPOT = { x: -.94, z: -1.18, dist: 11.7 };   // 横屏夜景里那条亮带的中心落在水面上的位置，和它到夜间镜头的距离（由 MOON_REFL_DIR 和夜间镜头算出来的；竖屏用）
 const NIGHT_DIR = new THREE.Vector3(-.25, .6, -.76).normalize();   // 没有月亮时的夜光：从池子左后上方照来——石头顶上、石狐头顶和面部有柔和的亮面，水面后方反出一道月光
 const dirOf = (alt, az, face, out) => {
   const r = (az - face) * RAD, a = alt * RAD;
   return out.set(Math.sin(r) * Math.cos(a), Math.sin(a), -Math.cos(r) * Math.cos(a));
 };
-let T = 0, envAge = 0, nextAmbient = 2, firstFrame = true, shadowTick = 0;
+let T = 0, waterT = 0, envAge = 0, nextAmbient = 2, firstFrame = true, shadowTick = 0;
 const envKey = new Float32Array(12);   // 上一次生成环境光时的天空颜色：天空明显变了才重新生成
 
 function update(dt) {
@@ -352,16 +414,20 @@ function update(dt) {
   shared.uSunCol.value.copy(key.color).multiplyScalar(key.intensity * .55);
   shared.uKeyDir.value.copy(key.position).normalize();
   shared.uCaustic.value = 1 - rn * .5;
-  shared.uWaterCol.value.setRGB(.004, .04, .042).multiplyScalar(.34 + .66 * dayF * (1 - .25 * cloud));   // 深处的幽暗深青色（夜里也留一点，池子不会变成黑洞）
+  shared.uWaterCol.value.setRGB(.005, .046, .046).multiplyScalar(.34 + .66 * dayF * (1 - .25 * cloud));   // 深处的幽暗深青色（夜里也留一点，池子不会变成黑洞）
+  shared.uWaterCol.value.lerp(tmpC.setRGB(...NIGHT.water.deepCol), nightF);   // 入夜后渐渐换成蓝黑
+  shared.uMoonShade.value = NIGHT.veg.dapple * nightF * (1 - .8 * cloud) * (1 - dread);   // 阴天没有直射的月光，也就没有树影
   const windNow = wind * (1 - .92 * dread);   // 风停了：草不动、水面变得像镜子一样
   shared.uSnow.value = snowCover; shared.uWet.value = wet; shared.uWind.value = windNow;
   shared.uFrost.value = frost;
 
   const wu = water.uniforms;
-  wu.uTime.value = T; wu.uWind.value = windNow; wu.uRain.value = rn; wu.uIce.value = ice;
+  wu.uCanopyRefl.value = dayF * canopySeason * (1 - .6 * cloud) * (1 - .5 * fog) * (1 - .5 * dread);   // 白天水面映出头顶的树冠（整个白天都有，不只是光斑时段）
+  waterT += dt * lerp(1, NIGHT.water.speed, nightF);   // 水波自己的时钟：夜里走得慢一些（直接缩放时间会让波纹在过渡时乱跳）
+  wu.uTime.value = waterT; wu.uWind.value = windNow; wu.uRain.value = rn; wu.uIce.value = ice;
   wu.uReflAmt.value = lerp(1, .5, cloud * dayF);   // 阴天的灰白天空倒影减半，水才不会像牛奶
   wu.uSunDir.value.copy(sunDir); wu.uSunCol.value.copy(su.uSunCol.value).multiplyScalar(sunI / 20 * (1 - cloud * .9) * (1 + 2.5 * duskK));   // 夕阳在水面上拉出一道金色亮带
-  wu.uMoonDir.value.copy(MOON_REFL_DIR); wu.uMoonCol.value.setRGB(.5, .62, .86).multiplyScalar(nightI * (1 - smooth(clamp((el + 2) / 6))));   // 水面上的月光倒影：固定在池子后方的一条银蓝色亮带（强度跟着月相走，没有月亮时用天光）
+  wu.uMoonDir.value.copy(MOON_REFL_DIR); wu.uMoonCol.value.setRGB(...NIGHT.water.moonCol).multiplyScalar(nightI * (1 - smooth(clamp((el + 2) / 6))));   // 水面上的月光倒影：固定在池子后方的一条银蓝色亮带（强度跟着月相走，没有月亮时用天光）
 
   setSRGB(scene.fog.color, hor, .2 + .8 * dayF);
   scene.fog.density = .004 + fog * .07 + rn * .012;
@@ -433,6 +499,13 @@ function update(dt) {
   camera.position.x += parallaxS.x * .35;
   camera.position.z += parallaxS.y * .2;
   camera.lookAt(viewTarget);
+  // 竖屏：镜头俯角大得多，上面那个固定的月光方向会把亮带甩到池子外面（水面上就没有月光了）。
+  // 改成"亮带落在横屏时的同一处水面"所需要的方向（那一点到镜头的方向，对水面做镜像）；横屏不变
+  if (portrait) {
+    const dx = MOON_SPOT.x - camera.position.x, dz = MOON_SPOT.z - camera.position.z;
+    wu.uMoonDir.value.set(dx, camera.position.y, dz).normalize();
+    wu.uMoonK.value = Math.hypot(dx, camera.position.y, dz) / MOON_SPOT.dist;
+  } else wu.uMoonK.value = 1;
   if (camOverride) { camera.position.copy(camOverride.p); camera.lookAt(camOverride.t); }   // 仅开发调试用的特写镜头
 }
 let camOverride = null;
@@ -600,7 +673,7 @@ if (import.meta.env.DEV) window.__wish = {
   setSeason(s) { seasonForce = s; },
   wish: throwWish, get wishState() { return wish; },
   get loc() { return loc; }, sunPos, moonPos, moonPhase,
-  renderer, scene, camera, composer, water, sky, key, refrRT, reflRT, pool,
+  renderer, scene, camera, composer, water, sky, key, refrRT, reflRT, pool, NIGHT, applyNight,
   step(n = 1, dt = 1 / 60) { for (let i = 0; i < n; i++) { update(dt); render(); } },
   closeup(p, t) { camOverride = p ? { p: new THREE.Vector3(...p), t: new THREE.Vector3(...t) } : null; },
   async shot(name) {   // 开发用：渲染一帧并保存到 .shots/
