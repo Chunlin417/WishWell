@@ -72,8 +72,6 @@ const NIGHT = {
   fireflies: .15,             // 萤火虫的多少（夏夜；夜景参考图里没有，只留零星几只）
   vignette: .18,              // 夜里的暗角：只轻轻压一点四角（太重会只剩池子一圈是亮的，参考图里四周的植物也看得清）
   exposure: 2.35,              // 夜里的曝光（原来 3：满月时石头被照得发白）
-  // 夜里的镜头（只在横屏）：比白天更低、更近，池子和石头填满画面（像夜景参考图）；随着天黑慢慢推过去，不会跳
-  cam: { dir: [0, .9, 1], dist: .9, target: [0, -.35, .75] },
   // ---- 水面 ----
   water: {
     moonCol: [.5, .63, .88],   // 水面月光亮带的颜色：柔和的银蓝（再乘上当晚的月光强度）
@@ -229,8 +227,7 @@ composer.addPass(grade);
 // ================= 镜头 =================
 // 横屏：斜俯视；竖屏：更接近正俯视、拉近，池子略偏上，给底部以后的操作区留位置
 const camTarget = new THREE.Vector3(), camDir = new THREE.Vector3();
-const viewDir = new THREE.Vector3(), viewTarget = new THREE.Vector3();   // 这一帧实际用的镜头方向和注视点（白天 = camDir / camTarget，夜里推向夜间镜头）
-const nightCamDir = new THREE.Vector3(...NIGHT.cam.dir).normalize(), nightCamTarget = new THREE.Vector3(...NIGHT.cam.target);
+const viewDir = new THREE.Vector3(), viewTarget = new THREE.Vector3();   // 这一帧实际用的镜头方向和注视点（昼夜相同：夜里不再移动镜头）
 let camDist = 11, portrait = false;
 const parallax = new THREE.Vector2(), parallaxS = new THREE.Vector2();
 function resize() {
@@ -290,7 +287,7 @@ async function init() {
 const sunDir = new THREE.Vector3(), moonDir = new THREE.Vector3(), tmpC = new THREE.Color();
 const nightDir = new THREE.Vector3(), twiDir = new THREE.Vector3();
 const MOON_REFL_DIR = new THREE.Vector3(-.08, .56, -.82).normalize();   // 水面月光倒影的方向：固定在池子后方偏上——无论真实月亮在哪，夜里总有一条银蓝色亮带落在池面上半部中间（像参考图）
-const MOON_SPOT = { x: -.94, z: -1.18, dist: 11.7 };   // 横屏夜景里那条亮带的中心落在水面上的位置，和它到夜间镜头的距离（由 MOON_REFL_DIR 和夜间镜头算出来的；竖屏用）
+const MOON_SPOT = { x: -.94, z: -1.18, dist: 11.7 };   // 月光亮带的中心落在水面上的位置，和参考距离（亮带宽度按这个距离调的；镜头更远时 uMoonK 把它收窄）
 const NIGHT_DIR = new THREE.Vector3(-.25, .6, -.76).normalize();   // 没有月亮时的夜光：从池子左后上方照来——石头顶上、石狐头顶和面部有柔和的亮面，水面后方反出一道月光
 const dirOf = (alt, az, face, out) => {
   const r = (az - face) * RAD, a = alt * RAD;
@@ -490,22 +487,20 @@ function update(dt) {
   // ---- 镜头微动 ----
   // 跟随得慢一些（约 1 秒才跟上）、幅度小一些：像人站在池边轻轻侧头，而不是镜头在追着鼠标
   parallaxS.lerp(parallax, Math.min(1, dt * 1));
-  // 夜里镜头慢慢压低、推近（竖屏不变：竖屏的构图另有安排）
-  const nc = portrait ? 0 : smooth(nightF);
-  viewDir.copy(camDir).lerp(nightCamDir, nc).normalize();
-  viewTarget.copy(camTarget).lerp(nightCamTarget, nc);
-  camera.position.copy(viewDir).multiplyScalar(camDist * lerp(1, NIGHT.cam.dist, nc)).add(viewTarget);
+  // 镜头昼夜一致：夜里不再压低、推近
+  viewDir.copy(camDir); viewTarget.copy(camTarget);
+  camera.position.copy(viewDir).multiplyScalar(camDist).add(viewTarget);
   // 镜头只跟随电脑鼠标轻微移动；不再自己缓慢漂移（会让细小的草地闪烁）
   camera.position.x += parallaxS.x * .35;
   camera.position.z += parallaxS.y * .2;
   camera.lookAt(viewTarget);
-  // 竖屏：镜头俯角大得多，上面那个固定的月光方向会把亮带甩到池子外面（水面上就没有月光了）。
-  // 改成"亮带落在横屏时的同一处水面"所需要的方向（那一点到镜头的方向，对水面做镜像）；横屏不变
-  if (portrait) {
+  // 月光亮带：固定的月光方向只对某一个镜头位置成立。这里改成"亮带落在水面上固定的那一点（MOON_SPOT）"所需要的方向
+  // （那一点到镜头的方向，对水面做镜像），不管镜头在哪（横屏、竖屏）亮带都在池面上半部；镜头远近的差别用 uMoonK 收回来
+  {
     const dx = MOON_SPOT.x - camera.position.x, dz = MOON_SPOT.z - camera.position.z;
     wu.uMoonDir.value.set(dx, camera.position.y, dz).normalize();
     wu.uMoonK.value = Math.hypot(dx, camera.position.y, dz) / MOON_SPOT.dist;
-  } else wu.uMoonK.value = 1;
+  }
   if (camOverride) { camera.position.copy(camOverride.p); camera.lookAt(camOverride.t); }   // 仅开发调试用的特写镜头
 }
 let camOverride = null;
