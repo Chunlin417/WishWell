@@ -91,7 +91,7 @@ export function buildFoxes(scene, { floorH, poolK, tex = null, onLayout = null }
     const mat = stone
       ? patch(new THREE.MeshStandardMaterial({
           map: detailFromMap(s.map), normalMap: s.normalMap, vertexColors: true, roughness: 1, metalness: 0, envMapIntensity: .55,
-        }), { underwater: false, tex: { mode: 'rock', sets: [tex.foxStone, tex.moss], scale: [1.1, 2.4], gray: .05, bright: .72, soft: .5, contrast: .75, tint: [1.12, 1, .8], crack: 0, wet: tex.wetRock } })   // 浅米色风化花岗岩（fox_stone）：保留它自己的颜色，不再去色
+        }), { underwater: false, statue: true, tex: { mode: 'rock', sets: [tex.foxStone, tex.moss], scale: [1.1, 2.4], gray: .05, bright: .72, soft: .5, contrast: .75, tint: [1.12, 1, .8], crack: 0, wet: tex.wetRock } })   // 浅米色风化花岗岩（fox_stone）：保留它自己的颜色，不再去色
       : patch(new THREE.MeshStandardMaterial({   // 没有石材贴图时：还用模型自带的贴图
           map: s.map, normalMap: s.normalMap, roughnessMap: s.roughnessMap, metalnessMap: s.metalnessMap,
           roughness: 1, metalness: s.metalnessMap ? 1 : 0, envMapIntensity: .6,

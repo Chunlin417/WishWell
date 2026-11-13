@@ -16,8 +16,9 @@ import { Ripples, createWater } from './water.js';
 import { Rain, Snow, Fireflies, FallingLeaves } from './fx.js';
 import { createWish, DRAGON_ENABLED } from './wish.js';
 import { createWishAudio } from './audio.js';
-// 临时开关：false = 许愿签功能关闭（点左边的石狐没有反应，也不会出现手形光标）。要恢复改成 true 即可
-const WISH_ENABLED = false;
+import { getName, setName, canWish, addPlaque, listPlaques, NAME_MAX, nowMs, listIncense, canLightIncense, lightIncense, initStore, refreshStore, onStoreChange } from './courtStore.js';
+// 开关：false = 许愿功能关闭（点左边的石狐没有反应，也不会出现手形光标）
+const WISH_ENABLED = true;
 
 const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -72,8 +73,50 @@ const NIGHT = {
   fireflies: .15,             // 萤火虫的多少（夏夜；夜景参考图里没有，只留零星几只）
   vignette: .18,              // 夜里的暗角：只轻轻压一点四角（太重会只剩池子一圈是亮的，参考图里四周的植物也看得清）
   exposure: 2.35,              // 夜里的曝光（原来 3：满月时石头被照得发白）
-  // 夜里的镜头（只在横屏）：比白天更低、更近，池子和石头填满画面（像夜景参考图）；随着天黑慢慢推过去，不会跳
-  cam: { dir: [0, .9, 1], dist: .9, target: [0, -.35, .75] },
+  // ---- 水面 ----
+  water: {
+    moonCol: [.5, .63, .88],   // 水面月光亮带的颜色：柔和的银蓝（再乘上当晚的月光强度）
+    glowW: .05,                // 亮带底下那层光晕的宽度（水面倾斜量：越大越宽）
+    stretch: 1.25,             // 亮带顺着月光方向拉长几倍
+    glowI: .06,                // 光晕的亮度
+    fleckI: .4,                // 碎光的亮度
+    fleckAmp: 3,               // 算碎光时细波纹放大几倍（越大碎光铺得越开、越碎；太大又会变回密集的细线）
+    fleckSoft: .033,           // 碎光的柔和度（越大每一点越大、越软；越小越细、越稀）
+    peak: .36,                 // 月光反射的亮度上限（平滑封顶；原来是硬封顶 .7，整片烧成同一种白）
+    ripple: .6,                // 夜里细波纹剩下的比例（白天 = 1，原来 .8）
+    rings: .2,                 // 同心圆涟漪的幅度（原来 .35 且整池都有；现在只在零星几片水面上）
+    swell: .06,                // 缓慢大波纹的幅度（亮带的边缘跟着它起伏）
+    speed: .7,                 // 夜里水波的速度（白天 = 1）
+    absorb: [1.9, .62, .58],   // 池水每米吸收多少（红、绿、蓝）：红光先没，蓝光留得最久——越深越蓝
+    deepCol: [.0015, .0118, .0165],   // 深处的水色：蓝黑（原来偏青绿 .0017, .0156, .0156）
+    depthK: .9,                // 水色随深度变暗的快慢（每米）
+    shallowCol: [0, .011, .014],      // 浅水叠加的一层淡青蓝
+    deepTint: [.56, .71, .74],        // 深水的颜色倍数
+    deepRefl: .6,              // 深水区的夜空反光随水面起伏变化多少（池心不是一整块均匀的黑；0 = 不变化）
+  },
+  // ---- 岩石 ----
+  rock: {
+    dryRough: .6,              // 干燥的石面夜里的粗糙度往 1 推多少（0 = 贴图原样，1 = 完全漫反射）
+    wetRough: .38,             // 潮湿处的粗糙度（白天水线处是 .28；越小越亮、越像镜面）
+    wetReach: .34,             // 潮气沿水线往上爬多高（米；上缘被噪声搅得参差不齐）
+    seep: .35,                 // 远离水线的零星潮斑有多少（0 = 没有）
+    glossDry: .03,             // 月光高光：干燥的石面
+    glossWet: .1,              // 月光高光：潮湿的石面
+  },
+  // ---- 石狐（不加灯：只调已有的月光和天光怎么落在石雕上）----
+  fox: {
+    fill: .25,                 // 暗部的天光多出的比例
+    wrap: .45,                 // 月光绕过明暗交界线多少（0 = 不绕）
+    rim: .3,                   // 朝月一侧、视线擦过石面处的一线月色（0 = 没有）
+  },
+  // ---- 植被 ----
+  veg: {
+    desat: .3,                 // 褪色（原来 .2）
+    dim: 1.1,                  // 压暗：越浅的叶片压得越多（深绿的叶子约 -7%，发白的浅色叶片约 -25%；原来统一 -10%）
+    dapple: 1,                 // 月光穿过树冠的明暗有多明显（0 = 所有叶片一样亮）
+    shade: .76,                // 月影里直射月光剩下的比例（太低背景会出现成片的黑）
+    lit: 1.35,                 // 被月光照到的叶片的亮度
+  },
 };
 const ambient = new THREE.AmbientLight(0x8d98a6, .05);   // 夜间补光：冷灰（不偏紫）
 key.layers.enable(1); ambient.layers.enable(1);   // 第 1 层（许愿签悬在空中时）也要被照亮
@@ -116,6 +159,23 @@ const foxes = buildFoxes(scene, { floorH, poolK, tex: texSets, onLayout: pool.dr
 const ripples = new Ripples(renderer, 256, 5);
 const water = createWater(ripples, 5, texSets.waterNormal, { pano: texSets.nightPano, rings: texSets.ripplesRings });
 scene.add(water.mesh);
+// 夜景参数写进着色器（这些只在夜里起作用：着色器里都乘着"夜的程度"）。
+// 开发时可以在控制台改 __wish.NIGHT 里的数值再调 __wish.applyNight()，不用刷新就能看到效果
+function applyNight() {
+  const W = NIGHT.water, R = NIGHT.rock, F = NIGHT.fox, V = NIGHT.veg, wu = water.uniforms;
+  wu.uNightWave.value.set(W.ripple, W.rings, W.swell);
+  wu.uMoonSpec.value.set(W.glowW, W.stretch, W.peak, W.fleckSoft);
+  wu.uMoonGain.value.set(W.glowI, W.fleckI, W.fleckAmp);
+  wu.uNightDepth.value.set(W.depthK, W.deepRefl);
+  wu.uNightShallow.value.setRGB(...W.shallowCol);
+  wu.uNightDeepTint.value.setRGB(...W.deepTint);
+  shared.uAbsorbNight.value.set(...W.absorb);
+  shared.uRockNight.value.set(R.dryRough, R.wetRough, R.wetReach, R.seep);
+  shared.uRockGloss.value.set(R.glossDry, R.glossWet);
+  shared.uFoxNight.value.set(F.fill, F.wrap, F.rim);
+  shared.uVegNight.value.set(V.desat, V.dim, V.shade, V.lit);
+}
+applyNight();
 const sfx = createWishAudio();
 const wish = createWish({ scene, ripples, floorH, sound: sfx, tex: texSets.dragon });
 
@@ -140,7 +200,8 @@ const hideInRefr = [...pool.above, ...foxes.objects, sky.mesh, water.mesh, rain.
 
 // 后期：泛光 + 色调映射 + 暗角
 const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
-composer.addPass(new RenderPass(scene, camera));
+const renderPass = new RenderPass(scene, camera);   // 切换场景时换掉它的 scene / camera（见下面"场景切换"）
+composer.addPass(renderPass);
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), .28, .5, 1.6);
 composer.addPass(bloom);
 // 许愿时的背景虚化（两遍可分离高斯模糊：横一遍、竖一遍），强度由 wish.focus 控制；不虚化时整段跳过
@@ -168,9 +229,9 @@ composer.addPass(grade);
 // ================= 镜头 =================
 // 横屏：斜俯视；竖屏：更接近正俯视、拉近，池子略偏上，给底部以后的操作区留位置
 const camTarget = new THREE.Vector3(), camDir = new THREE.Vector3();
-const viewDir = new THREE.Vector3(), viewTarget = new THREE.Vector3();   // 这一帧实际用的镜头方向和注视点（白天 = camDir / camTarget，夜里推向夜间镜头）
-const nightCamDir = new THREE.Vector3(...NIGHT.cam.dir).normalize(), nightCamTarget = new THREE.Vector3(...NIGHT.cam.target);
+const viewDir = new THREE.Vector3(), viewTarget = new THREE.Vector3();   // 这一帧实际用的镜头方向和注视点（昼夜相同：夜里不再移动镜头）
 let camDist = 11, portrait = false;
+let court = null;   // 小院场景（第一次进去时才加载，见"场景切换"）
 const parallax = new THREE.Vector2(), parallaxS = new THREE.Vector2();
 function resize() {
   const w = innerWidth, h = innerHeight, aspect = w / h;
@@ -193,6 +254,7 @@ function resize() {
     foxes.layout(true, clamp(want - 4.1, 1.25, 1.65), clamp((want - 4.4) / 1.4, .78, 1));
   }
   if (portrait) foxes.layout(false, 1.4);
+  court?.resize(aspect);
   renderer.setSize(w, h);
   composer.setPixelRatio(DPR); composer.setSize(w, h);
   const bw = Math.round(w * DPR), bh = Math.round(h * DPR);
@@ -229,12 +291,13 @@ async function init() {
 const sunDir = new THREE.Vector3(), moonDir = new THREE.Vector3(), tmpC = new THREE.Color();
 const nightDir = new THREE.Vector3(), twiDir = new THREE.Vector3();
 const MOON_REFL_DIR = new THREE.Vector3(-.08, .56, -.82).normalize();   // 水面月光倒影的方向：固定在池子后方偏上——无论真实月亮在哪，夜里总有一条银蓝色亮带落在池面上半部中间（像参考图）
+const MOON_SPOT = { x: -.94, z: -1.18, dist: 11.7 };   // 月光亮带的中心落在水面上的位置，和参考距离（亮带宽度按这个距离调的；镜头更远时 uMoonK 把它收窄）
 const NIGHT_DIR = new THREE.Vector3(-.25, .6, -.76).normalize();   // 没有月亮时的夜光：从池子左后上方照来——石头顶上、石狐头顶和面部有柔和的亮面，水面后方反出一道月光
 const dirOf = (alt, az, face, out) => {
   const r = (az - face) * RAD, a = alt * RAD;
   return out.set(Math.sin(r) * Math.cos(a), Math.sin(a), -Math.cos(r) * Math.cos(a));
 };
-let T = 0, envAge = 0, nextAmbient = 2, firstFrame = true, shadowTick = 0;
+let T = 0, waterT = 0, envAge = 0, nextAmbient = 2, firstFrame = true, shadowTick = 0;
 const envKey = new Float32Array(12);   // 上一次生成环境光时的天空颜色：天空明显变了才重新生成
 
 function update(dt) {
@@ -352,16 +415,20 @@ function update(dt) {
   shared.uSunCol.value.copy(key.color).multiplyScalar(key.intensity * .55);
   shared.uKeyDir.value.copy(key.position).normalize();
   shared.uCaustic.value = 1 - rn * .5;
-  shared.uWaterCol.value.setRGB(.004, .04, .042).multiplyScalar(.34 + .66 * dayF * (1 - .25 * cloud));   // 深处的幽暗深青色（夜里也留一点，池子不会变成黑洞）
+  shared.uWaterCol.value.setRGB(.005, .046, .046).multiplyScalar(.34 + .66 * dayF * (1 - .25 * cloud));   // 深处的幽暗深青色（夜里也留一点，池子不会变成黑洞）
+  shared.uWaterCol.value.lerp(tmpC.setRGB(...NIGHT.water.deepCol), nightF);   // 入夜后渐渐换成蓝黑
+  shared.uMoonShade.value = NIGHT.veg.dapple * nightF * (1 - .8 * cloud) * (1 - dread);   // 阴天没有直射的月光，也就没有树影
   const windNow = wind * (1 - .92 * dread);   // 风停了：草不动、水面变得像镜子一样
   shared.uSnow.value = snowCover; shared.uWet.value = wet; shared.uWind.value = windNow;
   shared.uFrost.value = frost;
 
   const wu = water.uniforms;
-  wu.uTime.value = T; wu.uWind.value = windNow; wu.uRain.value = rn; wu.uIce.value = ice;
+  wu.uCanopyRefl.value = dayF * canopySeason * (1 - .6 * cloud) * (1 - .5 * fog) * (1 - .5 * dread);   // 白天水面映出头顶的树冠（整个白天都有，不只是光斑时段）
+  waterT += dt * lerp(1, NIGHT.water.speed, nightF);   // 水波自己的时钟：夜里走得慢一些（直接缩放时间会让波纹在过渡时乱跳）
+  wu.uTime.value = waterT; wu.uWind.value = windNow; wu.uRain.value = rn; wu.uIce.value = ice;
   wu.uReflAmt.value = lerp(1, .5, cloud * dayF);   // 阴天的灰白天空倒影减半，水才不会像牛奶
   wu.uSunDir.value.copy(sunDir); wu.uSunCol.value.copy(su.uSunCol.value).multiplyScalar(sunI / 20 * (1 - cloud * .9) * (1 + 2.5 * duskK));   // 夕阳在水面上拉出一道金色亮带
-  wu.uMoonDir.value.copy(MOON_REFL_DIR); wu.uMoonCol.value.setRGB(.5, .62, .86).multiplyScalar(nightI * (1 - smooth(clamp((el + 2) / 6))));   // 水面上的月光倒影：固定在池子后方的一条银蓝色亮带（强度跟着月相走，没有月亮时用天光）
+  wu.uMoonDir.value.copy(MOON_REFL_DIR); wu.uMoonCol.value.setRGB(...NIGHT.water.moonCol).multiplyScalar(nightI * (1 - smooth(clamp((el + 2) / 6))));   // 水面上的月光倒影：固定在池子后方的一条银蓝色亮带（强度跟着月相走，没有月亮时用天光）
 
   setSRGB(scene.fog.color, hor, .2 + .8 * dayF);
   scene.fog.density = .004 + fog * .07 + rn * .012;
@@ -424,15 +491,20 @@ function update(dt) {
   // ---- 镜头微动 ----
   // 跟随得慢一些（约 1 秒才跟上）、幅度小一些：像人站在池边轻轻侧头，而不是镜头在追着鼠标
   parallaxS.lerp(parallax, Math.min(1, dt * 1));
-  // 夜里镜头慢慢压低、推近（竖屏不变：竖屏的构图另有安排）
-  const nc = portrait ? 0 : smooth(nightF);
-  viewDir.copy(camDir).lerp(nightCamDir, nc).normalize();
-  viewTarget.copy(camTarget).lerp(nightCamTarget, nc);
-  camera.position.copy(viewDir).multiplyScalar(camDist * lerp(1, NIGHT.cam.dist, nc)).add(viewTarget);
+  // 镜头昼夜一致：夜里不再压低、推近
+  viewDir.copy(camDir); viewTarget.copy(camTarget);
+  camera.position.copy(viewDir).multiplyScalar(camDist).add(viewTarget);
   // 镜头只跟随电脑鼠标轻微移动；不再自己缓慢漂移（会让细小的草地闪烁）
   camera.position.x += parallaxS.x * .35;
   camera.position.z += parallaxS.y * .2;
   camera.lookAt(viewTarget);
+  // 月光亮带：固定的月光方向只对某一个镜头位置成立。这里改成"亮带落在水面上固定的那一点（MOON_SPOT）"所需要的方向
+  // （那一点到镜头的方向，对水面做镜像），不管镜头在哪（横屏、竖屏）亮带都在池面上半部；镜头远近的差别用 uMoonK 收回来
+  {
+    const dx = MOON_SPOT.x - camera.position.x, dz = MOON_SPOT.z - camera.position.z;
+    wu.uMoonDir.value.set(dx, camera.position.y, dz).normalize();
+    wu.uMoonK.value = Math.hypot(dx, camera.position.y, dz) / MOON_SPOT.dist;
+  }
   if (camOverride) { camera.position.copy(camOverride.p); camera.lookAt(camOverride.t); }   // 仅开发调试用的特写镜头
 }
 let camOverride = null;
@@ -494,11 +566,71 @@ function adaptResolution(raw) {
   resScale = next; DPR = DPR_MAX * resScale;
   renderer.setPixelRatio(DPR); resize();
 }
+// ================= 场景切换 =================
+// 两个场景：pool（许愿池）和 courtyard（许愿之后来到的小院，src/courtyard.js）。共用同一个渲染器和后期处理，
+// 每帧只更新、只画当前这一个。切换时画面先淡成一片白，换好场景再淡回来；小院的代码第一次进去时才下载。
+// 入口：许愿签落水、仪式结束之后自动进去；网址加 ?scene=courtyard 可以直接进（调试用）。在小院里走出院门就回到池边
+const COURTYARD_AFTER_WISH = true;
+let active = 'pool', switching = false, entering = false;
+const fadeEl = document.getElementById('fade');
+const wait = ms => new Promise(r => setTimeout(r, ms));
+async function goTo(name, { instant = false, withIntro = true, fresh = null } = {}) {
+  if (switching || name === active || (name !== 'pool' && name !== 'courtyard')) return;
+  switching = true;
+  try {
+    if (!instant) { fadeEl.classList.add('on'); await wait(950); }
+    if (name === 'courtyard') {
+      wish.finish();   // 木牌还在水里下沉的话，让它就此结束
+      if (!court) court = (await import('./courtyard.js')).createCourtyard({
+        renderer, canvas, isMobile, onExit: () => goTo('pool'), now: nowMs, canLight: () => canLightIncense(),
+        onLight: async () => {   // 点香：半个钟头一炷、一个人同时只能点一炷、炉里最多 100 炷（规则在 courtStore.js / 服务器上）
+          const r = await lightIncense();
+          if (r.ok) court.setIncense(listIncense()); else showToast(r.text);
+          return r;
+        },
+      });
+      await court.ready;   // 小院的贴图下载完再揭开
+      await Promise.race([refreshStore(), wait(1200)]);   // 进院之前先向服务器要一次最新的牌和香（最多等 1.2 秒）
+      court.setIncense(listIncense());
+      court.setPlaques(listPlaques(), fresh);   // 庭院里的木牌（这台设备上挂过的）；fresh：刚挂上的那块，会有一个落下来挂好的小动画
+      court.enter({ withIntro });
+    } else court?.leave();
+    active = name;
+    renderPass.scene = name === 'courtyard' ? court.scene : scene;
+    renderPass.camera = name === 'courtyard' ? court.camera : camera;
+    canvas.style.cursor = '';
+    resize();
+    if (!instant) await wait(350);   // 先在白幕后面画几帧（着色器编译、阴影），再揭开
+  } finally { fadeEl.classList.remove('on'); switching = false; }
+}
+// 小院：固定的白天，不跟随真实时间和天气——曝光和调色都是定值
+function renderCourt() {
+  renderer.toneMappingExposure = court.exposure;
+  for (const b of blurs) b.enabled = false;
+  const g = grade.uniforms;
+  g.saturation.value = 1.02; g.vig.value = .12; g.dayWarm.value = .4; g.night.value = 0;
+  court.preRender(renderer);
+  composer.render();
+}
+function frame(dt) {
+  if (active === 'courtyard') { court.update(dt); renderCourt(); }
+  else {
+    update(dt); render();
+    // 木牌落进水里、过了 3 秒多（墨迹散得差不多了）：挂上这块牌，画面淡白，去庭院。淡白要 1 秒，仪式在 4 秒时结束，正好接上
+    if (COURTYARD_AFTER_WISH && wish.mode === 'ritual' && wish.ritualTime > 3.2 && !switching && !entering) {
+      entering = true;
+      addPlaque(wish.thrownName || getName() || '无名').then(r => {   // 向服务器挂牌；超限等原因被拒绝时也照样进院，只是树上不会多一块
+        if (!r.ok) showToast(r.text);
+        return goTo('courtyard', { fresh: r.rec?.id });
+      }).finally(() => { entering = false; });
+    }
+  }
+}
+
 function loop(now) {
   const raw = (now - last) / 1000, dt = Math.min(.05, raw); last = now;
   adaptResolution(raw);
-  update(dt);
-  render();
+  frame(dt);
   firstFrame = false;
   if (assetsReady && !revealed && ++readyFrames > 3) { revealed = true; document.getElementById('loading').classList.add('done'); }
   requestAnimationFrame(loop);
@@ -510,14 +642,19 @@ const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2();
 addEventListener('contextmenu', e => { if (e.target === canvas) e.preventDefault(); });
 const setRay = e => { ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); raycaster.setFromCamera(ndc, camera); };
 canvas.addEventListener('pointerdown', e => {
+  if (active !== 'pool' || switching) return;   // 在小院里：点击、拖动由 courtyard.js 自己处理
   setRay(e);
   // 许愿签还在等输入时点它：重新弹出输入框
-  if (wish.waiting && wish.inputReady && wish.hitPaper(raycaster)) { openWishInput(); wishInput.focus(); return; }
+  if (wish.waiting && (wish.inputReady || wish.nameReady) && wish.hitPaper(raycaster)) { wish.nameReady ? openNameInput() : openWishInput(); wishInput.focus(); return; }
   // 左边的石狐（屏幕左半边那一只）：唤来许愿签；右边那只：签落进水里之后，唤龙
   const f = foxes.pick(raycaster);
   if (f) {
     const left = f.point.clone().project(camera).x < 0;
-    if (left && WISH_ENABLED && !wish.busy) { sfx.unlock(); wish.summon(camera); return; }   // 声音只能在用户点击时开启
+    if (left && WISH_ENABLED && !wish.busy) {
+      const c = canWish();
+      if (!c.ok) { showToast(c.text); return; }   // 半小时内挂过一块，或者今天已经挂满三块：石狐不响应，只说一句话
+      sfx.unlock(); wish.summon(camera); return;   // 声音只能在用户点击时开启
+    }
     if (!left && wish.canCall) { sfx.unlock(); wish.callDragon(); return; }
   }
   const hit = raycaster.intersectObject(water.mesh)[0];
@@ -526,6 +663,7 @@ canvas.addEventListener('pointerdown', e => {
   }
 });
 canvas.addEventListener('pointermove', e => {
+  if (active !== 'pool') return;
   setRay(e);
   // 鼠标移到能点的石狐上时，换成手形光标
   if (e.pointerType === 'mouse') {
@@ -558,14 +696,27 @@ const wishLand = () => { const d = new THREE.Vector3(camera.position.x, 0, camer
 function throwWish(text) {   // 调试用：跳过写字和拖动，直接从落点上方投下去
   if (wish.busy || !text.trim()) return;
   const w = wishLand();
-  wish.start(text, w, { facing: w.facing, callNow: true });
+  wish.start(text, w, { facing: w.facing, callNow: true, name: getName() || '宁' });
 }
-const wishInput = $('wishInput'), wishPanel = $('wishPanel'), wishOk = $('wishOk');
+const wishInput = $('wishInput'), wishPanel = $('wishPanel'), wishOk = $('wishOk'), wishHint = $('wishHint'), toast = $('toast');
+let inputKind = 'wish';   // 输入框现在写的是什么：'wish'（愿望）或 'name'（名字）
 // 签停稳、四周虚化之后才出现输入框（电脑上自动把光标放进去；手机上点一下输入框才会弹出键盘）
-function openWishInput() { if (!wishPanel.hidden) return; wishInput.value = ''; wishOk.disabled = true; wishPanel.hidden = false; if (matchMedia('(pointer: fine)').matches) wishInput.focus(); }
-function closeWishInput() { wishInput.blur(); wishPanel.hidden = true; }
-// 确认：字写到签上，停一下，签自己落进水里（落点：池心靠镜头一侧，龙来的地方）
-const submitWish = () => { const v = wishInput.value.trim(); if (!v) return; const w = wishLand(); wish.write(v, w, { facing: w.facing }); closeWishInput(); };
+function openInput(kind) {
+  if (!wishPanel.hidden) return;
+  inputKind = kind; wishInput.value = ''; wishOk.disabled = true;
+  wishInput.maxLength = kind === 'name' ? NAME_MAX : 30;
+  wishInput.placeholder = kind === 'name' ? '名字' : '';
+  wishHint.hidden = kind !== 'name';   // 名字写下后不能再改：第一次写名字时提醒一句
+  wishPanel.hidden = false; if (matchMedia('(pointer: fine)').matches) wishInput.focus();
+}
+const openWishInput = () => openInput('wish'), openNameInput = () => openInput('name');
+function closeWishInput() { wishInput.blur(); wishPanel.hidden = true; wishHint.hidden = true; }
+// 确认：愿望 → 字写到木牌上，木牌翻过来；名字 → 字写到木牌上，停一下，木牌自己落进水里（落点：池心靠镜头一侧）
+const submitWish = () => {
+  const v = wishInput.value.trim(); if (!v) return;
+  if (inputKind === 'name') { const n = setName(v); wish.writeName(n); closeWishInput(); return; }
+  const w = wishLand(); wish.write(v, w, { facing: w.facing, name: getName() }); closeWishInput();
+};
 wishInput.addEventListener('input', () => { wishOk.disabled = !wishInput.value.trim(); });
 wishInput.addEventListener('keydown', e => {
   if (e.isComposing || e.keyCode === 229) return;   // 输入法正在拼字时的回车不算
@@ -573,7 +724,10 @@ wishInput.addEventListener('keydown', e => {
   else if (e.key === 'Escape') { wish.dismiss(); closeWishInput(); }
 });
 wishOk.onclick = submitWish;
-setInterval(() => { if (wish.inputReady) openWishInput(); }, 100);
+setInterval(() => { if (wish.inputReady) openWishInput(); else if (wish.nameReady) openNameInput(); }, 100);
+// 屏幕下方的一句话（发牌限制的提示）
+let toastTimer = 0;
+function showToast(text) { toast.textContent = text; toast.classList.add('on'); clearTimeout(toastTimer); toastTimer = setTimeout(() => toast.classList.remove('on'), 2600); }
 
 
 // 调试面板：网址带 ?debug 才显示
@@ -591,6 +745,10 @@ $('reset').onclick = () => {
   wxMode = 'live'; $('wx').value = 'live'; applyWeather(false);
 };
 setInterval(updateInfo, 1000);
+// 数据：连上服务器（配置了 VITE_SUPABASE_URL 的话）；在院子里时每 15 秒看一次有没有别人挂牌、点香，有变化就更新
+initStore().then(mode => console.info('庭院数据：', mode === 'remote' ? '服务器' : '本机'));
+onStoreChange(() => { if (active === 'courtyard' && court) { court.setIncense(listIncense()); court.setPlaques(listPlaques(), null); } });
+setInterval(() => { if (active === 'courtyard') refreshStore(); }, 15000);
 
 // 调试用（只在开发模式下暴露）
 if (import.meta.env.DEV) window.__wish = {
@@ -600,11 +758,12 @@ if (import.meta.env.DEV) window.__wish = {
   setSeason(s) { seasonForce = s; },
   wish: throwWish, get wishState() { return wish; },
   get loc() { return loc; }, sunPos, moonPos, moonPhase,
-  renderer, scene, camera, composer, water, sky, key, refrRT, reflRT, pool,
-  step(n = 1, dt = 1 / 60) { for (let i = 0; i < n; i++) { update(dt); render(); } },
+  renderer, scene, camera, composer, water, sky, key, refrRT, reflRT, pool, NIGHT, applyNight,
+  step(n = 1, dt = 1 / 60) { for (let i = 0; i < n; i++) frame(dt); },
+  goto: goTo, get active() { return active; }, get court() { return court; },   // 切换场景：__wish.goto('courtyard') / __wish.goto('pool')
   closeup(p, t) { camOverride = p ? { p: new THREE.Vector3(...p), t: new THREE.Vector3(...t) } : null; },
   async shot(name) {   // 开发用：渲染一帧并保存到 .shots/
-    update(1 / 60); render();
+    frame(1 / 60);
     const blob = await new Promise(r => renderer.domElement.toBlob(r, 'image/jpeg', .85));
     await fetch(`/__shot?name=${name}`, { method: 'POST', body: blob });
     return name;
@@ -614,3 +773,4 @@ if (import.meta.env.DEV) window.__wish = {
 updateInfo();
 requestAnimationFrame(loop);
 init();
+if (new URLSearchParams(location.search).get('scene') === 'courtyard') goTo('courtyard', { instant: true });

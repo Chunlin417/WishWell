@@ -21,6 +21,13 @@ export const shared = {
   // 树荫光斑：两张叶影遮罩、强度（0～1，main.js 按钟点 / 季节 / 天气算）、树荫里直射光剩下的比例
   tCanopy: { value: null }, uCanopy: { value: 0 }, uCanopyDark: { value: .2 },
   uNight: { value: 0 },   // 夜的程度（0 白天 ～ 1 深夜），main.js 每帧更新；夜里植物褪色、不再透光
+  // ---- 夜景参数：数值在 main.js 的 NIGHT 里调（这里只是默认值）。着色器里都乘着 uNight，白天不起作用 ----
+  uRockNight: { value: new THREE.Vector4(.6, .38, .34, .35) },   // 岩石：x 干燥的石面粗糙度往 1 推多少，y 湿润处的粗糙度，z 潮气沿水线往上爬多高（米），w 远离水线的零星潮斑有多少
+  uRockGloss: { value: new THREE.Vector2(.03, .1) },             // 月光在石面上的高光：x 干燥处，y 湿润处
+  uFoxNight: { value: new THREE.Vector3(.25, .45, .3) },         // 石狐：x 暗部天光多出的比例，y 月光绕过明暗交界线多少，z 朝月一侧的轮廓光
+  uVegNight: { value: new THREE.Vector4(.3, 1.1, .76, 1.35) },   // 植被：x 褪色，y 浅色叶片压暗多少，z 月影里直射月光剩下的比例，w 受光叶片的亮度
+  uMoonShade: { value: 0 },                                       // 月光穿过树冠落在植被上的明暗（0 白天 ～ 夜里的强度）
+  uAbsorbNight: { value: new THREE.Vector3(1.8, .55, .65) },     // 夜里池水每米吸收多少（红、绿、蓝）
   uFoxBase: { value: new THREE.Vector4(1e3, 1e3, 1e3, 1e3) }, uFoxFoot: { value: new THREE.Vector2(1, 1) }, uFoxAmt: { value: new THREE.Vector4(0, 0, 0, 0) },
 };
 
@@ -71,10 +78,7 @@ const NIGHT_GLOSS_GLSL = /* glsl */`
             nrm = normalize(nrm + (viewMatrix * vec4(nz.x, 0., nz.y, 0.)).xyz * .5);
             float glossK = .04;
           #else
-            float glossK = .06 + .3 * clamp(rockWet + .35, 0., 1.);   // 靠水线的石头更湿、更亮
-            #ifdef USE_NORMALMAP
-              glossK *= .35;   // 石狐（自带法线贴图）：只留一点点，不要像湿漉漉的金属
-            #endif
+            float glossK = mix(uRockGloss.x, uRockGloss.y, nightWet);   // 干燥的石面几乎没有高光；只有潮湿的地方（水线附近、零星潮斑）反光
           #endif
           vec3 Ld = normalize((viewMatrix * vec4(uKeyDir, 0.)).xyz);
           vec3 Hd = normalize(Ld + normalize(vViewPosition));
@@ -82,7 +86,8 @@ const NIGHT_GLOSS_GLSL = /* glsl */`
           #ifdef NIGHT_GLOSS_LEAF
             float spec = (pow(nh, 80.) * .5 + pow(nh, 300.) * 1.) * step(.55, vnoise(vWPos.xz * 9. + 3.));   // 只有零星的叶片有光泽（否则月光方向那一侧的叶子整片发白）   // 叶面：只在叶片起伏朝着月光的地方有一点点光泽
           #else
-            float spec = pow(nh, 40.) * .5 + pow(nh, 260.) * 1.3;   // 石头：一小点锐利的湿润高光
+            // 干燥处：一层很宽、很淡的月色（交代形体，不是反光）；潮湿处：一小点锐利的湿润高光
+            float spec = mix(pow(nh, 14.) * .3, pow(nh, 60.) * .35 + pow(nh, 280.) * 1.2, nightWet);
           #endif
           outgoingLight += uSunCol * 3.2 * spec * glossK * uNight * smoothstep(0., .3, dot(nrm, Ld)) * (1. - roughnessFactor * .45) * smoothstep(-.04, .04, vWPos.y);   // 水下的部分没有（月光照不到那么亮的高光）
         }
@@ -177,9 +182,12 @@ float scaleField(vec3 p, vec3 n){
 // deepFade：不透明的实体越往深处越暗（exp(-深度 × deepFade)，只变暗、略偏冷，没有任何叠加的雾或发光）——用在龙身上，它是从黑暗里浮上来的真实物体，不是半透明的影子
 // absorb：水的吸收按深度的多少倍算（龙用 0.45：在 2 米深处还看得清鳞片，否则只剩一个青色的剪影）
 // card：贴草丛照片的交叉面片（map + alphaTest）——远处按 mipmap 级别加厚 alpha，草不会越远越稀
-export function patch(mat, { cell = false, nightOnly = false, moonGlow = false, grass = false, grassH = .42, sway = 1, upNormal = false, blade = false, card = false, rim = false, lamp = false, deepFade = 0, absorb = 1, underwater = true, tex = null, scales = false, glowAttr = false } = {}) {
+// statue：石雕（石狐）——夜里不加灯，只让已有的月光和天光把形体交代清楚（见 lights_fragment_end 里的 STATUE 一段）
+export function patch(mat, { cell = false, nightOnly = false, moonGlow = false, grass = false, grassH = .42, sway = 1, upNormal = false, blade = false, card = false, rim = false, lamp = false, deepFade = 0, absorb = 1, underwater = true, tex = null, scales = false, glowAttr = false, statue = false } = {}) {
   const mode = tex ? tex.mode : 'none';
-  mat.customProgramCacheKey = () => `wish-${nightOnly}-${moonGlow}-${tex && tex.wet ? 'w' : ''}-${cell}-${grass}-${grassH}-${sway}-${upNormal}-${blade}-${card}-${rim}-${lamp}-${deepFade}-${absorb}-${underwater}-${mode}-${scales}-${glowAttr}`;
+  const moonShade = grass || mode === 'ground';   // 夜里月光穿过树冠的明暗：植物和岸上的地面
+  mat.customProgramCacheKey = () => `wish-${nightOnly}-${moonGlow}-${tex && tex.wet ? 'w' : ''}-${cell}-${grass}-${grassH}-${sway}-${upNormal}-${blade}-${card}-${rim}-${lamp}-${deepFade}-${absorb}-${underwater}-${mode}-${scales}-${glowAttr}-${statue}`;
+  if (statue) mat.defines = { ...(mat.defines || {}), STATUE: '' };
   if (cell) mat.defines = { ...(mat.defines || {}), CELL: '', ...(cell === 'flat' ? { CELL_FLAT: '' } : {}) };   // 每个实例自带图集里的 uv 范围（aCell）
   // 夜里的潮湿反光：石头（按潮湿程度）和叶片（叶面带细小起伏）上，被月光照到的地方有一小点锐利的冷色高光；白天 uNight = 0，不起作用
   if (tex && tex.mode === 'rock') mat.defines = { ...(mat.defines || {}), NIGHT_GLOSS: '' };
@@ -292,6 +300,7 @@ export function patch(mat, { cell = false, nightOnly = false, moonGlow = false, 
         varying vec3 vWPos; varying vec3 vWNrm; varying float vH; varying float vMoss;
         uniform float uTime; uniform float uCaustic; uniform float uSnow; uniform float uWet; uniform float uFrost;
         uniform vec3 uSunCol; uniform vec3 uWaterCol; uniform float uDeepGlow; uniform float uNight; uniform vec3 uDeepGlowCol; uniform vec3 uKeyDir;
+        uniform vec4 uRockNight; uniform vec2 uRockGloss; uniform vec3 uFoxNight; uniform vec4 uVegNight; uniform float uMoonShade; uniform vec3 uAbsorbNight;
         #ifdef LAMP
           uniform vec3 uLampDir; uniform vec3 uLampCol;
         #endif
@@ -343,6 +352,7 @@ export function patch(mat, { cell = false, nightOnly = false, moonGlow = false, 
         #endif
         vec3 gN = normalize(vWNrm);
         vec3 triN = gN; float triRough = 1.0; float rockWet = 0.;
+        float nightWet = 0., crackM = 0.;   // 夜里这一点有多潮（0 干 ～ 1 湿）；是不是在裂缝里
         #ifdef TRI
           vec3 tb = pow(abs(gN), vec3(4.)); tb /= dot(tb, vec3(1.));
           vec3 alb = vec3(1.);
@@ -360,6 +370,21 @@ export function patch(mat, { cell = false, nightOnly = false, moonGlow = false, 
           #endif
           triN = triNormal(tNor0, vWPos, gN, tb, uTexScale.x);
           #ifdef LAWN
+            // 池心深井的井壁几乎是竖直的：从上往下投的卵石贴图在上面被拉成一条条规则的竖纹（夜里水暗，这圈竖纹最显眼）。
+            // 夜里换成从侧面投影的同一张贴图（不占新的贴图单元），再按高度加几层深浅不一的岩层——读起来是参差的岩壁。
+            // 只在很陡的水下坡面、只在夜里（乘着 uNight）：白天保持原样
+            float wallK = uNight * (1. - smoothstep(.3, .75, tb.y));
+            if (wallK > .01) {
+              vec2 uvx = vWPos.zy * uTexScale.x, uvz = vWPos.xy * uTexScale.x;
+              float ws = max(tb.x + tb.z, 1e-3);
+              vec3 side = (texture2D(tDiff0, uvx).rgb * tb.x + texture2D(tDiff0, uvz).rgb * tb.z) / ws;
+              float strata = vnoise(vec2(vWPos.x * 1.7 + vWPos.z * .9, vWPos.y * 1.6)) * .6 + vnoise(vec2(vWPos.z * 4.1 - vWPos.x * 2.3, vWPos.y * 4.3 + 7.)) * .4;
+              side *= mix(.6, 1.2, smoothstep(.25, .8, strata));
+              alb = mix(alb, side, wallK);
+              vec3 nx = texture2D(tNor0, uvx).xyz * 2. - 1., nz = texture2D(tNor0, uvz).xyz * 2. - 1.;
+              nx = vec3(nx.xy + gN.zy, abs(nx.z) * gN.x); nz = vec3(nz.xy + gN.xy, abs(nz.z) * gN.z);
+              triN = normalize(mix(triN, normalize(nx.zyx * tb.x + nz.xyz * tb.z), wallK));
+            }
             }
           #endif
           float mossM = 0., mossTone = 1.;
@@ -387,7 +412,8 @@ export function patch(mat, { cell = false, nightOnly = false, moonGlow = false, 
             float r1 = abs(vnoise(cp.xy * 2.6 + cp.z * 1.7) - .5), r2 = abs(vnoise(cp.zy * 3.4 - cp.x * 1.3 + 7.) - .5);
             float crack = (1. - smoothstep(.0, .028, r1)) * .65 + (1. - smoothstep(.0, .022, r2)) * .45;
             crack *= smoothstep(.35, .6, vnoise(cp.xz * .9 + cp.y));
-            alb *= 1. - clamp(crack, 0., 1.) * uCrack;
+            crackM = clamp(crack, 0., 1.);
+            alb *= 1. - crackM * uCrack;
           }
           #ifdef LAWN
             // 岸上的地面分几层：湿泥土打底 → 零星成片的落叶 → 草地（石头边是苔藓）→ 水边一圈湿沙；水下是卵石
@@ -492,17 +518,36 @@ export function patch(mat, { cell = false, nightOnly = false, moonGlow = false, 
             diffuseColor.rgb *= 1. - .38 * rockWet;
           #endif
           #ifdef HAS_WET
-            // 夜里的湿润感：露水和潮气让石头表面更光滑、多一层细碎的起伏（靠水线的更湿，各块石头不一样）；白天 uNight = 0，不起作用
-            {
-              float wetK = uNight * clamp(.3 + .7 * rockWet + .35 * (vnoise(vWPos.xz * 2.1 + vWPos.y * 3.) - .4), 0., 1.);
-              triN = normalize(mix(triN, triNormal(tWetN, vWPos, gN, tb, 1.7), wetK * .5));
-              triRough = mix(triRough, triRough * .5, wetK);
+            // 夜里的湿润感。原来整块石头都算"潮"（底数 .3）、粗糙度减半，再叠一层很宽的高光：月光一照，石头顶上整片泛银白，像湿塑料。
+            // 现在分开处理：干燥的石面夜里以漫反射为主（粗糙度往 1 推）；只有贴着水线往上一段参差不齐的潮湿带、和零星几处潮斑是湿的；
+            // 苔藓吸光、裂缝里照不到，都不反光——裸岩、苔藓、裂缝、湿面的粗糙度各不相同。白天 uNight = 0，不起作用
+            if (uNight > .01) {
+              float wn = vnoise(vWPos.xz * 2.3 + vWPos.y * 1.7) - .5;
+              float hw = vWPos.y + wn * .26 + (vnoise(vWPos.xz * 7.1 + vWPos.y * 4. + 5.) - .5) * .08;   // 离水面的高度，被噪声搅乱：潮湿带的上缘高高低低
+              float damp = 1. - smoothstep(uRockNight.z * .3, uRockNight.z, hw);
+              float seep = 0.;
+              #ifndef STATUE
+                seep = smoothstep(.68, .84, vnoise(vWPos.xz * 1.3 + vWPos.y * 2.1 + 31.) + wn * .3) * uRockNight.w;   // 远离水线的零星潮斑（石雕上没有）
+              #endif
+              nightWet = clamp(max(max(rockWet, damp), max(seep, uWet)), 0., 1.) * (1. - .85 * mossM) * (1. - crackM);   // 下雨时整块石头都是湿的
+              if (nightWet > .01) triN = normalize(mix(triN, triNormal(tWetN, vWPos, gN, tb, 1.7), nightWet * .5 * uNight));
+              float dryRough = mix(mix(triRough, 1., uRockNight.x), 1., max(mossM * .9, crackM));
+              triRough = mix(triRough, mix(dryRough, min(triRough, uRockNight.y), nightWet), uNight);
             }
           #endif
         #endif
         float above = smoothstep(-0.03, 0.06, vWPos.y);
         ${grass ? GRASS_TONE : ''}
-        ${grass ? 'diffuseColor.rgb = mix(diffuseColor.rgb, vec3(dot(diffuseColor.rgb, vec3(.3, .59, .11))) * vec3(.86, 1., .9), uNight * .2) * (1. - .1 * uNight);   // 夜里植物：低饱和的深绿、略暗——不比石狐和池塘显眼' : ''}
+        ${grass ? `
+        {
+          // 夜里植物：低饱和的深绿——不比石狐和池塘显眼（不靠提高饱和度来显形）。越浅的叶片压得越多：
+          // 白天好看的浅色叶子（花叶玉簪、嫩蕨）在月光下不再是一片片发白的亮斑，整片植被的色调更统一
+          float vl = dot(diffuseColor.rgb, vec3(.3, .59, .11));
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(vl) * vec3(.84, 1., .93), uNight * uVegNight.x);
+          #ifndef MOON_GLOW
+            diffuseColor.rgb /= 1. + uVegNight.y * uNight * vl;   // 月光下发亮的小白花不压
+          #endif
+        }` : ''}
         float snowN = vnoise(vWPos.xz * 3.0) * .35 + vnoise(vWPos.xz * 11.0) * .15;
         float snowM = smoothstep(.25, .65, triN.y + snowN - .25) * uSnow * above;
         ${grass ? 'snowM = uSnow * smoothstep(.2, 1.0, vH) * .85;' : ''}
@@ -522,18 +567,41 @@ export function patch(mat, { cell = false, nightOnly = false, moonGlow = false, 
         // 树荫光斑：只压直射光（太阳 / 月亮），天空光、环境光不动，树荫里不是黑的
         float canopyK = 1.;
         if (uCanopy > .001) {
-          // 水面以下（池底、水里的石头）不受树荫影响：池面上没有树影
-          float onLand = smoothstep(-.04, .04, vWPos.y);
+          // 水面以下（池底、水里的石头）也有树影，只是被水散射得淡一些（参考图里池底有一块块光斑）
+          float onLand = mix(.65, 1., smoothstep(-.04, .04, vWPos.y));
           canopyK = mix(1., mix(uCanopyDark, 1., canopyLit(vWPos, normalize(uKeyDir), uTime)), uCanopy * onLand);
           reflectedLight.directDiffuse *= canopyK; reflectedLight.directSpecular *= canopyK;
-        }`)
+        }
+        ${moonShade ? `
+        // 月光下的明暗层次：月光穿过树冠落下来，一部分叶片被照到（略亮、偏冷），一部分在树影里——只压直射的月光，
+        // 天光和环境光不动，所以树影里是深绿，不是黑。和白天的树荫光斑用同一张叶影图、同一个主光方向：植物和石头上的月光方向一致
+        if (uMoonShade > .001) {
+          float ml = moonDapple(vWPos, normalize(uKeyDir), uTime);
+          float mk = mix(1., mix(uVegNight.z, uVegNight.w, ml), uMoonShade${mode === 'ground' ? ' * smoothstep(-.04, .04, vWPos.y)' : ''});
+          reflectedLight.directDiffuse *= mk; reflectedLight.directSpecular *= mk;
+        }` : ''}
+        #ifdef STATUE
+        if (uNight > .01) {
+          // 石狐在夜里：不加灯、不发光，只让已有的月光和天光把形体交代清楚（两只用同一套逻辑）
+          vec3 Lv = normalize((viewMatrix * vec4(uKeyDir, 0.)).xyz);
+          float ndl = dot(normal, Lv);
+          vec3 moonRad = uSunCol * (uNight / .55) * diffuseColor.rgb * RECIPROCAL_PI;   // 月光照在这块石头上的漫反射（uSunCol = 主光 × .55）
+          // 1. 月光绕过明暗交界线一点（月亮周围的夜空也在发光，不是一个点光源）：耳朵、鼻梁、肩背的受光面更宽，过渡柔和
+          reflectedLight.directDiffuse += moonRad * (clamp((ndl + uFoxNight.y) / (1. + uFoxNight.y), 0., 1.) - clamp(ndl, 0., 1.));
+          // 2. 暗部的天光多一些（夜空在头顶，朝上的面受得多）：胸口、面部的暗部有层次，不是一片死黑
+          reflectedLight.indirectDiffuse *= 1. + uFoxNight.x * uNight;
+          // 3. 朝着月亮的一侧，视线擦过石面的地方有一线很淡的月色（掠射的月光），背月的一侧没有——不是描边发光
+          float fr = 1. - clamp(dot(normal, normalize(vViewPosition)), 0., 1.);
+          reflectedLight.directDiffuse += moonRad * uFoxNight.z * fr * fr * fr * smoothstep(-.35, .45, ndl);
+        }
+        #endif`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
         #ifdef TRI
           roughnessFactor *= triRough;
         #endif
         roughnessFactor = mix(roughnessFactor, ${grass ? '.6' : mode === 'ground' ? '.5' : '.22'}, uWet * above * (1.0 - snowM));
         roughnessFactor = mix(roughnessFactor, .8, snowM);
-        roughnessFactor = mix(roughnessFactor, .28, rockWet * .85);   // 水线附近湿漉漉的，微微反光
+        roughnessFactor = mix(roughnessFactor, mix(.28, uRockNight.y, uNight), rockWet * .85);   // 水线附近湿漉漉的，微微反光（夜里略粗一点：月光下是一小片柔和的湿光，不是一块纯白）
         roughnessFactor = mix(roughnessFactor, .55, frostM * .6);   // 霜晶在斜光下微微发亮`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
         // 冬夜的霜：月光下细碎的冰晶反光——一层很淡的冷色底光，加上零星几粒更亮的晶点（只在有霜的地方、只在夜里）
@@ -595,9 +663,9 @@ export function patch(mat, { cell = false, nightOnly = false, moonGlow = false, 
           float cs = caustic(vWPos.xz * 1.15, uTime * .9) * (.35 + .65 * vnoise(vWPos.xz * .5 + uTime * .05));
           float att = exp(-dW * 1.4);
           outgoingLight += uSunCol * canopyK * cs * att * uCaustic * max(triN.y, 0.0) * (diffuseColor.rgb + .08) * 1.4;
-          outgoingLight *= mix(vec3(1.), vec3(.74, .93, .88), smoothstep(0., .12, dW));   // 一入水就带上青绿色调（浸在水里的石头不再是棕色）
+          outgoingLight *= mix(vec3(1.), mix(vec3(.72, .93, .95), vec3(.74, .93, .88), uNight), smoothstep(0., .12, dW));   // 一入水就带上青绿色调（浸在水里的石头不再是棕色）
           // 越深越被水"吃掉"：红光最先消失，绿、蓝留得久——浅处清澈的青绿，深处是幽暗的深青色（泉水那样，不是海蓝）
-          vec3 tr = exp(-dW * vec3(1.8, .55, .65));
+          vec3 tr = exp(-dW * mix(vec3(1.25, .36, .42), uAbsorbNight, uNight));   // 白天更清澈（池心也看得见底）；夜里的吸收系数在 main.js 的 NIGHT.water.absorb 里调
           outgoingLight = outgoingLight * tr + uWaterCol * (1.0 - tr.b);
           // 夜里池心深处一团柔和的微光：越深越亮，缓慢地呼吸
           if (uDeepGlow > 0.0) {

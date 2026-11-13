@@ -14,6 +14,20 @@
   /* 没有文字的深色遮罩：场景第一帧画好后淡出，避免加载时闪一下 */
   #loading { position: fixed; inset: 0; background: #05070f; transition: opacity 1.6s; z-index: 10; }
   #loading.done { opacity: 0; pointer-events: none; }
+  /* 切换场景时的白幕：先淡成一片白，换好场景再淡回来 */
+  #fade { position: fixed; inset: 0; background: #f6f1e4; opacity: 0; pointer-events: none; transition: opacity 1.3s ease-in-out; z-index: 8; }
+  #fade.on { opacity: 1; pointer-events: auto; transition-duration: .9s; }
+  /* 小院里的操作提示：进院时出现，走动之后淡掉 */
+  #hint { position: fixed; left: 50%; bottom: calc(7vh + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 4;
+    padding: 7px 16px; border-radius: 999px; background: rgba(20, 16, 10, .38); color: #f4ecd8; font-size: 13px; letter-spacing: 1px;
+    white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity 1.2s; backdrop-filter: blur(4px); }
+  #hint.on { opacity: 1; }
+  #hint[hidden] { display: none; }
+  /* 手机上的行走摇杆：手指按在屏幕左侧时出现在手指下面 */
+  #stick { position: fixed; width: 104px; height: 104px; margin: -52px 0 0 -52px; border-radius: 50%; z-index: 4; pointer-events: none;
+    border: 1px solid rgba(255, 255, 255, .35); background: rgba(255, 255, 255, .06); opacity: 0; transition: opacity .25s; }
+  #stick.on { opacity: 1; }
+  #stick i { position: absolute; left: 50%; top: 50%; width: 40px; height: 40px; margin: -20px 0 0 -20px; border-radius: 50%; background: rgba(255, 255, 255, .4); }
   #gear[hidden] { display: none; }
   #gear { position: fixed; right: 14px; top: 12px; width: 34px; height: 34px; border-radius: 50%;
     border: 1px solid rgba(255,255,255,.25); background: rgba(0,0,0,.25); color: #fff; font-size: 17px;
@@ -36,6 +50,19 @@
     background: rgba(20, 10, 8, .55); border: 1px solid rgba(243, 220, 156, .4); backdrop-filter: blur(6px);
     box-shadow: 0 8px 30px rgba(0,0,0,.45); animation: wishIn .5s ease-out; }
   #wishPanel[hidden] { display: none; }
+  /* 名字下面的一句提醒、屏幕下方的一句话 */
+  #wishHint { position: fixed; left: 50%; bottom: calc(10vh - 26px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 5; color: rgba(248, 232, 191, .7); font-size: 12px; letter-spacing: 2px; pointer-events: none; white-space: nowrap; }
+  #wishHint[hidden] { display: none; }
+  #toast { position: fixed; left: 50%; bottom: calc(12vh + env(safe-area-inset-bottom)); transform: translate(-50%, 8px); z-index: 6; padding: 9px 20px; border-radius: 999px; background: rgba(20, 12, 8, .55);
+    border: 1px solid rgba(243, 220, 156, .35); color: #f8e8bf; font-size: 15px; letter-spacing: 3px; backdrop-filter: blur(6px); opacity: 0; pointer-events: none; transition: opacity .5s, transform .5s; white-space: nowrap; }
+  #toast.on { opacity: 1; transform: translate(-50%, 0); }
+  /* 走到香炉旁边出现的点香按钮 */
+  #lightBtn { position: fixed; left: 50%; bottom: calc(18vh + env(safe-area-inset-bottom)); transform: translate(-50%, 8px); z-index: 5; padding: 10px 26px; border-radius: 999px; border: 1px solid rgba(243, 220, 156, .5);
+    background: rgba(40, 22, 12, .6); color: #f8e8bf; font: 17px/1 STKaiti, KaiTi, 'Kaiti SC', serif; letter-spacing: 6px; cursor: pointer; backdrop-filter: blur(6px);
+    opacity: 0; pointer-events: none; transition: opacity .5s, transform .5s; }
+  #lightBtn.on { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
+  #lightBtn.dim { opacity: .55; }
+  #lightBtn[hidden] { display: none; }
   @keyframes wishIn { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
   #wishInput { width: min(300px, 58vw); box-sizing: border-box; padding: 9px 12px; border-radius: 9px;
     border: 1px solid rgba(243, 220, 156, .55); background: rgba(0, 0, 0, .35); color: #f8e8bf; caret-color: #f6e2a8; outline: none;
@@ -54,7 +81,13 @@
 <body>
 <canvas id="c"></canvas>
 <div id="loading"></div>
+<div id="fade"></div>
+<div id="hint" hidden></div>
+<div id="stick"><i></i></div>
 <button id="gear" title="调试面板" hidden>⚙</button>
+<div id="wishHint" hidden>名字写下后无法更改</div>
+<div id="toast"></div>
+<button id="lightBtn" hidden></button>
 <div id="wishPanel" hidden><input id="wishInput" maxlength="30" enterkeyhint="done" autocomplete="off" autocorrect="off" spellcheck="false"><button id="wishOk" disabled aria-label="确认" title="确认"><span class="ico" aria-hidden="true"></span></button></div>
 <div id="panel" hidden>
   <div class="row"><label>时间</label><input type="range" id="hour" min="0" max="24" step="0.01"><span id="hourTxt"></span></div>
