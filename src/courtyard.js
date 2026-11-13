@@ -9,6 +9,7 @@ import { loadCourtTextures, triMat, bronzeMat, latticeTexture, roofMat, roofGeo 
 import { createSky, createBackdrop, createCanopyShade, createShafts, createSmoke, createMist } from './courtyardFx.js';
 import { loadTree, createLeafKit, createGrove } from './courtyardTree.js';
 import { createPlaques } from './courtyardPlaques.js';
+import { createIncense } from './courtyardIncense.js';
 import { createPlantCards, CELLS } from './courtyardPlants.js';
 
 const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
@@ -72,7 +73,8 @@ function wallGeo(len, h, t, seed, alongX) {
   return g;
 }
 
-export function createCourtyard({ renderer, canvas, isMobile = false, onExit = () => {} }) {
+// onLight：点香（返回 { ok, text? }）；canLight：现在能不能点香（返回 { ok, text? }）；now：当前时间（毫秒，以后是服务器时间）
+export function createCourtyard({ renderer, canvas, isMobile = false, onExit = () => {}, onLight = () => ({ ok: false }), canLight = () => ({ ok: false }), now = () => Date.now() }) {
   const scene = new THREE.Scene();
   const haze = new THREE.Color(0xb3bfaa);
   scene.fog = new THREE.FogExp2(haze, .021);
@@ -266,7 +268,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
   scene.add(createGrove(kit, L.grove, { perTree: isMobile ? 110 : 220 }));
 
   // ---------- 香炉：一块低矮的天然石头上立着三足青铜鼎，两只立耳、腹部一对兽面衔环；炉里插着三炷香 ----------
-  const tips = [];
+  let burnerGrp = null, burnerAshY = 0;   // 香炉的组和炉灰的高度：炉里的香（courtyardIncense.js）插在这里
   {
     const B = L.burner, x = 0, z = 0, y0 = .58;   // y0：鼎腹底部的高度（下面都按原始大小搭，最后整体缩放）
     // 石基：一块压得很扁的天然石头，顶面略有起伏，长着少量青苔
@@ -292,11 +294,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     }
     const ashY = y0 + .585;
     add(new THREE.CylinderGeometry(.5, .5, .02, 28), mat.ash, x, ashY, z, { cast: false });
-    for (const [dx, dz] of [[-.07, 0], [0, .03], [.07, -.01]]) {
-      add(new THREE.CylinderGeometry(.003, .003, .4, 5), mat.stick, x + dx, ashY + .2, z + dz, { cast: false });
-      add(new THREE.SphereGeometry(.0055, 8, 6), mat.ember, x + dx, ashY + .402, z + dz, { cast: false, recv: false });
-      tips.push(new THREE.Vector3(dx, ashY + .405, dz).multiply(grp.scale).add(grp.position));
-    }
+    burnerGrp = grp; burnerAshY = ashY; grp.updateMatrixWorld(true);
     parent = scene;
     colliders.push({ x: B.x, z: B.z, r: 1.3 });
   }
@@ -344,7 +342,10 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
   scene.add(grassCards.mesh, plantCards.mesh, kit.add(vines, { cast: false }));
 
   // ---------- 气氛：几道光柱、香烟、晨雾 ----------
-  const shafts = createShafts(L.shafts, sunDir), smoke = createSmoke(tips, 3);
+  const shafts = createShafts(L.shafts, sunDir), smoke = createSmoke(24, 3);
+  // 炉里的香：数据由外面给（setIncense）；?debug 时再多插几炷别人的，方便看效果
+  const incense = createIncense({ parent: burnerGrp, ashY: burnerAshY, stickMat: mat.stick });
+  const demoIncense = new URLSearchParams(location.search).has('debug') ? [3, 11, 19, 26, 8, 29].map((m, i) => ({ id: 'd' + i, slot: [4, 17, 33, 48, 62, 81][i], t: Date.now() - m * 60e3, mine: false })) : [];
   const mist = createMist(haze, [
     [-10, 1.2, -17, 22, 5, .5], [9, 1.5, -18, 24, 6, .5], [0, 1, -19, 26, 5, .45], [-16, 1.5, 2, 20, 5, .42], [16, 1.2, -2, 20, 5, .42],
     [0, 1, 16, 24, 4, .38], [-9, 1, 13, 18, 4, .32], [10, 1.2, 12, 18, 4, .32],
@@ -385,7 +386,10 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
   const STICK_R = 52;
   const KEYMAP = { KeyW: 'f', ArrowUp: 'f', KeyS: 'b', ArrowDown: 'b', KeyA: 'l', ArrowLeft: 'l', KeyD: 'r', ArrowRight: 'r' };
   const typing = e => /^(INPUT|TEXTAREA)$/.test(e.target?.tagName || '');
-  addEventListener('keydown', e => { if (active && !typing(e) && KEYMAP[e.code]) { keys.add(KEYMAP[e.code]); e.preventDefault(); } });
+  addEventListener('keydown', e => {
+    if (active && !typing(e) && KEYMAP[e.code]) { keys.add(KEYMAP[e.code]); e.preventDefault(); }
+    if (active && !typing(e) && e.code === 'KeyE' && nearBurner) lightNow();   // 站在香炉旁边：E 点香
+  });
   addEventListener('keyup', e => { if (KEYMAP[e.code]) keys.delete(KEYMAP[e.code]); });
   addEventListener('blur', () => keys.clear());
   // 鼠标：点一下画面，浏览器把鼠标"锁"在画面里（光标隐藏），之后移动鼠标就是环顾，按 Esc 放出鼠标。
@@ -431,6 +435,27 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
   };
   canvas.addEventListener('pointerup', release); canvas.addEventListener('pointercancel', release);
 
+  // ---- 点香：走到香炉旁边（2.7 米以内）出现按钮，也可以按 E ----
+  const lightBtn = document.getElementById('lightBtn');
+  let nearBurner = false, btnT = 0;
+  const burnerP = new THREE.Vector2(L.burner.x, L.burner.z);
+  function lightNow() {
+    const r = onLight();
+    if (r?.ok) { btnT = 0; if (lightBtn) lightBtn.classList.remove('on'); }
+  }
+  lightBtn?.addEventListener('click', lightNow);
+  if (lightBtn) lightBtn.textContent = matchMedia('(pointer: coarse)').matches ? '点香' : '点香 · E';
+  function updateLightBtn(dt) {
+    nearBurner = Math.hypot(player.pos.x - burnerP.x, player.pos.z - burnerP.y) < 2.7;
+    btnT -= dt;
+    if (btnT > 0 || !lightBtn) return;
+    btnT = .4;   // 能不能点香不用每帧问
+    const c = canLight();
+    lightBtn.hidden = false;
+    lightBtn.classList.toggle('on', nearBurner && active && c.ok);
+    lightBtn.classList.toggle('dim', !c.ok);
+  }
+
   let hintT = 0;
   function showHint() {
     if (!hintEl) return;
@@ -474,6 +499,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     sky.position.copy(camera.position);
     fxT += dt; kit.update(fxT); plaques.update(fxT); grassCards.update(fxT); plantCards.update(fxT);
     shafts.uniforms.uTime.value = fxT; smoke.uniforms.uTime.value = fxT; mist.update(fxT);
+    incense.update(now(), smoke); updateLightBtn(dt);
   }
 
   return {
@@ -498,6 +524,8 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
       active = true; exiting = false; shadowFrames = 4; keys.clear();
       canvas.style.cursor = ''; showHint();
     },
-    leave() { active = false; keys.clear(); if (locked()) document.exitPointerLock(); stick.id = look.id = null; stick.x = stick.y = 0; stickEl?.classList.remove('on'); hideHint(); },
+    // 炉里现在燃着的香：[{ id, slot, t（点燃的时间，毫秒）, mine }]
+    setIncense(list) { incense.set([...demoIncense, ...list]); },
+    leave() { active = false; nearBurner = false; lightBtn?.classList.remove('on'); keys.clear(); if (locked()) document.exitPointerLock(); stick.id = look.id = null; stick.x = stick.y = 0; stickEl?.classList.remove('on'); hideHint(); },
   };
 }

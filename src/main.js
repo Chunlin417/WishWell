@@ -16,7 +16,7 @@ import { Ripples, createWater } from './water.js';
 import { Rain, Snow, Fireflies, FallingLeaves } from './fx.js';
 import { createWish, DRAGON_ENABLED } from './wish.js';
 import { createWishAudio } from './audio.js';
-import { getName, setName, canWish, addPlaque, listPlaques, NAME_MAX } from './courtStore.js';
+import { getName, setName, canWish, addPlaque, listPlaques, NAME_MAX, nowMs, listIncense, canLightIncense, lightIncense } from './courtStore.js';
 // 开关：false = 许愿功能关闭（点左边的石狐没有反应，也不会出现手形光标）
 const WISH_ENABLED = true;
 
@@ -581,8 +581,16 @@ async function goTo(name, { instant = false, withIntro = true, fresh = null } = 
     if (!instant) { fadeEl.classList.add('on'); await wait(950); }
     if (name === 'courtyard') {
       wish.finish();   // 木牌还在水里下沉的话，让它就此结束
-      if (!court) court = (await import('./courtyard.js')).createCourtyard({ renderer, canvas, isMobile, onExit: () => goTo('pool') });
+      if (!court) court = (await import('./courtyard.js')).createCourtyard({
+        renderer, canvas, isMobile, onExit: () => goTo('pool'), now: nowMs, canLight: () => canLightIncense(),
+        onLight: () => {   // 点香：半个钟头一炷、一个人同时只能点一炷、炉里最多 100 炷
+          const r = lightIncense();
+          if (r.ok) court.setIncense(listIncense()); else showToast(r.text);
+          return r;
+        },
+      });
       await court.ready;   // 小院的贴图下载完再揭开
+      court.setIncense(listIncense());
       court.setPlaques(listPlaques(), fresh);   // 庭院里的木牌（这台设备上挂过的）；fresh：刚挂上的那块，会有一个落下来挂好的小动画
       court.enter({ withIntro });
     } else court?.leave();

@@ -134,32 +134,35 @@ export function createShafts(beams, sunDir) {
   return { mesh, uniforms };
 }
 
-// 香烟：每炷香上方一缕细烟，贴着香头很细，越往上越散、越淡，缓缓扭动。tips：香头的位置
-export function createSmoke(tips, height = 2.8) {
+// 香烟：每炷香上方一缕细烟，贴着香头很细，越往上越散、越淡，缓缓扭动。
+// maxCols：最多同时画几缕（香多了只给最新的几炷画烟）；香头的位置和浓淡由 setTip(i, x, y, z, 浓度) 每帧给，浓度为 0 = 这一缕不画
+export function createSmoke(maxCols = 24, height = 2.8) {
   const pos = [], par = [], idx = [], ROWS = 28;
-  tips.forEach((tip, i) => {
+  for (let i = 0; i < maxCols; i++) {
     const b = pos.length / 3;
-    for (let j = 0; j <= ROWS; j++) for (const s of [-1, 1]) { pos.push(tip.x, tip.y, tip.z); par.push(s, j / ROWS, i * 3.71 + 1.3); }
+    for (let j = 0; j <= ROWS; j++) for (const s of [-1, 1]) { pos.push(0, 0, 0); par.push(s, j / ROWS, i * 3.71 + 1.3, i); }
     for (let j = 0; j < ROWS; j++) { const p = b + j * 2; idx.push(p, p + 1, p + 2, p + 1, p + 3, p + 2); }
-  });
+  }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('aP', new THREE.Float32BufferAttribute(par, 3));
+  g.setAttribute('aP', new THREE.Float32BufferAttribute(par, 4));
   g.setIndex(idx);
-  const uniforms = { uTime: { value: 0 }, uSize: { value: new THREE.Vector2(1.2, height) } };
+  const tips = Array.from({ length: maxCols }, () => new THREE.Vector4(0, 0, 0, 0));
+  const uniforms = { uTime: { value: 0 }, uSize: { value: new THREE.Vector2(1.2, height) }, uTip: { value: tips } };
   const mesh = new THREE.Mesh(g, new THREE.ShaderMaterial({
     uniforms, transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false,
     vertexShader: /* glsl */`
-      attribute vec3 aP; uniform vec2 uSize; varying vec3 vP;
+      attribute vec4 aP; uniform vec2 uSize; uniform vec4 uTip[${maxCols}]; varying vec3 vP; varying float vAct;
       void main(){
-        vec3 toCam = cameraPosition - position;
+        vec4 tip = uTip[int(aP.w + .5)];
+        vec3 toCam = cameraPosition - tip.xyz;
         vec3 side = normalize(vec3(toCam.z, 0., -toCam.x));
-        vec3 p = position + side * aP.x * uSize.x * .5 + vec3(0., aP.y * uSize.y, 0.);
-        vP = aP;
+        vec3 p = tip.xyz + side * aP.x * uSize.x * .5 + vec3(0., aP.y * uSize.y, 0.);
+        vP = aP.xyz; vAct = tip.w;
         gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.);
       }`,
     fragmentShader: /* glsl */`
-      uniform float uTime; varying vec3 vP;
+      uniform float uTime; varying vec3 vP; varying float vAct;
       ${NOISE_GLSL}
       float wisp(float x, float h, float seed, float t){
         float c = (fbm2(vec2(h * 2.4 - t * .26, seed)) - .5) * (.02 + 1.5 * smoothstep(.04, .7, h)) + (vnoise(vec2(h * 8. - t * .8, seed + 5.)) - .5) * .14 * h;
@@ -168,15 +171,16 @@ export function createSmoke(tips, height = 2.8) {
         return exp(-d * d) * mix(1., .22, smoothstep(0., .8, h));
       }
       void main(){
+        if (vAct < .01) discard;
         float h = vP.y, x = vP.x;
         float t = uTime * .55;   // 缓缓上升
         float a = wisp(x, h, vP.z, t) + .4 * wisp(x, h, vP.z + 13., t * 1.15) * smoothstep(.05, .3, h);
-        a *= smoothstep(0., .015, h) * (1. - smoothstep(.45, 1., h));
+        a *= smoothstep(0., .015, h) * (1. - smoothstep(.45, 1., h)) * vAct;
         gl_FragColor = vec4(vec3(.8, .88, .96) * 1.15, clamp(a * .22, 0., 1.));
       }`,
   }));
   mesh.frustumCulled = false; mesh.renderOrder = 6;
-  return { mesh, uniforms };
+  return { mesh, uniforms, setTip(i, x, y, z, w) { tips[i].set(x, y, z, w); } };
 }
 
 // 薄雾：院墙外、殿后低低地浮着几团雾（始终朝向镜头的柔边圆片）

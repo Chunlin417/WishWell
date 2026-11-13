@@ -56,6 +56,13 @@
   #toast { position: fixed; left: 50%; bottom: calc(12vh + env(safe-area-inset-bottom)); transform: translate(-50%, 8px); z-index: 6; padding: 9px 20px; border-radius: 999px; background: rgba(20, 12, 8, .55);
     border: 1px solid rgba(243, 220, 156, .35); color: #f8e8bf; font-size: 15px; letter-spacing: 3px; backdrop-filter: blur(6px); opacity: 0; pointer-events: none; transition: opacity .5s, transform .5s; white-space: nowrap; }
   #toast.on { opacity: 1; transform: translate(-50%, 0); }
+  /* 走到香炉旁边出现的点香按钮 */
+  #lightBtn { position: fixed; left: 50%; bottom: calc(18vh + env(safe-area-inset-bottom)); transform: translate(-50%, 8px); z-index: 5; padding: 10px 26px; border-radius: 999px; border: 1px solid rgba(243, 220, 156, .5);
+    background: rgba(40, 22, 12, .6); color: #f8e8bf; font: 17px/1 STKaiti, KaiTi, 'Kaiti SC', serif; letter-spacing: 6px; cursor: pointer; backdrop-filter: blur(6px);
+    opacity: 0; pointer-events: none; transition: opacity .5s, transform .5s; }
+  #lightBtn.on { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
+  #lightBtn.dim { opacity: .55; }
+  #lightBtn[hidden] { display: none; }
   @keyframes wishIn { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
   #wishInput { width: min(300px, 58vw); box-sizing: border-box; padding: 9px 12px; border-radius: 9px;
     border: 1px solid rgba(243, 220, 156, .55); background: rgba(0, 0, 0, .35); color: #f8e8bf; caret-color: #f6e2a8; outline: none;
@@ -80,6 +87,7 @@
 <button id="gear" title="调试面板" hidden>⚙</button>
 <div id="wishHint" hidden>名字写下后无法更改</div>
 <div id="toast"></div>
+<button id="lightBtn" hidden></button>
 <div id="wishPanel" hidden><input id="wishInput" maxlength="30" enterkeyhint="done" autocomplete="off" autocorrect="off" spellcheck="false"><button id="wishOk" disabled aria-label="确认" title="确认"><span class="ico" aria-hidden="true"></span></button></div>
 <div id="panel" hidden>
   <div class="row"><label>时间</label><input type="range" id="hour" min="0" max="24" step="0.01"><span id="hourTxt"></span></div>
