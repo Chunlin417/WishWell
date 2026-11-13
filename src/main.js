@@ -199,7 +199,8 @@ const hideInRefr = [...pool.above, ...foxes.objects, sky.mesh, water.mesh, rain.
 
 // 后期：泛光 + 色调映射 + 暗角
 const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
-composer.addPass(new RenderPass(scene, camera));
+const renderPass = new RenderPass(scene, camera);   // 切换场景时换掉它的 scene / camera（见下面"场景切换"）
+composer.addPass(renderPass);
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), .28, .5, 1.6);
 composer.addPass(bloom);
 // 许愿时的背景虚化（两遍可分离高斯模糊：横一遍、竖一遍），强度由 wish.focus 控制；不虚化时整段跳过
@@ -229,6 +230,7 @@ composer.addPass(grade);
 const camTarget = new THREE.Vector3(), camDir = new THREE.Vector3();
 const viewDir = new THREE.Vector3(), viewTarget = new THREE.Vector3();   // 这一帧实际用的镜头方向和注视点（昼夜相同：夜里不再移动镜头）
 let camDist = 11, portrait = false;
+let court = null;   // 小院场景（第一次进去时才加载，见"场景切换"）
 const parallax = new THREE.Vector2(), parallaxS = new THREE.Vector2();
 function resize() {
   const w = innerWidth, h = innerHeight, aspect = w / h;
@@ -251,6 +253,7 @@ function resize() {
     foxes.layout(true, clamp(want - 4.1, 1.25, 1.65), clamp((want - 4.4) / 1.4, .78, 1));
   }
   if (portrait) foxes.layout(false, 1.4);
+  court?.resize(aspect);
   renderer.setSize(w, h);
   composer.setPixelRatio(DPR); composer.setSize(w, h);
   const bw = Math.round(w * DPR), bh = Math.round(h * DPR);
@@ -562,11 +565,56 @@ function adaptResolution(raw) {
   resScale = next; DPR = DPR_MAX * resScale;
   renderer.setPixelRatio(DPR); resize();
 }
+// ================= 场景切换 =================
+// 两个场景：pool（许愿池）和 courtyard（许愿之后来到的小院，src/courtyard.js）。共用同一个渲染器和后期处理，
+// 每帧只更新、只画当前这一个。切换时画面先淡成一片白，换好场景再淡回来；小院的代码第一次进去时才下载。
+// 入口：许愿签落水、仪式结束之后自动进去；网址加 ?scene=courtyard 可以直接进（调试用）。在小院里走出院门就回到池边
+const COURTYARD_AFTER_WISH = true;
+let active = 'pool', switching = false, lastWishMode = 'idle';
+const fadeEl = document.getElementById('fade');
+const wait = ms => new Promise(r => setTimeout(r, ms));
+async function goTo(name, { instant = false, withIntro = true } = {}) {
+  if (switching || name === active || (name !== 'pool' && name !== 'courtyard')) return;
+  switching = true;
+  try {
+    if (!instant) { fadeEl.classList.add('on'); await wait(950); }
+    if (name === 'courtyard') {
+      if (!court) court = (await import('./courtyard.js')).createCourtyard({ renderer, canvas, isMobile, onExit: () => goTo('pool') });
+      await court.ready;   // 小院的贴图下载完再揭开
+      court.enter({ withIntro });
+    } else court?.leave();
+    active = name;
+    renderPass.scene = name === 'courtyard' ? court.scene : scene;
+    renderPass.camera = name === 'courtyard' ? court.camera : camera;
+    canvas.style.cursor = '';
+    resize();
+    if (!instant) await wait(350);   // 先在白幕后面画几帧（着色器编译、阴影），再揭开
+  } finally { fadeEl.classList.remove('on'); switching = false; }
+}
+// 小院：固定的白天，不跟随真实时间和天气——曝光和调色都是定值
+function renderCourt() {
+  renderer.toneMappingExposure = court.exposure;
+  for (const b of blurs) b.enabled = false;
+  const g = grade.uniforms;
+  g.saturation.value = 1.02; g.vig.value = .12; g.dayWarm.value = .4; g.night.value = 0;
+  court.preRender(renderer);
+  composer.render();
+}
+function frame(dt) {
+  if (active === 'courtyard') { court.update(dt); renderCourt(); }
+  else {
+    update(dt); render();
+    // 许愿的仪式结束（签已经落进水里）：去小院
+    const m = wish.mode;
+    if (COURTYARD_AFTER_WISH && lastWishMode === 'ritual' && m === 'idle') goTo('courtyard');
+    lastWishMode = m;
+  }
+}
+
 function loop(now) {
   const raw = (now - last) / 1000, dt = Math.min(.05, raw); last = now;
   adaptResolution(raw);
-  update(dt);
-  render();
+  frame(dt);
   firstFrame = false;
   if (assetsReady && !revealed && ++readyFrames > 3) { revealed = true; document.getElementById('loading').classList.add('done'); }
   requestAnimationFrame(loop);
@@ -578,6 +626,7 @@ const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2();
 addEventListener('contextmenu', e => { if (e.target === canvas) e.preventDefault(); });
 const setRay = e => { ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); raycaster.setFromCamera(ndc, camera); };
 canvas.addEventListener('pointerdown', e => {
+  if (active !== 'pool' || switching) return;   // 在小院里：点击、拖动由 courtyard.js 自己处理
   setRay(e);
   // 许愿签还在等输入时点它：重新弹出输入框
   if (wish.waiting && wish.inputReady && wish.hitPaper(raycaster)) { openWishInput(); wishInput.focus(); return; }
@@ -594,6 +643,7 @@ canvas.addEventListener('pointerdown', e => {
   }
 });
 canvas.addEventListener('pointermove', e => {
+  if (active !== 'pool') return;
   setRay(e);
   // 鼠标移到能点的石狐上时，换成手形光标
   if (e.pointerType === 'mouse') {
@@ -669,10 +719,11 @@ if (import.meta.env.DEV) window.__wish = {
   wish: throwWish, get wishState() { return wish; },
   get loc() { return loc; }, sunPos, moonPos, moonPhase,
   renderer, scene, camera, composer, water, sky, key, refrRT, reflRT, pool, NIGHT, applyNight,
-  step(n = 1, dt = 1 / 60) { for (let i = 0; i < n; i++) { update(dt); render(); } },
+  step(n = 1, dt = 1 / 60) { for (let i = 0; i < n; i++) frame(dt); },
+  goto: goTo, get active() { return active; }, get court() { return court; },   // 切换场景：__wish.goto('courtyard') / __wish.goto('pool')
   closeup(p, t) { camOverride = p ? { p: new THREE.Vector3(...p), t: new THREE.Vector3(...t) } : null; },
   async shot(name) {   // 开发用：渲染一帧并保存到 .shots/
-    update(1 / 60); render();
+    frame(1 / 60);
     const blob = await new Promise(r => renderer.domElement.toBlob(r, 'image/jpeg', .85));
     await fetch(`/__shot?name=${name}`, { method: 'POST', body: blob });
     return name;
@@ -682,3 +733,4 @@ if (import.meta.env.DEV) window.__wish = {
 updateInfo();
 requestAnimationFrame(loop);
 init();
+if (new URLSearchParams(location.search).get('scene') === 'courtyard') goTo('courtyard', { instant: true });
