@@ -1,7 +1,9 @@
-// 许愿：点左边的石狐，一阵风送来一张许愿签；写下愿望，字一笔一笔出现在签上；把签拖到水面上松手，它挂着铜钱落进池里，慢慢沉下去；
+// 许愿：点左边的石狐，一阵风送来一块长条木牌；先在一面写下愿望，字一笔一笔出现；木牌翻过来，在另一面写下名字（名字第一次写下后固定，之后自动写上）；
+// 木牌自己落进池里，愿望的墨迹随着它下沉慢慢散去，几秒后画面淡白，来到庭院（庭院在 courtyard.js，木牌会挂在那棵古树上）。
+// 下面是原来的龙的仪式（现在关着）：木牌落进池里，慢慢沉下去；
 // 四周渐渐安静下来（光变暗、风停、萤火虫躲起来），池底深处先亮起一对眼睛，
 // 青龙从正下方缓缓浮上来，张口衔走许愿签，转身潜回深处。
-// 愿望文字不保存、不上传：画到许愿签上之后就只存在于这一次的画面里。
+// 愿望文字不保存、不上传：写到木牌上之后就只存在于这一次的画面里，墨迹在水里散去。
 import * as THREE from 'three';
 import { patch, shared } from './patch.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -28,49 +30,55 @@ const T = {
 };
 const EXIT_V = 3.4, EXIT_TAU = 1.4;   // 离开时的最大速度（米/秒）和加速的快慢
 const STOP_Y = -2.1;   // 龙头停住时头骨中心的深度（龙头放大了，吻端伸得更远，所以要比以前再低一点）
-const PAPER_W = .24, PAPER_H = .7, STRING = .14, SINK_Y = -.9;
+const PAPER_W = .22, PAPER_H = .82, SINK_Y = -.9;   // 木牌的宽、高（米）；长条形，和庭院里的木牌同样的比例
 
-// ---------- 许愿签：红纸、金边，竖排写字（字是一个一个"写"上去的） ----------
-const PW = 256, PH = 742;
-function paperBackground() {
+// ---------- 木牌：浅色原木，竖排写字（字是一个一个"写"上去的）。一面写愿望，另一面写名字 ----------
+const PW = 256, PH = 960;
+const INK = '#2a160a', KAI = '"STKaiti","KaiTi","Kaiti SC","楷体",serif';
+const WOOD = [.8, .66, .45];   // 木牌侧面的颜色（sRGB）
+function woodBackground(seed) {
   const c = document.createElement('canvas'); c.width = PW; c.height = PH;
   const g = c.getContext('2d');
-  g.fillStyle = '#9c1d18'; g.fillRect(0, 0, PW, PH);
-  // 纸纹：细小的明暗纤维
-  for (let i = 0; i < 1800; i++) {
-    g.fillStyle = `rgba(${Math.random() < .5 ? '0,0,0' : '255,210,190'},${Math.random() * .06})`;
-    g.fillRect(Math.random() * PW, Math.random() * PH, 1 + Math.random() * 2, 4 + Math.random() * 14);
+  let x = seed; const r = () => (x = (x * 16807) % 2147483647) / 2147483647;
+  g.fillStyle = '#c9a877'; g.fillRect(0, 0, PW, PH);
+  // 竖向的木纹：深浅不一的细线，偶尔一道粗的
+  for (let i = 0; i < 90; i++) {
+    const px = r() * PW; g.strokeStyle = r() < .6 ? `rgba(70,44,22,${.05 + r() * .13})` : `rgba(246,226,190,${.06 + r() * .12})`;
+    g.lineWidth = .7 + r() * (r() < .12 ? 5 : 1.8); g.beginPath(); g.moveTo(px, 0);
+    for (let y = 0; y <= PH; y += 80) g.lineTo(px + (r() - .5) * 6, y); g.stroke();
   }
-  g.strokeStyle = '#d9b25a'; g.lineWidth = 5; g.strokeRect(12, 12, PW - 24, PH - 24);
-  g.lineWidth = 1.5; g.strokeRect(22, 22, PW - 44, PH - 44);
-  // 顶上的小孔（挂绳的地方）
-  g.fillStyle = '#3a0907'; g.beginPath(); g.arc(PW / 2, 46, 9, 0, 7); g.fill();
+  // 两侧压深一圈（边缘受潮磨损）
+  const eg = g.createLinearGradient(0, 0, PW, 0); eg.addColorStop(0, 'rgba(50,30,14,.3)'); eg.addColorStop(.1, 'rgba(50,30,14,0)'); eg.addColorStop(.9, 'rgba(50,30,14,0)'); eg.addColorStop(1, 'rgba(50,30,14,.3)');
+  g.fillStyle = eg; g.fillRect(0, 0, PW, PH);
+  // 顶上穿绳的小孔
+  g.fillStyle = '#2b1709'; g.beginPath(); g.arc(PW / 2, 46, 10, 0, 7); g.fill();
+  g.strokeStyle = 'rgba(40,22,10,.5)'; g.lineWidth = 3; g.beginPath(); g.arc(PW / 2, 46, 14, 0, 7); g.stroke();
   return c;
 }
-// 把签面重画一遍：背景 + 前 prog 个字（prog 带小数：正在写的那个字从淡到浓、从略大到正常，像墨落在纸上）
-function drawPaper(g, bg, chars, prog) {
+// 画愿望那一面：背景 + 前 prog 个字（prog 带小数：正在写的那个字从淡到浓、从略大到正常，像墨落在木头上）；alpha：墨迹的浓度（入水后慢慢散去）
+function drawWish(g, bg, chars, prog, alpha = 1) {
   g.clearRect(0, 0, PW, PH); g.drawImage(bg, 0, 0);
-  if (!chars.length) return;
+  if (!chars.length || alpha <= 0) return;
   const perCol = chars.length <= 10 ? 10 : 12, cols = Math.max(1, Math.ceil(chars.length / perCol));
-  const size = Math.min(58, Math.floor((PH - 130) / perCol), Math.floor((PW - 60) / cols));
-  g.fillStyle = '#f3dc9c'; g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.font = `${size}px "STKaiti","KaiTi","Kaiti SC","楷体",serif`;
-  const colW = (PW - 60) / cols, top = 84 + size / 2;
+  const size = Math.min(58, Math.floor((PH - 190) / perCol), Math.floor((PW - 60) / cols));
+  g.fillStyle = INK; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = `${size}px ${KAI}`;
+  const colW = (PW - 60) / cols, top = 100 + size / 2;
   for (let i = 0; i < chars.length && i < prog; i++) {
     const col = Math.floor(i / perCol), row = i % perCol, k = Math.min(1, prog - i);
-    const x = PW - 30 - colW * (col + .5), y = top + row * size * 1.04;
-    g.save(); g.globalAlpha = k; g.translate(x, y); g.scale(1 + .15 * (1 - k), 1 + .15 * (1 - k)); g.fillText(chars[i], 0, 0); g.restore();
+    const x = PW - 30 - colW * (col + .5), y = top + row * size * 1.06;
+    g.save(); g.globalAlpha = k * alpha; g.translate(x, y); g.scale(1 + .15 * (1 - k), 1 + .15 * (1 - k)); g.fillText(chars[i], 0, 0); g.restore();
   }
 }
-
-function coinGeometry() {
-  const s = new THREE.Shape(); s.absarc(0, 0, .05, 0, Math.PI * 2, false);
-  const a = .015, hole = new THREE.Path();
-  hole.moveTo(-a, -a); hole.lineTo(-a, a); hole.lineTo(a, a); hole.lineTo(a, -a); hole.lineTo(-a, -a);
-  s.holes.push(hole);
-  const g = new THREE.ExtrudeGeometry(s, { depth: .006, bevelEnabled: true, bevelThickness: .003, bevelSize: .003, bevelSegments: 2, curveSegments: 32 });
-  g.translate(0, 0, -.003);
-  return g;
+// 画名字那一面：一列大字，居中
+function drawName(g, bg, chars, prog) {
+  g.clearRect(0, 0, PW, PH); g.drawImage(bg, 0, 0);
+  if (!chars.length) return;
+  const size = Math.min(124, Math.floor((PH - 230) / chars.length)), top = 100 + (PH - 170 - size * chars.length) / 2;
+  g.fillStyle = INK; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = `bold ${size}px ${KAI}`;
+  for (let i = 0; i < chars.length && i < prog; i++) {
+    const k = Math.min(1, prog - i);
+    g.save(); g.globalAlpha = k; g.translate(PW / 2, top + size * (i + .5)); g.scale(1 + .15 * (1 - k), 1 + .15 * (1 - k)); g.fillText(chars[i], 0, 0); g.restore();
+  }
 }
 
 // 柔和的圆形光点（PointsMaterial 默认是方块）
@@ -179,25 +187,36 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
   const group = new THREE.Group(); group.visible = false;
   scene.add(group);
 
-  // 许愿签 + 红绳 + 铜钱（原点在绳结处，纸在上、铜钱垂在下面）
-  // 许愿签不用水的真实吸收（红色在水里一下子就看不见了），改成按深度自己染成暗青色，一路沉下去都看得到
-  const paperMat = patch(new THREE.MeshStandardMaterial({ roughness: .85, emissive: 0xffffff, emissiveIntensity: 0 }), { underwater: false });
-  const backMat = patch(new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(.55, .1, .08, THREE.SRGBColorSpace), roughness: .85 }), { underwater: false });
-  const paperCanvas = document.createElement('canvas'); paperCanvas.width = PW; paperCanvas.height = PH;
-  const paperCtx = paperCanvas.getContext('2d');
-  const paperTex = new THREE.CanvasTexture(paperCanvas); paperTex.colorSpace = THREE.SRGBColorSpace; paperTex.anisotropy = 4;
-  paperMat.map = paperTex; paperMat.emissiveMap = paperTex;
-  let paperBg = null, chars = [], writeProg = 0;
-  const redrawPaper = () => { drawPaper(paperCtx, paperBg, chars, writeProg); paperTex.needsUpdate = true; };
-  const paper = new THREE.Mesh(new THREE.PlaneGeometry(PAPER_W, PAPER_H), paperMat);
-  const back = new THREE.Mesh(new THREE.PlaneGeometry(PAPER_W, PAPER_H), backMat);
+  // 木牌：木头本体 + 两面（一面愿望、一面名字）+ 顶上穿绳的红绳圈 + 底下的小铜铃和红穗（原点在木牌底边，牌在上、铃穗垂在下面）
+  // 木牌不用水的真实吸收（颜色在水里一下子就看不见了），改成按深度自己染暗，一路沉下去都看得到
+  const faceMat = () => patch(new THREE.MeshStandardMaterial({ roughness: .85, emissive: 0xffd7a0, emissiveIntensity: 0 }), { underwater: false });
+  const nameMat = faceMat(), wishMat = faceMat();
+  const mkCanvas = () => { const c = document.createElement('canvas'); c.width = PW; c.height = PH; return c; };
+  const nameCanvas = mkCanvas(), wishCanvas = mkCanvas(), nameCtx = nameCanvas.getContext('2d'), wishCtx = wishCanvas.getContext('2d');
+  const mkTex = c => { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; };
+  const nameTex = mkTex(nameCanvas), wishTex = mkTex(wishCanvas);
+  nameMat.map = nameMat.emissiveMap = nameTex; wishMat.map = wishMat.emissiveMap = wishTex;
+  const bodyMat = patch(new THREE.MeshStandardMaterial({ roughness: .9 }), { underwater: false });
+  const setWood = k => bodyMat.color.setRGB(WOOD[0] * k[0], WOOD[1] * k[1], WOOD[2] * k[2], THREE.SRGBColorSpace);
+  setWood([1, 1, 1]);
+  let paperBg = null, nameBg = null, chars = [], writeProg = 0, nameChars = [], nameProg = 0, wishAlpha = 1;
+  const redrawPaper = () => {
+    drawWish(wishCtx, paperBg, chars, writeProg, wishAlpha); wishTex.needsUpdate = true;
+    drawName(nameCtx, nameBg, nameChars, nameProg); nameTex.needsUpdate = true;
+  };
+  const body = new THREE.Mesh(new THREE.BoxGeometry(PAPER_W, PAPER_H, .02), bodyMat);
+  const paper = new THREE.Mesh(new THREE.PlaneGeometry(PAPER_W, PAPER_H), nameMat);   // 名字那一面（朝向 +z）
+  const back = new THREE.Mesh(new THREE.PlaneGeometry(PAPER_W, PAPER_H), wishMat);    // 愿望那一面
   back.rotation.y = Math.PI;
-  paper.position.y = back.position.y = PAPER_H / 2;
-  const cord = new THREE.Mesh(new THREE.CylinderGeometry(.004, .004, STRING, 6), patch(new THREE.MeshStandardMaterial({ color: 0x8a1410, roughness: .7 }), {}));
-  cord.position.y = -STRING / 2;
-  const coin = new THREE.Mesh(coinGeometry(), patch(new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(.78, .6, .3, THREE.SRGBColorSpace), metalness: .85, roughness: .35, emissive: 0x000000 }), {}));
-  coin.position.y = -STRING - .05;
-  group.add(paper, back, cord, coin);
+  paper.position.set(0, PAPER_H / 2, .0105); back.position.set(0, PAPER_H / 2, -.0105); body.position.y = PAPER_H / 2;
+  const redMat = patch(new THREE.MeshStandardMaterial({ color: 0x8f231d, roughness: .7 }), {});
+  const loop = new THREE.Mesh(new THREE.TorusGeometry(.022, .004, 6, 18), redMat);
+  loop.position.y = PAPER_H + .014;
+  const coin = new THREE.Mesh(new THREE.SphereGeometry(.02, 12, 8), patch(new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(.72, .54, .24, THREE.SRGBColorSpace), metalness: .85, roughness: .38, emissive: 0x000000 }), {}));
+  coin.position.y = -.026;   // 小铜铃（沿用原来铜钱的变量名：龙的仪式里它会微微发光）
+  const tassel = new THREE.Mesh(new THREE.ConeGeometry(.013, .1, 8).rotateX(Math.PI).translate(0, -.05, 0), redMat);
+  tassel.position.y = -.046;
+  group.add(body, paper, back, loop, coin, tassel);
 
   // 龙
   // 截面一圈的角度从腹部正中开始（th = π），接缝藏在肚子底下
@@ -435,6 +454,7 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
   // mode：idle（没有签）| summon（随风飘来）| await（悬在空中，等输入）| writing（字一个个写上去）
   //       ready（写好了，可以拖）| drag（正被拖着）| back（松手的地方不在水面上，飘回原处）| away（不写了，被风吹走）| ritual（落水之后）
   let mode = 'idle', mt = 0, cam = null, pendingText = null, focus = 0;   // focus：0～1，背景虚化的程度
+  let faceYaw = Math.PI, flipT = 0, knownName = null, thrownName = '';     // faceYaw：木牌绕竖轴转了多少（π = 愿望那面朝着镜头，0 = 名字那面朝着镜头）；knownName：已经固定的名字
   let throwTo = null, throwOpts = null, readyT = 0, throwNow = false;   // 写完之后自己落进水里：落点、朝向、等待时间
   const hoverPos = new THREE.Vector3(), fromPos = new THREE.Vector3(), dragTarget = new THREE.Vector3(), lastPos = new THREE.Vector3();
   const cR = new THREE.Vector3(), cU = new THREE.Vector3(), cF = new THREE.Vector3(), tmpV = new THREE.Vector3();
@@ -446,13 +466,14 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
     group.lookAt(cam.position);
     if (rx) group.rotateX(rx);
     if (rz) group.rotateZ(rz);
+    if (faceYaw) group.rotateY(faceYaw);
   }
   // 落水之前，签在第 1 层：主画面（会被虚化）里没有它，虚化之后再单独画在最上面，所以它一直是清楚的
   const setOverlay = on => group.traverse(o => o.layers.set(on ? 1 : 0));
   function preUpdate(dt) {
     mt += dt;
     // 背景虚化：签停稳之后四周先虚化，等着写字；写好之后虚化退去，好看清池子把签拖过去
-    const want = (mode === 'await' || mode === 'writing') ? 1 : 0;
+    const want = (mode === 'await' || mode === 'writing' || mode === 'flip' || mode === 'awaitName' || mode === 'writingName') ? 1 : 0;
     focus += (want - focus) * (1 - Math.exp(-dt * (want ? 3 : 4)));
     camBasis();
     const bob = tmpV.copy(hoverPos).addScaledVector(cU, Math.sin(mt * 1.3) * .04).addScaledVector(cR, Math.sin(mt * .9) * .03);
@@ -465,12 +486,22 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
         .addScaledVector(cU, Math.sin(mt * 6.5) * .1 * (1 - e)).addScaledVector(cR, Math.sin(mt * 3.7) * .12 * (1 - e));
       faceCamera(Math.sin(mt * 5.3) * 1.1 * (1 - e), Math.sin(mt * 4.1 + 1) * .9 * (1 - e));   // 翻飞随着靠近慢慢停下，到位时正好静止
       if (u >= 1) { mode = pendingText ? 'writing' : 'await'; if (pendingText) { chars = pendingText; pendingText = null; writeProg = 0; } }
-    } else if (mode === 'await' || mode === 'writing' || mode === 'ready') {
+    } else if (mode === 'await' || mode === 'writing' || mode === 'flip' || mode === 'awaitName' || mode === 'writingName' || mode === 'ready') {
       group.position.copy(hoverPos); faceCamera();   // 停在画面中间，一动不动
-      if (mode === 'ready' && throwTo && (readyT += dt) > .8) throwNow = true;   // 字写完，停一下（看清写了什么），然后落进水里
+      if (mode === 'ready' && throwTo && (readyT += dt) > .8) throwNow = true;   // 名字写完，停一下（看清写了什么），然后落进水里
       if (mode === 'writing') {
         writeProg = Math.min(chars.length, writeProg + dt / WRITE_DT); redrawPaper();
-        if (writeProg >= chars.length) { mode = 'ready'; readyT = 0; }
+        if (writeProg >= chars.length) { mode = 'flip'; flipT = -.5; }   // 愿望写完，停半秒，木牌翻过来
+      } else if (mode === 'flip') {
+        flipT += dt; faceYaw = Math.PI * (1 - smooth(flipT / .95));
+        group.position.addScaledVector(cU, Math.sin(clamp(flipT / .95) * Math.PI) * .06);   // 翻的时候略微抬起一点
+        if (flipT >= .95) {
+          faceYaw = 0;
+          if (knownName) { nameChars = [...knownName]; nameProg = 0; mode = 'writingName'; } else mode = 'awaitName';   // 名字已经固定：直接写上；否则等着输入
+        }
+      } else if (mode === 'writingName') {
+        nameProg = Math.min(nameChars.length, nameProg + dt / WRITE_DT * .8); redrawPaper();
+        if (nameProg >= nameChars.length) { mode = 'ready'; readyT = 0; }
       }
     } else if (mode === 'drag') {
       lastPos.copy(group.position);
@@ -495,6 +526,12 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
     get overlay() { return mode !== 'idle' && mode !== 'ritual'; },
     // 签停稳、四周虚化好了：这时才出现输入框
     get inputReady() { return mode === 'await' && focus > .85; },
+    // 木牌翻到名字那一面、四周虚化好了：这时出现名字的输入框
+    get nameReady() { return mode === 'awaitName' && focus > .85; },
+    // 立刻结束正在进行的仪式（去庭院的转场开始得比仪式结束早时，保证回到池边时池子是干净的）
+    finish() { if (mode !== 'ritual') return; t = -1; mode = 'idle'; dread = 0; shared.uLampCol.value.setRGB(0, 0, 0); group.visible = false; dragon.visible = false; head.visible = false; motes.visible = false; glow = 0; group.userData.splashed = false; },
+    get ritualTime() { return mode === 'ritual' ? pt : -1; },   // 木牌落水之后过了几秒（不在仪式里是 -1）
+    get thrownName() { return thrownName; },                    // 刚扔进池里的那块木牌上的名字
     // 签已经在水里了、龙还没被唤来：点右边的石狐就唤龙
     get canCall() { return DRAGON_ENABLED && mode === 'ritual' && !called && pt >= T.float; },
     callDragon() { if (this.canCall) { called = true; return true; } return false; },
@@ -506,8 +543,8 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
       const ray = new THREE.Raycaster(); ray.setFromCamera({ x: screenX, y: screenY }, cam);
       hoverPos.copy(ray.ray.origin).addScaledVector(ray.ray.direction, 3);   // 离镜头 3 米：签在画面里够大，字看得清
       fromPos.copy(hoverPos).addScaledVector(cR, -4.6).addScaledVector(cU, 1.1).addScaledVector(cF, .8);
-      paperBg = paperBackground(); chars = []; writeProg = 0; pendingText = null; redrawPaper();
-      paperMat.color.setRGB(1, 1, 1); backMat.color.setRGB(.55, .1, .08); paperMat.emissiveIntensity = .35;   // 落水前：逆光时纸是暗的，让纸面和金字带一点亮度，看得清写了什么（落水后由深度染色接管）
+      paperBg = woodBackground(11); nameBg = woodBackground(29); chars = []; writeProg = 0; nameChars = []; nameProg = 0; wishAlpha = 1; pendingText = null; faceYaw = Math.PI; redrawPaper();
+      nameMat.color.setRGB(1, 1, 1); wishMat.color.setRGB(1, 1, 1); setWood([1, 1, 1]); nameMat.emissiveIntensity = wishMat.emissiveIntensity = .3;   // 落水前：逆光时木头是暗的，让牌面带一点亮度，看得清写了什么（落水后由深度染色接管）
       group.visible = true; group.scale.setScalar(1); group.position.copy(fromPos);
       setOverlay(true); focus = 0;
       mode = 'summon'; mt = 0;
@@ -515,14 +552,21 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
     },
     // 写好了：字一个一个写到签上（签还在飞来的路上就先记下，到了再写）
     // where：落点（池心靠镜头一侧，龙来的地方）；opts.facing：签面朝向
+    // opts.name：已经固定的名字（有的话，愿望写完木牌翻面后自动写上；没有就等 writeName）
     write(text, where = null, opts = {}) {
-      throwTo = where; throwOpts = opts;
+      throwTo = where; throwOpts = opts; knownName = opts.name || null;
       const cs = [...text.trim()].slice(0, 30);
       if (!cs.length) return;
       if (mode === 'summon') pendingText = cs;
       else if (mode === 'await') { chars = cs; writeProg = 0; mode = 'writing'; }
     },
-    dismiss() { if (mode === 'summon' || mode === 'await') { fromPos.copy(group.position); mode = 'away'; mt = 0; } },
+    // 名字写好了（输入框确认）：一笔一笔写到木牌上，然后落进水里
+    writeName(text) {
+      const cs = [...String(text).trim()].slice(0, 6);
+      if (mode !== 'awaitName' || !cs.length) return;
+      nameChars = cs; nameProg = 0; mode = 'writingName';
+    },
+    dismiss() { if (mode === 'summon' || mode === 'await' || mode === 'awaitName') { fromPos.copy(group.position); mode = 'away'; mt = 0; } },
     // 点到的是不是许愿签
     hitPaper(raycaster) {   // 签悬在空中时在第 1 层，射线也要看第 1 层
       if (!group.visible) return false;
@@ -530,7 +574,7 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
       return hit;
     },
     get draggable() { return mode === 'ready'; },
-    get waiting() { return mode === 'await'; },
+    get waiting() { return mode === 'await' || mode === 'awaitName'; },
     dragStart() { if (mode === 'ready' || mode === 'back') { mode = 'drag'; dragTarget.copy(group.position); return true; } return false; },
     // 拖动：签沿着鼠标 / 手指的视线，保持在离镜头和悬停时差不多远的地方
     dragTo(ray) {
@@ -550,7 +594,8 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
     // where：落点（水面上的 x, z）；opts.facing：许愿签正面朝向（朝着镜头）
     start(text, where, opts = {}) {
       if (opts.facing !== undefined) phase0 = opts.facing;
-      if (!opts.keepPaper) { paperBg = paperBackground(); chars = [...text.trim()].slice(0, 30); writeProg = chars.length; redrawPaper(); }
+      if (!opts.keepPaper) { paperBg = woodBackground(11); nameBg = woodBackground(29); chars = [...text.trim()].slice(0, 30); writeProg = chars.length; nameChars = [...(opts.name || '')].slice(0, 6); nameProg = nameChars.length; faceYaw = 0; redrawPaper(); }
+      thrownName = nameChars.join(''); wishAlpha = 1;
       land.set(where.x, 0, where.z);
       // 签从哪里落下、落在水面哪里（直接调用 start 时：从落点正上方 1.3 米落下）
       dropPt.set(opts.drop?.x ?? land.x, 0, opts.drop?.z ?? land.z);
@@ -576,7 +621,7 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
       const day = env.day ?? 1;
       pt += dt; dtNow = dt;
       t += dt; if (!called) t = Math.min(t, T.dread - .01);   // 还没唤龙：时间停在压迫感开始之前（四周不暗、龙不来）
-      if (!DRAGON_ENABLED && pt >= T.sunk + .5) t = T.end;   // 没有龙：签沉到底、停一下，仪式就收尾
+      if (!DRAGON_ENABLED && pt >= 4) t = T.end;   // 没有龙：木牌沉下去一半、墨迹散得差不多，仪式就收尾（这时 main.js 已经开始淡白去庭院）
       const sway = Math.sin(pt * 1.3 + phase), sway2 = Math.sin(pt * .8 + phase * 2);
 
       // ---- 许愿签 ----
@@ -607,8 +652,11 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
       // 入水后：越深越暗、越偏青；字迹微微发光
       const dep = clamp(-group.position.y / 1.4);
       const tint = [lerp(1, .32, dep), lerp(1, .55, dep), lerp(1, .6, dep)];
-      paperMat.color.setRGB(...tint); backMat.color.setRGB(.55 * tint[0], .1 * tint[1], .08 * tint[2]);
-      paperMat.emissiveIntensity = smooth(dep * 2) * .12;
+      nameMat.color.setRGB(...tint); wishMat.color.setRGB(...tint); setWood(tint);
+      nameMat.emissiveIntensity = wishMat.emissiveIntensity = smooth(dep * 2) * .12;
+      // 愿望的墨迹：木牌落水后慢慢散开、淡去（愿望不留下任何记录）
+      const ink = 1 - smooth((pt - T.float) / 2.6);
+      if (Math.abs(ink - wishAlpha) > .04 || (ink === 0 && wishAlpha !== 0)) { wishAlpha = ink; redrawPaper(); }
 
       // ---- 压迫感：许愿签沉下去之后，四周慢慢安静、变暗；龙走后慢慢恢复 ----
       dread = smooth((t - T.dread) / 3) * (1 - smooth((t - T.leave - 6) / 4));

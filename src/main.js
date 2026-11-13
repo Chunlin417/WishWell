@@ -16,8 +16,9 @@ import { Ripples, createWater } from './water.js';
 import { Rain, Snow, Fireflies, FallingLeaves } from './fx.js';
 import { createWish, DRAGON_ENABLED } from './wish.js';
 import { createWishAudio } from './audio.js';
-// 临时开关：false = 许愿签功能关闭（点左边的石狐没有反应，也不会出现手形光标）。要恢复改成 true 即可
-const WISH_ENABLED = false;
+import { getName, setName, canWish, addPlaque, listPlaques, NAME_MAX } from './courtStore.js';
+// 开关：false = 许愿功能关闭（点左边的石狐没有反应，也不会出现手形光标）
+const WISH_ENABLED = true;
 
 const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -570,17 +571,19 @@ function adaptResolution(raw) {
 // 每帧只更新、只画当前这一个。切换时画面先淡成一片白，换好场景再淡回来；小院的代码第一次进去时才下载。
 // 入口：许愿签落水、仪式结束之后自动进去；网址加 ?scene=courtyard 可以直接进（调试用）。在小院里走出院门就回到池边
 const COURTYARD_AFTER_WISH = true;
-let active = 'pool', switching = false, lastWishMode = 'idle';
+let active = 'pool', switching = false;
 const fadeEl = document.getElementById('fade');
 const wait = ms => new Promise(r => setTimeout(r, ms));
-async function goTo(name, { instant = false, withIntro = true } = {}) {
+async function goTo(name, { instant = false, withIntro = true, fresh = null } = {}) {
   if (switching || name === active || (name !== 'pool' && name !== 'courtyard')) return;
   switching = true;
   try {
     if (!instant) { fadeEl.classList.add('on'); await wait(950); }
     if (name === 'courtyard') {
+      wish.finish();   // 木牌还在水里下沉的话，让它就此结束
       if (!court) court = (await import('./courtyard.js')).createCourtyard({ renderer, canvas, isMobile, onExit: () => goTo('pool') });
       await court.ready;   // 小院的贴图下载完再揭开
+      court.setPlaques(listPlaques(), fresh);   // 庭院里的木牌（这台设备上挂过的）；fresh：刚挂上的那块，会有一个落下来挂好的小动画
       court.enter({ withIntro });
     } else court?.leave();
     active = name;
@@ -604,10 +607,11 @@ function frame(dt) {
   if (active === 'courtyard') { court.update(dt); renderCourt(); }
   else {
     update(dt); render();
-    // 许愿的仪式结束（签已经落进水里）：去小院
-    const m = wish.mode;
-    if (COURTYARD_AFTER_WISH && lastWishMode === 'ritual' && m === 'idle') goTo('courtyard');
-    lastWishMode = m;
+    // 木牌落进水里、过了 3 秒多（墨迹散得差不多了）：挂上这块牌，画面淡白，去庭院。淡白要 1 秒，仪式在 4 秒时结束，正好接上
+    if (COURTYARD_AFTER_WISH && wish.mode === 'ritual' && wish.ritualTime > 3.2 && !switching) {
+      const rec = addPlaque(wish.thrownName || getName() || '无名');
+      goTo('courtyard', { fresh: rec.id });
+    }
   }
 }
 
@@ -629,12 +633,16 @@ canvas.addEventListener('pointerdown', e => {
   if (active !== 'pool' || switching) return;   // 在小院里：点击、拖动由 courtyard.js 自己处理
   setRay(e);
   // 许愿签还在等输入时点它：重新弹出输入框
-  if (wish.waiting && wish.inputReady && wish.hitPaper(raycaster)) { openWishInput(); wishInput.focus(); return; }
+  if (wish.waiting && (wish.inputReady || wish.nameReady) && wish.hitPaper(raycaster)) { wish.nameReady ? openNameInput() : openWishInput(); wishInput.focus(); return; }
   // 左边的石狐（屏幕左半边那一只）：唤来许愿签；右边那只：签落进水里之后，唤龙
   const f = foxes.pick(raycaster);
   if (f) {
     const left = f.point.clone().project(camera).x < 0;
-    if (left && WISH_ENABLED && !wish.busy) { sfx.unlock(); wish.summon(camera); return; }   // 声音只能在用户点击时开启
+    if (left && WISH_ENABLED && !wish.busy) {
+      const c = canWish();
+      if (!c.ok) { showToast(c.text); return; }   // 半小时内挂过一块，或者今天已经挂满三块：石狐不响应，只说一句话
+      sfx.unlock(); wish.summon(camera); return;   // 声音只能在用户点击时开启
+    }
     if (!left && wish.canCall) { sfx.unlock(); wish.callDragon(); return; }
   }
   const hit = raycaster.intersectObject(water.mesh)[0];
@@ -676,14 +684,27 @@ const wishLand = () => { const d = new THREE.Vector3(camera.position.x, 0, camer
 function throwWish(text) {   // 调试用：跳过写字和拖动，直接从落点上方投下去
   if (wish.busy || !text.trim()) return;
   const w = wishLand();
-  wish.start(text, w, { facing: w.facing, callNow: true });
+  wish.start(text, w, { facing: w.facing, callNow: true, name: getName() || '宁' });
 }
-const wishInput = $('wishInput'), wishPanel = $('wishPanel'), wishOk = $('wishOk');
+const wishInput = $('wishInput'), wishPanel = $('wishPanel'), wishOk = $('wishOk'), wishHint = $('wishHint'), toast = $('toast');
+let inputKind = 'wish';   // 输入框现在写的是什么：'wish'（愿望）或 'name'（名字）
 // 签停稳、四周虚化之后才出现输入框（电脑上自动把光标放进去；手机上点一下输入框才会弹出键盘）
-function openWishInput() { if (!wishPanel.hidden) return; wishInput.value = ''; wishOk.disabled = true; wishPanel.hidden = false; if (matchMedia('(pointer: fine)').matches) wishInput.focus(); }
-function closeWishInput() { wishInput.blur(); wishPanel.hidden = true; }
-// 确认：字写到签上，停一下，签自己落进水里（落点：池心靠镜头一侧，龙来的地方）
-const submitWish = () => { const v = wishInput.value.trim(); if (!v) return; const w = wishLand(); wish.write(v, w, { facing: w.facing }); closeWishInput(); };
+function openInput(kind) {
+  if (!wishPanel.hidden) return;
+  inputKind = kind; wishInput.value = ''; wishOk.disabled = true;
+  wishInput.maxLength = kind === 'name' ? NAME_MAX : 30;
+  wishInput.placeholder = kind === 'name' ? '名字' : '';
+  wishHint.hidden = kind !== 'name';   // 名字写下后不能再改：第一次写名字时提醒一句
+  wishPanel.hidden = false; if (matchMedia('(pointer: fine)').matches) wishInput.focus();
+}
+const openWishInput = () => openInput('wish'), openNameInput = () => openInput('name');
+function closeWishInput() { wishInput.blur(); wishPanel.hidden = true; wishHint.hidden = true; }
+// 确认：愿望 → 字写到木牌上，木牌翻过来；名字 → 字写到木牌上，停一下，木牌自己落进水里（落点：池心靠镜头一侧）
+const submitWish = () => {
+  const v = wishInput.value.trim(); if (!v) return;
+  if (inputKind === 'name') { const n = setName(v); wish.writeName(n); closeWishInput(); return; }
+  const w = wishLand(); wish.write(v, w, { facing: w.facing, name: getName() }); closeWishInput();
+};
 wishInput.addEventListener('input', () => { wishOk.disabled = !wishInput.value.trim(); });
 wishInput.addEventListener('keydown', e => {
   if (e.isComposing || e.keyCode === 229) return;   // 输入法正在拼字时的回车不算
@@ -691,7 +712,10 @@ wishInput.addEventListener('keydown', e => {
   else if (e.key === 'Escape') { wish.dismiss(); closeWishInput(); }
 });
 wishOk.onclick = submitWish;
-setInterval(() => { if (wish.inputReady) openWishInput(); }, 100);
+setInterval(() => { if (wish.inputReady) openWishInput(); else if (wish.nameReady) openNameInput(); }, 100);
+// 屏幕下方的一句话（发牌限制的提示）
+let toastTimer = 0;
+function showToast(text) { toast.textContent = text; toast.classList.add('on'); clearTimeout(toastTimer); toastTimer = setTimeout(() => toast.classList.remove('on'), 2600); }
 
 
 // 调试面板：网址带 ?debug 才显示

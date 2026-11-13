@@ -79,29 +79,46 @@ export function createPlaques({ scene, capacity = 96, total = 11 }) {
   }
 
   // ---- 数据 ----
-  let slots = [], list = [], items = [];   // items：{ p: 挂点, len: 绳长, yaw, phase, amp, mine }
-  const col = new THREE.Color();
+  let slots = [], list = [], items = [], hub = null;   // items：{ p: 挂点, len: 绳长, yaw, phase, amp, mine, fresh, t0 }；hub：刚挂上的那块牌优先选离它最近的挂点（让人一进院就看得见）
+  const col = new THREE.Color(), halos = [];
+  // 自己的牌：背后有一团暖金色的柔光（贴图是一张径向渐变）
+  const haloTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    gr.addColorStop(0, 'rgba(255,214,130,1)'); gr.addColorStop(.4, 'rgba(255,190,90,.4)'); gr.addColorStop(1, 'rgba(255,170,70,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
 
   function layout() {
     items = [];
+    for (const h of halos) { root.remove(h); h.material.dispose(); } halos.length = 0;
     // 没字的旧牌补足到 total 块（至少留 3 块）；和真正的木牌交错着占挂点（挂点的顺序本身就是分散开的）
-    const blanks = Math.max(3, total - list.length), all = [], n = Math.min(list.length + blanks, slots.length, capacity);
+    const blanks = Math.max(3, total - list.length), n = Math.min(list.length + blanks, slots.length, capacity);
+    const freshP = list.find(p => p.fresh), others = list.filter(p => !p.fresh);
+    // 刚挂上的那块牌：挑离 hub 最近的挂点；其余的牌按顺序占剩下的挂点
+    let freshSlot = -1;
+    if (freshP && hub) { let bd = Infinity; slots.forEach((s, i) => { const d = s.distanceTo(hub); if (d < bd) { bd = d; freshSlot = i; } }); }
+    const free = []; for (let i = 0; i < slots.length; i++) if (i !== freshSlot) free.push(i);
+    let fi = 0; const take = () => (fi < free.length ? free[fi++] : -1);
+    const all = [];
+    if (freshP) all.push({ ...freshP, slot: freshSlot >= 0 ? freshSlot : take() });
     let li = 0, bi = 0;
-    for (let i = 0; i < n; i++) {
-      const useBlank = bi < blanks && (li >= list.length || (i * 5 + 2) % 3 === 0);
-      all.push(useBlank ? { blank: true, slot: i, n: bi++ } : { ...list[li++], slot: i });
+    for (let k = 0, target = n - all.length; k < target; k++) {
+      const useBlank = bi < blanks && (li >= others.length || (k * 5 + 2) % 3 === 0), slot = take();
+      if (slot < 0) break;
+      all.push(useBlank ? { blank: true, slot, n: bi++ } : { ...others[li++], slot });
     }
     ag.clearRect(0, 0, atlas.width, atlas.height);
-    all.forEach((o, i) => {
+    all.slice(0, capacity).forEach((o, i) => {
       const s = slots[o.slot], r = rng(o.slot * 31 + 7);
       const center = 2.1 + r() * .55;   // 木牌中心的高度：2.1～2.65 米为主，枝条高的地方绳子长一点，但不超过 0.8 米
       const len = Math.min(.8, Math.max(.16, s.y - center - PH / 2));
       const age = o.blank ? .45 + r() * .55 : r() * .35;   // 没字的是旧牌；有名字的是新近挂上的
-      items.push({ p: s, len, yaw: r() * 6.283, phase: r() * 6.283, amp: .05 / (.7 + len), mine: !!o.mine });
+      items.push({ p: s, len, yaw: r() * 6.283, phase: r() * 6.283, amp: .05 / (.7 + len), mine: !!o.mine, fresh: !!o.fresh, t0: Infinity });
       const fx = (i * 2 % COLS) * CELL_W, fy = Math.floor(i * 2 / COLS) * CELL_H, bx = ((i * 2 + 1) % COLS) * CELL_W, by = Math.floor((i * 2 + 1) / COLS) * CELL_H;
       drawFace(ag, fx, fy, o.blank ? 'blank' : 'front', o.name, o.slot, age); drawFace(ag, bx, by, o.blank ? 'blank' : 'back', o.date, o.slot + 5, age);
       meshes.front.geometry.attributes.aCell.set(cellUV(i * 2), i * 4); meshes.back.geometry.attributes.aCell.set(cellUV(i * 2 + 1), i * 4);
       meshes.body.setColorAt(i, col.setRGB(...woodRGB(age).map(v => v / 255 * .82), THREE.SRGBColorSpace));
+      if (o.mine) {
+        const h = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTex, color: 0xffd08a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0, fog: false }));
+        h.scale.set(.42, .56, 1); h.renderOrder = 7; h.userData.i = i; root.add(h); halos.push(h);
+      }
     });
     meshes.front.geometry.attributes.aCell.needsUpdate = meshes.back.geometry.attributes.aCell.needsUpdate = true;
     if (meshes.body.instanceColor) meshes.body.instanceColor.needsUpdate = true;
@@ -109,11 +126,15 @@ export function createPlaques({ scene, capacity = 96, total = 11 }) {
     for (const k in meshes) meshes[k].count = items.length;
   }
 
-  const m = new THREE.Matrix4(), base = new THREE.Matrix4(), t = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), one = new THREE.Vector3(1, 1, 1), sv = new THREE.Vector3();
+  const m = new THREE.Matrix4(), base = new THREE.Matrix4(), t = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), gv = new THREE.Vector3(1, 1, 1), sv = new THREE.Vector3();
+  const easeOut = x => 1 - Math.pow(1 - Math.min(1, Math.max(0, x)), 3);
   function update(time, wind = 1) {
     for (let i = 0; i < items.length; i++) {
-      const it = items[i], a = it.amp * wind, sw = Math.sin(time * .9 + it.phase) * a + Math.sin(time * 2.3 + it.phase * 1.7) * a * .3, sw2 = Math.cos(time * .7 + it.phase) * a * .6;
-      base.compose(it.p, q.setFromEuler(e.set(sw2, it.yaw, sw, 'YXZ')), one);   // 绕挂点摆动
+      const it = items[i];
+      // 刚挂上的牌：进院半秒后从无到有"长"出来，同时绳子带着它大幅摇晃几下，慢慢停稳
+      const u = it.fresh ? Math.min(1, Math.max(0, (time - it.t0 - .7) / 1.8)) : 1, grow = Math.max(.001, easeOut(u)), a = it.amp * wind * (1 + 4 * (1 - u));
+      const sw = Math.sin(time * .9 + it.phase) * a + Math.sin(time * 2.3 + it.phase * 1.7) * a * .3, sw2 = Math.cos(time * .7 + it.phase) * a * .6;
+      base.compose(it.p, q.setFromEuler(e.set(sw2, it.yaw, sw, 'YXZ')), gv.setScalar(grow));   // 绕挂点摆动
       meshes.cord.setMatrixAt(i, m.copy(base).scale(sv.set(1, it.len, 1)));
       const down = d => t.makeTranslation(0, -it.len - d, 0);
       meshes.body.setMatrixAt(i, m.copy(base).multiply(down(PH / 2)));
@@ -122,6 +143,12 @@ export function createPlaques({ scene, capacity = 96, total = 11 }) {
       meshes.tassel.setMatrixAt(i, m.copy(base).multiply(down(PH + .046)));
     }
     for (const k in meshes) meshes[k].instanceMatrix.needsUpdate = true;
+    for (const h of halos) {
+      const it = items[h.userData.i]; if (!it) continue;
+      const u = it.fresh ? Math.min(1, Math.max(0, (time - it.t0 - .7) / 1.8)) : 1;
+      h.position.set(it.p.x, it.p.y - (it.len + PH / 2) * easeOut(u), it.p.z);
+      h.material.opacity = easeOut(u) * (.22 + .06 * Math.sin(time * 1.7));
+    }
   }
 
   return {
@@ -131,8 +158,13 @@ export function createPlaques({ scene, capacity = 96, total = 11 }) {
     set(l) { list = l; layout(); },
     get count() { return items.length; },
     get capacity() { return slots.length; },
-    // 世界坐标里第 i 块牌的位置（以后靠近显示名字、自己的牌高亮会用到）
+    // 世界坐标里第 i 块牌的位置（以后靠近显示名字会用到）
     positionOf(i) { const it = items[i]; return it && new THREE.Vector3(it.p.x, it.p.y - it.len - PH / 2, it.p.z); },
+    setHub(v) { hub = v; },
+    // 刚挂上的那块牌的位置（进院时镜头慢慢转向它）；没有就是 null
+    freshPosition() { const i = items.findIndex(it => it.fresh); return i < 0 ? null : this.positionOf(i); },
+    // 进院了：刚挂上的牌开始长出来
+    play(time) { for (const it of items) if (it.fresh) it.t0 = time; },
     update,
   };
 }
