@@ -249,8 +249,8 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
   // 木牌的数据由外面给（setPlaques）。没有名字的旧牌由 plaques 自己补足到十来块；网址带 ?debug 时再多挂几块有名字的示范牌，方便看效果
   const demo = new URLSearchParams(location.search).has('debug') ? [
     { name: '小满', date: '2026-11-02' }, { name: '阿青', date: '2026-11-05' }, { name: '林间', date: '2026-11-08' }, { name: '知秋', date: '2026-11-09' }, { name: '山月', date: '2026-11-12' },
-  ] : [];
-  let plaqueList = demo, treeLoaded = false;
+  ].map((p, i) => ({ ...p, id: 'demo' + i })) : [];
+  let plaqueList = demo, treeLoaded = false, plaqueSig = '';
   const applyPlaques = () => { if (treeLoaded) plaques.set(plaqueList); };
   const treeReady = loadTree({ manager, barkMat: mat.bark, kit, pos: L.tree, S: L.tree.scale, yaw: L.tree.yaw, leafCount: isMobile ? 480 : 760 }).then(t => {
     scene.add(t.group, t.leaves);
@@ -439,9 +439,11 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
   const lightBtn = document.getElementById('lightBtn');
   let nearBurner = false, btnT = 0;
   const burnerP = new THREE.Vector2(L.burner.x, L.burner.z);
-  function lightNow() {
-    const r = onLight();
-    if (r?.ok) { btnT = 0; if (lightBtn) lightBtn.classList.remove('on'); }
+  let lighting = false;
+  async function lightNow() {
+    if (lighting) return;   // 上一次点香还在等服务器回话
+    lighting = true;
+    try { const r = await onLight(); if (r?.ok) { btnT = 0; if (lightBtn) lightBtn.classList.remove('on'); } } finally { lighting = false; }
   }
   lightBtn?.addEventListener('click', lightNow);
   if (lightBtn) lightBtn.textContent = matchMedia('(pointer: coarse)').matches ? '点香' : '点香 · E';
@@ -505,7 +507,11 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
   return {
     scene, camera, player, layout: L, ready, plaques,
     // list：[{ id, name, date, mine }]；freshId：刚挂上的那块（进院时会有落下来挂好的动画，镜头也会慢慢转向它）
-    setPlaques(list, freshId = null) { plaqueList = [...demo, ...list.map(p => ({ ...p, fresh: p.id === freshId }))]; applyPlaques(); },
+    setPlaques(list, freshId = null) {
+      const sig = list.map(p => p.id).join() + '|' + freshId;
+      if (sig === plaqueSig) return;   // 没变化（定时刷新的时候最常见）：不重画，木牌也不会跳
+      plaqueSig = sig; plaqueList = [...demo, ...list.map(p => ({ ...p, fresh: p.id === freshId }))]; applyPlaques();
+    },
     exposure: .98,
     update,
     // 阴影是静态的：进院后画几帧就够（渲染器的阴影不是每帧自动更新）

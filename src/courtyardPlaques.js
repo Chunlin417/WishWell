@@ -79,7 +79,8 @@ export function createPlaques({ scene, capacity = 96, total = 11 }) {
   }
 
   // ---- 数据 ----
-  let slots = [], list = [], items = [], hub = null;   // items：{ p: 挂点, len: 绳长, yaw, phase, amp, mine, fresh, t0 }；hub：刚挂上的那块牌优先选离它最近的挂点（让人一进院就看得见）
+  let slots = [], list = [], items = [], hub = null;
+  const assigned = new Map();   // 木牌 id → 挂点序号   // items：{ p: 挂点, len: 绳长, yaw, phase, amp, mine, fresh, t0 }；hub：刚挂上的那块牌优先选离它最近的挂点（让人一进院就看得见）
   const col = new THREE.Color(), halos = [];
   // 自己的牌：背后有一团暖金色的柔光（贴图是一张径向渐变）
   const haloTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
@@ -88,22 +89,26 @@ export function createPlaques({ scene, capacity = 96, total = 11 }) {
   function layout() {
     items = [];
     for (const h of halos) { root.remove(h); h.material.dispose(); } halos.length = 0;
-    // 没字的旧牌补足到 total 块（至少留 3 块）；和真正的木牌交错着占挂点（挂点的顺序本身就是分散开的）
+    // 没字的旧牌补足到 total 块（至少留 3 块）；它们占的挂点是固定的（挂点序列里每隔几个一个），真正的木牌尽量不占这些
     const blanks = Math.max(3, total - list.length), n = Math.min(list.length + blanks, slots.length, capacity);
-    const freshP = list.find(p => p.fresh), others = list.filter(p => !p.fresh);
-    // 刚挂上的那块牌：挑离 hub 最近的挂点；其余的牌按顺序占剩下的挂点
-    let freshSlot = -1;
-    if (freshP && hub) { let bd = Infinity; slots.forEach((s, i) => { const d = s.distanceTo(hub); if (d < bd) { bd = d; freshSlot = i; } }); }
-    const free = []; for (let i = 0; i < slots.length; i++) if (i !== freshSlot) free.push(i);
-    let fi = 0; const take = () => (fi < free.length ? free[fi++] : -1);
-    const all = [];
-    if (freshP) all.push({ ...freshP, slot: freshSlot >= 0 ? freshSlot : take() });
-    let li = 0, bi = 0;
-    for (let k = 0, target = n - all.length; k < target; k++) {
-      const useBlank = bi < blanks && (li >= others.length || (k * 5 + 2) % 3 === 0), slot = take();
-      if (slot < 0) break;
-      all.push(useBlank ? { blank: true, slot, n: bi++ } : { ...others[li++], slot });
+    const blankSlots = []; for (let i = 0; i < slots.length && blankSlots.length < blanks; i++) if ((i * 5 + 2) % 3 === 0) blankSlots.push(i);
+    const isBlank = new Set(blankSlots), taken = new Set();
+    // 每块牌的挂点按 id 记住：一旦挂上就不再换（别人又挂了牌、定时刷新，都不会让已有的牌跳到别处）
+    for (const p of list) if (assigned.has(p.id) && assigned.get(p.id) < slots.length) taken.add(assigned.get(p.id));
+    const pool = []; for (let i = 0; i < slots.length; i++) if (!taken.has(i) && !isBlank.has(i)) pool.push(i);
+    let pi = 0; const take = () => { if (pi < pool.length) return pool[pi++]; for (const i of blankSlots) if (!taken.has(i)) { taken.add(i); return i; } return -1; };
+    // 新挂上的牌：挑离 hub 最近的挂点（朝着院门这一侧，进院的人一抬头就能看见）；其余的牌按顺序占剩下的挂点
+    for (const p of list) {
+      if (assigned.has(p.id)) continue;
+      let slot = -1;
+      if (p.fresh && hub) { let bd = Infinity; for (const i of pool) if (i >= 0 && !taken.has(i)) { const d = slots[i].distanceTo(hub); if (d < bd) { bd = d; slot = i; } } if (slot >= 0) { taken.add(slot); pool.splice(pool.indexOf(slot), 1); } }
+      if (slot < 0) slot = take();
+      if (slot >= 0) { assigned.set(p.id, slot); taken.add(slot); }
     }
+    const all = list.filter(p => assigned.has(p.id)).map(p => ({ ...p, slot: assigned.get(p.id) }));
+    const usedNow = new Set(all.map(o => o.slot)); let bn = 0;
+    for (const i of blankSlots) if (!usedNow.has(i) && all.length < n) all.push({ blank: true, slot: i, n: bn++ });
+    for (let i = 0; i < slots.length && all.length < n; i++) if (!usedNow.has(i) && !all.some(o => o.slot === i)) all.push({ blank: true, slot: i, n: bn++ });
     ag.clearRect(0, 0, atlas.width, atlas.height);
     all.slice(0, capacity).forEach((o, i) => {
       const s = slots[o.slot], r = rng(o.slot * 31 + 7);

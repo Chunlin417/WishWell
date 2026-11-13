@@ -16,7 +16,7 @@ import { Ripples, createWater } from './water.js';
 import { Rain, Snow, Fireflies, FallingLeaves } from './fx.js';
 import { createWish, DRAGON_ENABLED } from './wish.js';
 import { createWishAudio } from './audio.js';
-import { getName, setName, canWish, addPlaque, listPlaques, NAME_MAX, nowMs, listIncense, canLightIncense, lightIncense } from './courtStore.js';
+import { getName, setName, canWish, addPlaque, listPlaques, NAME_MAX, nowMs, listIncense, canLightIncense, lightIncense, initStore, refreshStore, onStoreChange } from './courtStore.js';
 // 开关：false = 许愿功能关闭（点左边的石狐没有反应，也不会出现手形光标）
 const WISH_ENABLED = true;
 
@@ -571,7 +571,7 @@ function adaptResolution(raw) {
 // 每帧只更新、只画当前这一个。切换时画面先淡成一片白，换好场景再淡回来；小院的代码第一次进去时才下载。
 // 入口：许愿签落水、仪式结束之后自动进去；网址加 ?scene=courtyard 可以直接进（调试用）。在小院里走出院门就回到池边
 const COURTYARD_AFTER_WISH = true;
-let active = 'pool', switching = false;
+let active = 'pool', switching = false, entering = false;
 const fadeEl = document.getElementById('fade');
 const wait = ms => new Promise(r => setTimeout(r, ms));
 async function goTo(name, { instant = false, withIntro = true, fresh = null } = {}) {
@@ -583,13 +583,14 @@ async function goTo(name, { instant = false, withIntro = true, fresh = null } = 
       wish.finish();   // 木牌还在水里下沉的话，让它就此结束
       if (!court) court = (await import('./courtyard.js')).createCourtyard({
         renderer, canvas, isMobile, onExit: () => goTo('pool'), now: nowMs, canLight: () => canLightIncense(),
-        onLight: () => {   // 点香：半个钟头一炷、一个人同时只能点一炷、炉里最多 100 炷
-          const r = lightIncense();
+        onLight: async () => {   // 点香：半个钟头一炷、一个人同时只能点一炷、炉里最多 100 炷（规则在 courtStore.js / 服务器上）
+          const r = await lightIncense();
           if (r.ok) court.setIncense(listIncense()); else showToast(r.text);
           return r;
         },
       });
       await court.ready;   // 小院的贴图下载完再揭开
+      await Promise.race([refreshStore(), wait(1200)]);   // 进院之前先向服务器要一次最新的牌和香（最多等 1.2 秒）
       court.setIncense(listIncense());
       court.setPlaques(listPlaques(), fresh);   // 庭院里的木牌（这台设备上挂过的）；fresh：刚挂上的那块，会有一个落下来挂好的小动画
       court.enter({ withIntro });
@@ -616,9 +617,12 @@ function frame(dt) {
   else {
     update(dt); render();
     // 木牌落进水里、过了 3 秒多（墨迹散得差不多了）：挂上这块牌，画面淡白，去庭院。淡白要 1 秒，仪式在 4 秒时结束，正好接上
-    if (COURTYARD_AFTER_WISH && wish.mode === 'ritual' && wish.ritualTime > 3.2 && !switching) {
-      const rec = addPlaque(wish.thrownName || getName() || '无名');
-      goTo('courtyard', { fresh: rec.id });
+    if (COURTYARD_AFTER_WISH && wish.mode === 'ritual' && wish.ritualTime > 3.2 && !switching && !entering) {
+      entering = true;
+      addPlaque(wish.thrownName || getName() || '无名').then(r => {   // 向服务器挂牌；超限等原因被拒绝时也照样进院，只是树上不会多一块
+        if (!r.ok) showToast(r.text);
+        return goTo('courtyard', { fresh: r.rec?.id });
+      }).finally(() => { entering = false; });
     }
   }
 }
@@ -741,6 +745,10 @@ $('reset').onclick = () => {
   wxMode = 'live'; $('wx').value = 'live'; applyWeather(false);
 };
 setInterval(updateInfo, 1000);
+// 数据：连上服务器（配置了 VITE_SUPABASE_URL 的话）；在院子里时每 15 秒看一次有没有别人挂牌、点香，有变化就更新
+initStore().then(mode => console.info('庭院数据：', mode === 'remote' ? '服务器' : '本机'));
+onStoreChange(() => { if (active === 'courtyard' && court) { court.setIncense(listIncense()); court.setPlaques(listPlaques(), null); } });
+setInterval(() => { if (active === 'courtyard') refreshStore(); }, 15000);
 
 // 调试用（只在开发模式下暴露）
 if (import.meta.env.DEV) window.__wish = {

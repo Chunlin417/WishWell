@@ -1,3 +1,5 @@
 node_modules
 dist
 .shots
+.env.local
+.env.*.local
