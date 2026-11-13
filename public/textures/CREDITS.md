@@ -36,3 +36,15 @@
 | fox_stone | 石狐的浅米色风化花岗岩 |
 | water_ripple_nor_gl | 水面细小波纹法线 |
 | shore_mud | 水边一圈湿泥（原来的 wet_sand 不再用） |
+
+## 小院的东方寺庙素材（AI 图像生成 + 脚本处理）
+
+用户提供的 UE5 东方寺庙素材包（2026-11-13，图像生成工具生成的母材，处理成 2K 循环 PBR 贴图）。原包是 `output/ue5-oriental-temple-material-pack.zip`，解压在 `textures-src/temple/`；运行 `python scripts/pack_temple_textures.py` 转成这里的 WebP（DirectX 法线翻成 OpenGL 法线，AO 乘进颜色贴图，缩到 1K）。
+
+| 文件前缀 | 用途 |
+|---|---|
+| temple_bark | 古树皮 |
+| temple_wood | 小殿、院门的旧木材 |
+| temple_roof | 灰色筒瓦 |
+| temple_leaves | 阔叶枝条图集（古树、院外树林、墙头垂下的枝叶） |
+
