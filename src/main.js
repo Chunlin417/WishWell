@@ -16,7 +16,7 @@ import { Ripples, createWater } from './water.js';
 import { Rain, Snow, Fireflies, FallingLeaves } from './fx.js';
 import { createWish, DRAGON_ENABLED } from './wish.js';
 import { createWishAudio } from './audio.js';
-import { getName, setName, canWish, addPlaque, listPlaques, NAME_MAX, nowMs, listIncense, canLightIncense, lightIncense, initStore, refreshStore, onStoreChange } from './courtStore.js';
+import { getName, setName, canWish, addPlaque, listPlaques, hasWished, rememberWish, NAME_MAX, nowMs, listIncense, canLightIncense, lightIncense, initStore, refreshStore, onStoreChange } from './courtStore.js';
 // 开关：false = 许愿功能关闭（点左边的石狐没有反应，也不会出现手形光标）
 const WISH_ENABLED = true;
 
@@ -177,7 +177,7 @@ function applyNight() {
 }
 applyNight();
 const sfx = createWishAudio();
-const wish = createWish({ scene, ripples, floorH, sound: sfx, tex: texSets.dragon });
+const wish = createWish({ scene, ripples, floorH, sound: sfx, tex: texSets.dragon, onSettled: saveSettledWish });
 
 const groundAt = (x, z) => Math.max(floorH(x, z), 0);
 const rain = new Rain(groundAt, (x, z) => {
@@ -569,9 +569,29 @@ function adaptResolution(raw) {
 // ================= 场景切换 =================
 // 两个场景：pool（许愿池）和 courtyard（许愿之后来到的小院，src/courtyard.js）。共用同一个渲染器和后期处理，
 // 每帧只更新、只画当前这一个。切换时画面先淡成一片白，换好场景再淡回来；小院的代码第一次进去时才下载。
-// 入口：许愿签落水、仪式结束之后自动进去；网址加 ?scene=courtyard 可以直接进（调试用）。在小院里走出院门就回到池边
-const COURTYARD_AFTER_WISH = true;
+// 入口：许愿完成后点击右侧石狐；已有记录可直接点击。院门通回池边。
 let active = 'pool', switching = false, entering = false;
+let savingWish = null, freshPlaque = null;
+function saveSettledWish(name) {
+  rememberWish();
+  savingWish = addPlaque(name || getName() || '无名').then(r => {
+    if (r.ok) freshPlaque = r.rec.id; else showToast(r.text);
+  }).catch(() => showToast('木牌暂未挂好，请稍后再试')).finally(() => { savingWish = null; });
+}
+async function enterFromFox() {
+  if (entering || switching || wish.overlay) return;
+  if (wish.mode === 'ritual' && wish.ritualTime < 3.2) { showToast('待木牌沉入水中，再轻触石狐'); return; }
+  if (!hasWished()) { showToast('先向左侧石狐许愿，再由这里入院'); return; }
+  entering = true;
+  try {
+    sfx.unlock();
+    if (savingWish) await savingWish;
+    await goTo('courtyard', { fresh: freshPlaque });
+    freshPlaque = null;
+  } catch (error) {
+    console.warn('庭院加载失败', error); showToast('庭院暂未准备好，请稍后再试');
+  } finally { entering = false; }
+}
 const fadeEl = document.getElementById('fade');
 const wait = ms => new Promise(r => setTimeout(r, ms));
 async function goTo(name, { instant = false, withIntro = true, fresh = null } = {}) {
@@ -616,14 +636,6 @@ function frame(dt) {
   if (active === 'courtyard') { court.update(dt); renderCourt(); }
   else {
     update(dt); render();
-    // 木牌落进水里、过了 3 秒多（墨迹散得差不多了）：挂上这块牌，画面淡白，去庭院。淡白要 1 秒，仪式在 4 秒时结束，正好接上
-    if (COURTYARD_AFTER_WISH && wish.mode === 'ritual' && wish.ritualTime > 3.2 && !switching && !entering) {
-      entering = true;
-      addPlaque(wish.thrownName || getName() || '无名').then(r => {   // 向服务器挂牌；超限等原因被拒绝时也照样进院，只是树上不会多一块
-        if (!r.ok) showToast(r.text);
-        return goTo('courtyard', { fresh: r.rec?.id });
-      }).finally(() => { entering = false; });
-    }
   }
 }
 
@@ -646,7 +658,7 @@ canvas.addEventListener('pointerdown', e => {
   setRay(e);
   // 许愿签还在等输入时点它：重新弹出输入框
   if (wish.waiting && (wish.inputReady || wish.nameReady) && wish.hitPaper(raycaster)) { wish.nameReady ? openNameInput() : openWishInput(); wishInput.focus(); return; }
-  // 左边的石狐（屏幕左半边那一只）：唤来许愿签；右边那只：签落进水里之后，唤龙
+  // 左侧石狐送来许愿木牌，右侧石狐在首次许愿后引路入院。
   const f = foxes.pick(raycaster);
   if (f) {
     const left = f.point.clone().project(camera).x < 0;
@@ -655,7 +667,7 @@ canvas.addEventListener('pointerdown', e => {
       if (!c.ok) { showToast(c.text); return; }   // 半小时内挂过一块，或者今天已经挂满三块：石狐不响应，只说一句话
       sfx.unlock(); wish.summon(camera); return;   // 声音只能在用户点击时开启
     }
-    if (!left && wish.canCall) { sfx.unlock(); wish.callDragon(); return; }
+    if (!left) { void enterFromFox(); return; }
   }
   const hit = raycaster.intersectObject(water.mesh)[0];
   if (hit && poolK(hit.point.x, hit.point.z) < .93) {
@@ -667,7 +679,7 @@ canvas.addEventListener('pointermove', e => {
   setRay(e);
   // 鼠标移到能点的石狐上时，换成手形光标
   if (e.pointerType === 'mouse') {
-    const over = (f => f && (f.point.clone().project(camera).x < 0 ? WISH_ENABLED && !wish.busy : wish.canCall))(foxes.pick(raycaster)) ? 'pointer' : '';
+    const over = (f => f && (f.point.clone().project(camera).x < 0 ? WISH_ENABLED && !wish.busy : !wish.overlay && hasWished()))(foxes.pick(raycaster)) ? 'pointer' : '';
     canvas.style.cursor = over;
   }
 });
@@ -773,4 +785,4 @@ if (import.meta.env.DEV) window.__wish = {
 updateInfo();
 requestAnimationFrame(loop);
 init();
-if (new URLSearchParams(location.search).get('scene') === 'courtyard') goTo('courtyard', { instant: true });
+if (import.meta.env.DEV && new URLSearchParams(location.search).get('scene') === 'courtyard') goTo('courtyard', { instant: true });
