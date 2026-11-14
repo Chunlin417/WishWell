@@ -8,6 +8,7 @@
     "dev:phone": "vite --host --port 5174 --mode phone",
     "build": "vite build",
     "model:beast": "node scripts/build-zhenshuishou.mjs 240 70000",
+    "model:cat": "node scripts/build-cat.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

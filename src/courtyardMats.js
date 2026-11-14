@@ -17,6 +17,7 @@ export function loadCourtTextures(renderer, manager) {
     paving: set('rock_lichen'),      // 青石板：浅色地衣花岗岩
     wall: set('rock_mossy_a'),       // 院墙：大片苔藓的花岗岩
     rock: set('rock_mossy_b'),       // 散石、台基
+    pebbles: set('ganges_river_pebbles'),   // 殿里水池边的卵石
     moss: { diff: load('moss_ground_diff.webp', true), nor: load('moss_ground_nor_gl.webp', false) },
     canopy: load('canopy_mask.webp', false),            // 叶影遮罩（R 粗 / G 细）：树荫光斑用
     plants: load('groundplants_atlas.webp', true, false),   // 三叶草 / 蕨 / 蜂斗菜 / 白花（带透明通道的图集）
@@ -197,34 +198,30 @@ export function bronzeMat() {
   return mat;
 }
 
-// ---------- 用画布现画的贴图：花格窗 ----------
-function canvasTex(w, h, draw, { srgb = true, repeat = true } = {}) {
-  const c = document.createElement('canvas'); c.width = w; c.height = h;
-  draw(c.getContext('2d'), w, h);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
-  if (repeat) t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.anisotropy = 4;
-  return t;
-}
-const rng = seed => () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-
-// 花格窗：深色的窗洞，上面一层木格子
-export function latticeTexture() {
-  return canvasTex(256, 256, (g, w, h) => {
-    g.fillStyle = '#0e0a08'; g.fillRect(0, 0, w, h);
-    const n = 4, s = w / n;
-    for (let i = 0; i <= n; i++) {
-      for (const horiz of [false, true]) {
-        const p = i * s;
-        g.fillStyle = '#4a3222'; horiz ? g.fillRect(0, p - 5, w, 10) : g.fillRect(p - 5, 0, 10, h);
-        g.fillStyle = 'rgba(170,130,95,.3)'; horiz ? g.fillRect(0, p - 5, w, 2) : g.fillRect(p - 5, 0, 2, h);
-      }
-    }
-    // 每格中间再加一个小方框（回纹的简化）
-    g.strokeStyle = '#412a1c'; g.lineWidth = 5;
-    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) g.strokeRect(i * s + s * .3, j * s + s * .3, s * .4, s * .4);
-  });
+// 殿里猫像的青铜：和香炉一样的铜底、铜绿，但更旧——铜绿更多；凸起的纹饰（模型里的 _relief）被摸得发亮，露出铜色；
+// 模型的顶点色里烘了凹处的暗部
+export function statueMat() {
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: .5, metalness: .9, vertexColors: true });
+  mat.customProgramCacheKey = () => 'court-statue';
+  mat.onBeforeCompile = sh => {
+    worldVary(sh);
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float _relief; varying float vRelief;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRelief = _relief;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>\nvarying vec3 vWp; varying vec3 vWn; varying float vRelief;\n${NOISE_GLSL}\nfloat gPat = 0.;`)
+      .replace('#include <map_fragment>', /* glsl */`#include <map_fragment>
+        {
+          float n = fbm2(vWp.xy * 3.2 + vWp.z * 2.4) * .6 + fbm2(vWp.zy * 2.8 + vWp.x * 2. + 9.) * .4;
+          gPat = smoothstep(.3, .62, n + (1. - abs(normalize(vWn).y)) * .08) * (1. - .85 * vRelief);
+          vec3 c = mix(vec3(.2, .125, .06), vec3(.1, .2, .15), gPat);
+          c = mix(c, vec3(.6, .34, .13), vRelief * .85);   // 纹饰：露出来的铜色
+          diffuseColor.rgb = c * (.88 + .24 * vnoise(vWp.xz * 23. + vWp.y * 17.));
+        }`)
+      .replace('#include <metalnessmap_fragment>', /* glsl */`#include <metalnessmap_fragment>
+        metalnessFactor = mix(.9, .3, gPat); roughnessFactor = mix(.4, .85, gPat);`);
+  };
+  return mat;
 }
 
 // 屋瓦材质：素材包里的灰色筒瓦（颜色、法线、粗糙度）+ 瓦面上零星的苔藓、深浅不匀的水渍。
