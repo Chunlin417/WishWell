@@ -49,10 +49,11 @@ function worldVary(sh) {
 // paving：{ yard: [minX, maxX, minZ, maxZ], tree: [x, z, r] } 把地面切成一块块石板，石缝里是泥土和苔，墙根、树根周围长苔，院外全是苔地
 // blocks：砌石墙——一层层错缝的石块，缝里更暗、更容易长苔
 // weather：旧木头——大块的色差、竖向的雨痕、靠近地面受潮发暗、局部褪成灰白（0 = 没有，1 = 明显）；weatherY：木构件脚下的高度
-export function triMat({ set, moss = null, scale = .5, color = 0xffffff, mossAmt = .8, mossAt = .5, mossScale = .7, grime = 0, wet = 0, roughMul = 1, norK = 1, roughness = 1, paving = null, blocks = false, weather = 0, weatherY = 0 }) {
+export function triMat({ set, moss = null, scale = .5, color = 0xffffff, mossAmt = .8, mossAt = .5, mossScale = .7, grime = 0, wet = 0, roughMul = 1, norK = 1, roughness = 1, paving = null, blocks = false, weather = 0, weatherY = 0, wood = false }) {
   const mat = new THREE.MeshStandardMaterial({ color, roughness });
   const D = {};
   if (set.nor) D.HAS_NOR = ''; if (set.rough) D.HAS_ROUGH = ''; if (moss) D.HAS_MOSS = ''; if (paving) D.PAVING = ''; if (blocks) D.BLOCKS = ''; if (weather) D.WEATHER = '';
+  if (wood) D.WOOD = '';
   mat.defines = { ...(mat.defines || {}), ...D };
   const U = {
     tDiff: { value: set.diff }, tNor: { value: set.nor || null }, tRough: { value: set.rough || null },
@@ -128,6 +129,13 @@ export function triMat({ set, moss = null, scale = .5, color = 0xffffff, mossAmt
             mossBias += joint * .5;
           #endif
           vec3 base = tri(tDiff).rgb * tint;
+          #ifdef WOOD
+            // Desaturated old timber with subtle longitudinal fibres, not glossy red lacquer.
+            float luminance = dot(base, vec3(.2126, .7152, .0722));
+            base = mix(base, vec3(luminance) * vec3(1.14, 1.02, .85), .68);
+            float grain = vnoise(vec2(dot(vWp.xz, vec2(.83, .55)) * 85., vWp.y * 2.6));
+            base *= .9 + .14 * grain;
+          #endif
           #ifdef WEATHER
           {
             float ws = fbm2(vWp.xz * 1.3 + vWp.y * 1.1);                                   // 大块的色差
@@ -158,7 +166,10 @@ export function triMat({ set, moss = null, scale = .5, color = 0xffffff, mossAmt
         roughnessFactor = clamp(roughnessFactor * uTri.z * mix(.82, 1.12, vnoise(vWp.xz * 2.3 + vWp.y)), .05, 1.);   // 粗糙度本身也有深浅
         roughnessFactor = mix(roughnessFactor, .92, gMoss);
         roughnessFactor = mix(roughnessFactor, .3, gWet * (1. - gMoss));
-        roughnessFactor = mix(roughnessFactor, .04, gPuddle * (1. - gMoss));`)
+        roughnessFactor = mix(roughnessFactor, .04, gPuddle * (1. - gMoss));
+        #ifdef WOOD
+          roughnessFactor = max(.78, roughnessFactor);
+        #endif`)
       .replace('#include <normal_fragment_maps>', /* glsl */`#include <normal_fragment_maps>
         #ifdef HAS_NOR
         {
@@ -201,8 +212,8 @@ export function bronzeMat() {
 // 殿里猫像的青铜：和香炉一样的铜底、铜绿，但更旧——铜绿更多；凸起的纹饰（模型里的 _relief）被摸得发亮，露出铜色；
 // 模型的顶点色里烘了凹处的暗部
 export function statueMat() {
-  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: .5, metalness: .9, vertexColors: true });
-  mat.customProgramCacheKey = () => 'court-statue';
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: .72, metalness: .55, vertexColors: true, envMapIntensity: .32 });
+  mat.customProgramCacheKey = () => 'court-statue-aged';
   mat.onBeforeCompile = sh => {
     worldVary(sh);
     sh.vertexShader = sh.vertexShader
@@ -213,13 +224,14 @@ export function statueMat() {
       .replace('#include <map_fragment>', /* glsl */`#include <map_fragment>
         {
           float n = fbm2(vWp.xy * 3.2 + vWp.z * 2.4) * .6 + fbm2(vWp.zy * 2.8 + vWp.x * 2. + 9.) * .4;
-          gPat = smoothstep(.3, .62, n + (1. - abs(normalize(vWn).y)) * .08) * (1. - .85 * vRelief);
-          vec3 c = mix(vec3(.2, .125, .06), vec3(.1, .2, .15), gPat);
-          c = mix(c, vec3(.6, .34, .13), vRelief * .85);   // 纹饰：露出来的铜色
-          diffuseColor.rgb = c * (.88 + .24 * vnoise(vWp.xz * 23. + vWp.y * 17.));
+          gPat = smoothstep(.3, .62, n + (1. - abs(normalize(vWn).y)) * .08) * (1. - .62 * vRelief);
+          vec3 c = mix(vec3(.155, .112, .067), vec3(.105, .155, .128), gPat);
+          c = mix(c, vec3(.34, .245, .125), vRelief * .68);
+          diffuseColor.rgb *= c * (.86 + .2 * vnoise(vWp.xz * 23. + vWp.y * 17.));
         }`)
       .replace('#include <metalnessmap_fragment>', /* glsl */`#include <metalnessmap_fragment>
-        metalnessFactor = mix(.9, .3, gPat); roughnessFactor = mix(.4, .85, gPat);`);
+        metalnessFactor = mix(.58, .18, gPat);
+        roughnessFactor = max(roughnessFactor, mix(.66, .91, gPat));`);
   };
   return mat;
 }

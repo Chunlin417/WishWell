@@ -5,7 +5,8 @@
 // 愿望的内容不在这里：只存名字、日期和时间。名字第一次挂牌时写下，之后固定，下次自动使用。
 // 发牌限制：同一个人半小时只能挂 1 块，每天最多 3 块（按本地日期算）。一炷香 30 分钟，一人同时一炷，炉里最多 100 炷。
 // 读的接口（getName / listPlaques / listIncense / canWish / canLightIncense / nowMs）是同步的，写的接口（addPlaque / lightIncense）是异步的。
-const K = { name: 'wish.name', plaques: 'wish.plaques', incense: 'wish.incense' };
+const K = { name: 'wish.name', plaques: 'wish.plaques', incense: 'wish.incense', visited: 'wish.courtyardUnlocked' };
+let courtyardUnlocked = false;
 export const COOLDOWN_MS = 30 * 60e3, DAILY_MAX = 3, NAME_MAX = 6;
 export const INCENSE_MS = 30 * 60e3, INCENSE_SLOTS = 100;
 const TEXT = {
@@ -44,6 +45,7 @@ export async function refreshStore() {
   try {
     const s = await api.getState();
     cache = { name: s.name || null, plaques: s.plaques || [], incense: s.incense || [], offset: (s.now ?? Date.now()) - Date.now() };
+    if (cache.plaques.some(p => p.mine === true)) rememberWish();
     const sig = JSON.stringify([cache.name, cache.plaques.map(p => p.id), cache.incense.map(i => i.id)]);
     if (sig === signature) return false;
     signature = sig; listeners.forEach(f => f());
@@ -68,6 +70,13 @@ export function setName(n) {
 
 // ---------- 木牌 ----------
 export const listPlaques = () => (api ? cache.plaques : read(K.plaques, memory.plaques));
+// A saved name alone does not mean the plaque has reached the water.
+export function hasWished() {
+  return courtyardUnlocked || read(K.visited, false) === true || listPlaques().some(p => p.mine === true);
+}
+export function rememberWish() {
+  courtyardUnlocked = true; write(K.visited, true);
+}
 // 现在能不能挂一块新牌：{ ok: true } 或 { ok: false, reason: 'cooldown' | 'daily', text }（服务器最终说了算，这里让界面先有这个反应）
 export function canWish(now = nowMs()) {
   const mine = listPlaques().filter(p => p.mine);

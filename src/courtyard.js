@@ -5,6 +5,7 @@
 // 坐标：+z 是院门（南），-z 是小殿（北）；单位是米
 import * as THREE from 'three';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
 import { loadCourtTextures, triMat, bronzeMat, roofMat, roofGeo } from './courtyardMats.js';
 import { createHallInterior, REFLECT_LAYER } from './courtyardHall.js';
 import { createSky, createBackdrop, createCanopyShade, createShafts, createSmoke, createMist } from './courtyardFx.js';
@@ -12,6 +13,7 @@ import { loadTree, createLeafKit, createGrove } from './courtyardTree.js';
 import { createPlaques } from './courtyardPlaques.js';
 import { createIncense } from './courtyardIncense.js';
 import { createPlantCards, CELLS } from './courtyardPlants.js';
+import { HALL_ACCESS, constrainHallMove } from './courtyardMovement.js';
 
 const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
 const smooth = t => { t = clamp(t); return t * t * (3 - 2 * t); };
@@ -22,14 +24,14 @@ const rng = seed => () => (seed = (seed * 16807) % 2147483647) / 2147483647;
 const L = {
   halfX: 7.5,          // 院墙内侧到中线的距离（院子宽 15 米）
   south: 6.2,          // 南墙（院门所在）的 z
-  north: -12.9,        // 北墙的 z（在小殿后面）
+  north: -22.8,        // 留出加深后的殿身、后檐和院墙间距
   wallH: 1.55, wallT: .55,
   gateHalf: 1.2,       // 院门半宽
-  hallFront: -5.9,     // 小殿台基前沿的 z
-  stepsZ: -4.85,       // 殿前台阶最外沿的 z：人走到这里为止（暂时不能上台阶）
+  hallFront: HALL_ACCESS.front,
+  stepsZ: HALL_ACCESS.front + HALL_ACCESS.steps * HALL_ACCESS.stepDepth,
   doorOpen: 0,         // 殿门朝里开多少（弧度）：0 = 关着（现在这样；从门上半截和窗的格子里能看到殿内），1.2 = 半掩（门缝约 1.25 米），1.57 = 完全敞开
-  pool: { halfX: 2.1, front: -8.2, back: -10.8, depth: .34, drop: .07, border: .27 },   // 殿里的水池：半宽、前后沿的 z、池深、水面比地面低多少、池边卵石的宽度
-  statue: { z: -10.2, scale: 1.25 },   // 猫像（连同它坐的苔石）的 z、大小（1 = 约 1 米高）
+  pool: { halfX: 3.25, front: -8.65, back: -16.7, depth: .32, drop: .09, border: .24 },
+  statue: { z: -18.25, scale: 1.9 },
   tree: { x: -3.7, z: -1.5, scale: 6.6, yaw: 0 },   // 古树：树干中心的位置、缩放（要和 scripts/build-tree.mjs 的缩放参数一致）、绕树干转多少
   burner: { x: 2.9, z: -.2, scale: 1.44, scaleY: 1.25 },   // 香炉的位置、横向大小、竖向大小（竖向 1 = 炉口约 1.2 米高）
   rocks: [[-6.1, 4.2, .8], [6.0, -3.4, .9], [6.2, 4.6, .55], [-6.2, -3.9, .65], [5.3, 5.0, .34]],   // 院子边角的苔石：x, z, 半径
@@ -41,7 +43,7 @@ const L = {
   grove: [
     [-10.5, 3, 3.1, 3.2], [-11.5, -3, 3.9, 3.6], [-10.2, -8.5, 3.5, 3.4], [-13.5, 0, 5.3, 4],
     [10.5, 2, 3.3, 3.2], [11.5, -4, 4.3, 3.8], [10.2, -9.5, 3.5, 3.3], [13.5, -1, 5.7, 4.2],
-    [-5, -16.5, 5.1, 4], [1.5, -17.5, 5.9, 4.4], [7, -16, 4.7, 3.8], [-10.5, -14.5, 4.5, 3.6], [11.5, -15, 4.9, 3.8],
+    [-5, -21, 5.8, 4], [1.5, -22, 6.6, 4.4], [7, -20.5, 5.4, 3.8], [-10.5, -18, 5.2, 3.6], [11.5, -18.5, 5.6, 3.8],
     [-6, 10, 3.5, 3.4], [6.5, 10.5, 3.9, 3.6], [-11.5, 8, 4.5, 3.6], [11.5, 8.5, 4.5, 3.6], [0, 14, 5.5, 4],
   ],
 };
@@ -122,7 +124,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
 
   // ---------- 材质 ----------
   const { halfX, south, north, wallH, wallT, gateHalf } = L;
-  const baseH = .6;   // baseH：小殿台基的高度
+  const baseH = HALL_ACCESS.baseH;
   const M = (color, rough = .9) => new THREE.MeshStandardMaterial({ color, roughness: rough });
   const mat = {
     ground: triMat({ set: tex.paving, moss: tex.moss, scale: .42, color: 0x8f968d, mossAmt: .95, mossAt: .6, wet: 1, roughMul: 1.05,
@@ -134,6 +136,8 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     wood: triMat({ set: tex.wood, scale: .55, color: 0xcabba8, weather: .7, weatherY: baseH }),
     woodRed: triMat({ set: tex.wood, scale: .55, color: 0xffe2d2, weather: .55, weatherY: baseH }),   // 檐柱、门扇：褪了色的旧红漆（素材本身就是红褐色）
     woodDark: triMat({ set: tex.wood, scale: .55, color: 0x8a7c70, weather: .4, weatherY: baseH }),
+    hallWood: triMat({ set: tex.wood, scale: .7, color: 0xd4c5a9, weather: .6, weatherY: baseH, wood: true, norK: .7 }),
+    hallBeam: triMat({ set: tex.wood, scale: .58, color: 0xb8a88d, weather: .45, weatherY: baseH, wood: true, norK: .65 }),
     gateWood: triMat({ set: tex.wood, scale: .55, color: 0xc8b8a6, weather: .8, weatherY: 0 }),
     roof: roofMat(tex.roof), tileEnd: M(0x4a5052, .75), bronze: bronzeMat(),
     ash: M(0xb8b2a3, 1), stick: M(0x7a4630),
@@ -142,6 +146,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
   mat.stone.color.setScalar(1.6); mat.stoneClean.color.setScalar(1.6);   // 这套石头贴图偏暗：提亮一些，和青石板、院墙协调
   // 旧木材的素材偏暗（平均亮度只有 0.15 左右）：殿的正面又在屋檐的阴影里，提亮一些才看得出木纹和色差
   mat.wood.color.multiplyScalar(1.7); mat.woodRed.color.multiplyScalar(1.6); mat.woodDark.color.multiplyScalar(1.35); mat.gateWood.color.multiplyScalar(1.6);
+  mat.hallWood.color.multiplyScalar(1.85); mat.hallBeam.color.multiplyScalar(1.65);
   const colliders = [];   // 圆形的障碍：{ x, z, r }
   let parent = scene;     // add() 把东西加到这里：平时是场景，搭香炉时换成香炉的组（整体缩放）
   const add = (geo, m, x, y, z, { cast = true, recv = true } = {}) => {
@@ -205,18 +210,21 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
   // ---------- 小殿：前墙和两侧墙上是镂空的花格窗，殿门的上半截也是镂空的；里面是水池、苔石和青铜猫像（courtyardHall.js）----------
   let hall = null;
   {
-    const W = 8, H = 3.2, D = 5, front = L.hallFront, fz = front - 1.0, bz = fz - D / 2, top = baseH + H, pz = front - .45;   // pz：檐柱所在的 z
-    const P = L.pool, pMid = (P.front + P.back) / 2, pLen = P.front - P.back, back = front - 6.6;                 // back：台基后沿的 z
+    const W = 11.8, H = 4.9, D = 13, front = L.hallFront, fz = HALL_ACCESS.doorZ, bz = fz - D / 2, top = baseH + H, pz = front - .45;
+    const P = L.pool, pMid = (P.front + P.back) / 2, pLen = P.front - P.back, back = fz - D - .8, platformHalf = HALL_ACCESS.porchHalfX;
     const ix = W / 2 - .2, iz0 = fz - D + .2, iz1 = fz - .1, ceil = top - .14;   // 殿内的范围（x 方向的半宽、后墙和前墙内面的 z）、顶棚的高度
     const grp = new THREE.Group(); scene.add(grp); parent = grp;
     // 台基：中间留出水池的坑（前、后、左、右四块围着，坑底另垫一块）
-    box(9.6, baseH, front - P.front, mat.stone, 0, baseH / 2, (front + P.front) / 2);
-    box(9.6, baseH, P.back - back, mat.stone, 0, baseH / 2, (P.back + back) / 2);
-    for (const s of [-1, 1]) box(4.8 - P.halfX, baseH, pLen, mat.stone, s * (4.8 + P.halfX) / 2, baseH / 2, pMid);
+    box(platformHalf * 2, baseH, front - P.front, mat.stone, 0, baseH / 2, (front + P.front) / 2);
+    box(platformHalf * 2, baseH, P.back - back, mat.stone, 0, baseH / 2, (P.back + back) / 2);
+    for (const s of [-1, 1]) box(platformHalf - P.halfX, baseH, pLen, mat.stone, s * (platformHalf + P.halfX) / 2, baseH / 2, pMid);
     box(P.halfX * 2, baseH - P.depth, pLen, mat.stone, 0, (baseH - P.depth) / 2 - .003, pMid);
-    for (let i = 0; i < 3; i++) box(3.2, .2, .35, mat.stone, 0, baseH - .1 - i * .2, front + .175 + i * .35);     // 三级台阶
+    for (let i = 0; i < HALL_ACCESS.steps; i++) {
+      const h = baseH - i * HALL_ACCESS.stepHeight;
+      box(HALL_ACCESS.stairWidth, h, HALL_ACCESS.stepDepth, mat.stoneClean, 0, h / 2, front + (i + .5) * HALL_ACCESS.stepDepth);
+    }
     // 殿里的地面：干的青石板，墙根和石缝里有一点苔
-    const hallFloor = triMat({ set: tex.paving, moss: tex.moss, scale: .42, color: 0x9d988c, mossAmt: .75, mossAt: .8, paving: { yard: [-ix, ix, iz0, iz1], tree: [0, 99, .1] } });
+    const hallFloor = triMat({ set: tex.paving, moss: tex.moss, scale: .55, color: 0xb8b3a3, mossAmt: .08, mossAt: .95, wet: .02, norK: .48, paving: { yard: [-ix, ix, iz0, iz1], tree: [0, 99, .1] } });
     const floorAt = (x0, x1, z0, z1) => { add(new THREE.PlaneGeometry(x1 - x0, z1 - z0), hallFloor, (x0 + x1) / 2, baseH + .004, (z0 + z1) / 2, { cast: false }).rotation.x = -Math.PI / 2; };
     floorAt(-ix, ix, P.front, iz1); floorAt(-ix, ix, iz0, P.back); floorAt(-ix, -P.halfX, P.back, P.front); floorAt(P.halfX, ix, P.back, P.front);
 
@@ -232,43 +240,97 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
       const bar = (len, h, a, y) => box(alongX ? len : .28, h, alongX ? .28 : len, mat.woodRed, alongX ? a : c, y, alongX ? c : a);
       for (const y of [y0 - .03, y1 + .03]) bar(w + .22, .1, m, y);
       for (const e of [-1, 1]) bar(.1, y1 - y0 + .06, m + e * (w / 2 + .03), (y0 + y1) / 2);
-      lattice(w, y1 - y0, alongX ? m : c, (y0 + y1) / 2, alongX ? c : m, alongX ? 0 : Math.PI / 2);
+      lattice(w, y1 - y0, alongX ? m : c, (y0 + y1) / 2, alongX ? c : m, alongX ? 0 : Math.PI / 2, parent, .26);
     };
-    // 墙：后墙是整面；正面留出门洞和左右两扇窗；两侧各两扇窗（比正面的低一些，早晨的阳光从东窗照进来）
-    const winF = [baseH + 1.1, baseH + 2.6], winS = [baseH + .95, baseH + 2.45], sideZ = [fz - 3.55, fz - 1.45];   // 前窗、侧窗的下沿和上沿；两扇侧窗中心的 z
+    // 墙：后墙是整面；正面留出门洞和左右两扇窗；两侧各三扇大窗（清晨日光从东窗照进来）
+    const winF = [baseH + 1.1, baseH + 3.65], winS = [baseH + 1, baseH + 3.6], sideZ = [fz - 10.5, fz - 3.5, fz - 1.3];
     box(W, H, .2, mat.wood, 0, baseH + H / 2, fz - D + .1);
-    wall(true, -W / 2, W / 2, fz, [[-3.6, -1.4, ...winF], [-1, 1, baseH, top - .08], [1.4, 3.6, ...winF]]);
+    wall(true, -W / 2, W / 2, fz, [[-4.9, -2, ...winF], [-1.3, 1.3, baseH, top - .08], [2, 4.9, ...winF]]);
     for (const s of [-1, 1]) {
-      windowAt(true, s * 2.5, fz, 2.2, ...winF);
-      box(2.36, .7, .06, mat.woodDark, s * 2.5, baseH + .62, fz + .11);                                            // 窗下的裙板
-      wall(false, fz - D, fz, s * (W / 2 - .1), sideZ.map(z => [z - .75, z + .75, ...winS]));
-      for (const z of sideZ) windowAt(false, z, s * (W / 2 - .1), 1.5, ...winS);
-      box(.1, 2.5, .26, mat.woodRed, s * 1.05, baseH + 1.25, fz);                                                  // 门框两边的立木
+      windowAt(true, s * 3.45, fz, 2.9, ...winF);
+      box(3.06, .7, .06, mat.woodDark, s * 3.45, baseH + .62, fz + .11);
+      wall(false, fz - D, fz, s * (W / 2 - .1), sideZ.map(z => [z - 1.05, z + 1.05, ...winS]));
+      for (const z of sideZ) windowAt(false, z, s * (W / 2 - .1), 2.1, ...winS);
+      box(.12, 3.3, .28, mat.woodRed, s * 1.36, baseH + 1.65, fz);
     }
-    box(2.2, .1, .26, mat.woodRed, 0, baseH + 2.55, fz);                                                          // 门楣；它上面的横披也是镂空的
-    lattice(2, top - .08 - (baseH + 2.6), 0, (top - .08 + baseH + 2.6) / 2, fz);
+    box(2.84, .12, .28, mat.woodRed, 0, baseH + 3.36, fz);
+    lattice(2.6, top - .08 - (baseH + 3.42), 0, (top - .08 + baseH + 3.42) / 2, fz, 0, parent, .23);
     box(W, .14, D, mat.woodDark, 0, top - .07, bz, { cast: false });                                              // 顶棚
-    // 殿里的木构：靠墙的立柱、后墙的一道横枋、头顶的三根大梁和两道檩条；后墙根一条长凳
-    for (const s of [-1, 1]) {
-      for (const z of [iz1 - .1, fz - 2.5, iz0 + .1]) box(.2, ceil - baseH, .2, mat.woodDark, s * (ix - .08), (ceil + baseH) / 2, z);
-      box(.18, ceil - baseH, .14, mat.woodDark, s * 1.9, (ceil + baseH) / 2, iz0 + .05);
-      box(.16, .14, iz1 - iz0, mat.woodDark, s * 1.9, ceil - .07, (iz0 + iz1) / 2, { cast: false });
+    // 殿里的木构：靠墙的立柱、后墙的一道横枋、抬高的三根大梁和两道檩条；后墙根一条长凳
+    const columnZ = [iz1 - .1, fz - D / 3, fz - D * 2 / 3, iz0 + .1];
+    for (const z of [fz - 3.8, fz - 8.1]) {
+      for (const side of [-1, 1]) {
+        const x = side * 4.35;
+        box(.36, ceil - baseH, .36, mat.woodDark, x, (ceil + baseH) / 2, z);
+        box(.54, .28, .54, mat.stoneClean, x, baseH + .14, z);
+        for (let tier = 0; tier < 3; tier++) box(.54 + tier * .24, .12, .4, mat.woodDark, x, ceil - .56 + tier * .13, z);
+      }
+      box(8.9, .32, .28, mat.woodDark, 0, ceil - .24, z);
     }
-    box(ix * 2, .14, .1, mat.woodDark, 0, baseH + 2.45, iz0 + .04, { cast: false });
-    for (const [z, t] of [[fz - 1.15, .2], [fz - 2.5, .26], [fz - 3.85, .2]]) box(ix * 2, t, t * .85, mat.woodDark, 0, ceil - .14 - t / 2, z, { cast: false });
-    box(5.4, .07, .36, mat.wood, 0, baseH + .43, iz0 + .28);
-    for (let i = -2; i <= 2; i++) box(.08, .4, .3, mat.wood, i * 1.25, baseH + .2, iz0 + .28);
-    // 殿里的光：从门窗漫进来的天光，用一盏不投影的暖灯代替
-    const glow = new THREE.PointLight(0xffcf9a, 9, 9, 1.4); glow.position.set(0, baseH + 2.3, fz - 1.3); grp.add(glow);
+    for (const s of [-1, 1]) {
+      for (const z of columnZ) box(.24, ceil - baseH, .24, mat.woodDark, s * (ix - .1), (ceil + baseH) / 2, z);
+      box(.22, ceil - baseH, .18, mat.woodDark, s * 2.6, (ceil + baseH) / 2, iz0 + .06);
+      box(.2, .18, iz1 - iz0, mat.woodDark, s * 2.6, ceil - .09, (iz0 + iz1) / 2, { cast: false });
+    }
+    box(ix * 2, .18, .14, mat.woodDark, 0, baseH + 3.4, iz0 + .05, { cast: false });
+    for (const [z, t] of [[fz - D * .2, .25], [fz - D * .5, .32], [fz - D * .8, .25]]) box(ix * 2, t, t * .85, mat.woodDark, 0, ceil - .14 - t / 2, z, { cast: false });
+    // Rear wall kept clear for the moon relief.
+
+    // Interior wood: real plank joints, ceiling boards, braced beams and stone feet.
+    // All repeated details are instanced; the closed doors retain their original geometry.
+    grp.traverse(o => {
+      if (o.material === mat.wood) o.material = mat.hallWood;
+      else if (o.material === mat.woodDark) o.material = mat.hallBeam;
+    });
+    const boards = [], boardW = .245, boardCount = Math.floor(ix * 2 / boardW);
+    for (let i = 0; i < boardCount; i++) boards.push([new THREE.Vector3((i - (boardCount - 1) / 2) * boardW, (baseH + ceil) / 2, iz0 + .016)]);
+    const panels = batch(new THREE.BoxGeometry(boardW - .012, ceil - baseH - .05, .032), mat.hallWood, boards);
+    const tint = new THREE.Color();
+    for (let i = 0; i < boards.length; i++) panels.setColorAt(i, tint.setScalar(.87 + .13 * Math.sin(i * 7.13) ** 2));
+    const ceilingBoards = [];
+    for (let z = iz0 + .12; z < iz1; z += .25) ceilingBoards.push([new THREE.Vector3(0, ceil - .016, z)]);
+    batch(new THREE.BoxGeometry(ix * 2, .032, .238), mat.hallWood, ceilingBoards);
+    for (const s of [-1, 1]) {
+      for (const z of columnZ) {
+        box(.29, .14, .29, mat.stoneClean, s * (ix - .08), baseH + .07, z);
+        for (let tier = 0; tier < 3; tier++) {
+          box(.27 + tier * .18, .085, .24, mat.hallBeam, s * (ix - .2), ceil - .5 + tier * .105, z);
+        }
+      }
+      box(.08, .12, iz1 - iz0, mat.hallBeam, s * (ix - .035), baseH + .72, (iz0 + iz1) / 2);
+    }
+    // Warm reflected daylight reveals timber grain without flattening beam shadows.
+    const glow = new THREE.PointLight(0xffe0b6, 11, 12, 1.5);
+    glow.position.set(0, baseH + 3.2, fz - 2.2); grp.add(glow);
+    for (const s of [-1, 1]) {
+      const bounce = new THREE.PointLight(s > 0 ? 0xffe3bc : 0xd3ddd6, s > 0 ? 11 : 6.5, 11, 1.6);
+      bounce.position.set(s * (ix - .45), baseH + 2.45, fz - D * .5); grp.add(bounce);
+    }
+    RectAreaLightUniformsLib.init();
+    const windowFill = new THREE.RectAreaLight(0xffe4bd, 4.2, 5.8, 2.4);
+    windowFill.position.set(0, baseH + 3.8, fz - 6.5);
+    windowFill.lookAt(0, baseH + .9, L.statue.z); grp.add(windowFill);
+    // Low morning sunlight through the east lattice: stable, once-baked shadows.
+    const windowSun = new THREE.SpotLight(0xffdfaa, 60, 20, .72, .85, 2);
+    // Keep the source outside the lattice so the viewer sees the cast light,
+    // rather than an overexposed hotspot sitting directly on the window frame.
+    windowSun.position.set(-ix - .9, baseH + 3.45, fz - 10.5);
+    windowSun.target.position.set(.65, baseH + 1.9, L.statue.z - .4);
+    windowSun.castShadow = true;
+    windowSun.shadow.mapSize.setScalar(isMobile ? 512 : 1024);
+    windowSun.shadow.camera.near = .2; windowSun.shadow.camera.far = 18;
+    windowSun.shadow.bias = -.0002; windowSun.shadow.normalBias = .015;
+    grp.add(windowSun, windowSun.target);
     // 檐柱（旧红漆）、柱础、柱头上的斗拱（简化成两层木块）、额枋
-    for (const x of [-3.7, -1.25, 1.25, 3.7]) {
+    for (const x of [-4.95, -1.65, 1.65, 4.95]) {
+      colliders.push({ x, z: pz, r: .22 });
       add(new THREE.CylinderGeometry(.16, .18, H - .3, 14), mat.woodRed, x, baseH + (H - .3) / 2, pz);
       add(new THREE.CylinderGeometry(.24, .28, .16, 14), mat.stoneClean, x, baseH + .08, pz);
       box(.5, .13, .3, mat.woodDark, x, top - .36, pz); box(.26, .13, .62, mat.woodDark, x, top - .23, pz + .08); box(.72, .1, .2, mat.woodDark, x, top - .12, pz + .2);
     }
     box(W + .4, .26, .26, mat.woodRed, 0, top - .52, pz); box(W + .2, .12, .16, mat.woodDark, 0, top - .72, pz);   // 额枋：一粗一细两道横梁
-    const RW = 11.4, RD = 8.4, rz = bz + .2, ry = top + .06;
-    tiledRoof(RW, RD, 2.3, 0, ry, rz, { ridge: .5, lift: .7 });
+    const RW = W + 3.4, RD = D + 3.4, rz = bz + .2, ry = top + .06;
+    tiledRoof(RW, RD, 2.7, 0, ry, rz, { ridge: .5, lift: .7 });
     // 檐下的椽子：一根根从檐檩伸到檐口，露出方头
     const rafter = [], qy = new THREE.Quaternion().setFromAxisAngle(UP, Math.PI / 2);
     for (let x = -RW / 2 + .5; x <= RW / 2 - .5; x += .3) for (const s of [-1, 1]) rafter.push([new THREE.Vector3(x, ry - .12, rz + s * (RD / 2 - .78)), null]);
@@ -276,12 +338,12 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     batch(new THREE.BoxGeometry(.075, .075, 1.4), mat.woodDark, rafter);
     // 两扇门（朝里开，开多少见 L.doorOpen）：下半截是木板，上半截是镂空的窗棂
     for (const s of [-1, 1]) {
-      const hinge = new THREE.Group(); hinge.position.set(s * .97, baseH, fz); hinge.rotation.y = s * -L.doorOpen; grp.add(hinge); parent = hinge;
-      const lw = .965, lh = 2.45, cx = -s * lw / 2;   // 关上时两扇门在正中间合拢
+      const hinge = new THREE.Group(); hinge.position.set(s * 1.297, baseH, fz); hinge.rotation.y = s * -L.doorOpen; grp.add(hinge); parent = hinge;
+      const lw = 1.292, lh = 3.3, cx = -s * lw / 2;
       for (const e of [-1, 1]) box(.1, lh, .06, mat.woodRed, cx + e * (lw / 2 - .05), lh / 2, 0);      // 两边的立梃
       for (const y of [.06, .98, lh - .06]) box(lw - .2, .12, .06, mat.woodRed, cx, y, 0);             // 下、中、上三道横档
       box(lw - .2, .8, .035, mat.woodRed, cx, .52, 0);                                                  // 下半截的木板
-      lattice(lw - .2, lh - 1.16, cx, (lh + .92) / 2, 0, 0, hinge, .15);                                // 上半截的窗棂
+      lattice(lw - .2, lh - 1.16, cx, (lh + .92) / 2, 0, 0, hinge, .23);
       parent = grp;
     }
     // 殿里：水池、卵石、苔石、猫像、水面的倒影和水光
@@ -403,16 +465,17 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
 
   // ---------- 人：位置、朝向（yaw = 0 时面向小殿，也就是 -z）----------
   const player = { pos: new THREE.Vector3(L.start.x, 0, L.start.z), yaw: 0, pitch: 0 };
-  const vel = new THREE.Vector3(), want = new THREE.Vector3();
+  const vel = new THREE.Vector3(), want = new THREE.Vector3(), previousPos = new THREE.Vector3();
+  let eyeFloor = 0;
   let walked = 0, bobK = 0, active = false, exiting = false, shadowFrames = 0;
   // 进院时镜头自己往前走几步，停在树和香炉之间；玩家一动就交还控制
   let intro = null;
 
-  // 限制在院子里：院墙、殿前台阶、院门的门洞，再加上各个圆形障碍
-  const xMax = halfX - BODY_R, zSouth = south - BODY_R, zNorth = L.stepsZ - BODY_R, gateX = gateHalf - BODY_R;
+  // 院墙、柱子和门洞的碰撞；台阶与关闭殿门的边界由 constrainHallMove 处理。
+  const xMax = halfX - BODY_R, zSouth = south - BODY_R, gateX = gateHalf - BODY_R;
   function collide(p) {
     p.x = clamp(p.x, -xMax, xMax);
-    p.z = clamp(p.z, zNorth, south + 2);   // 出了院门最多再走两米（这时画面已经在淡出，回池边去）
+    p.z = Math.min(p.z, south + 2);
     if (p.z > zSouth) {
       if (Math.abs(p.x) <= gateX + .05) p.x = clamp(p.x, -gateX, gateX);   // 正在穿过院门
       else p.z = zSouth;
@@ -421,6 +484,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
       const dx = p.x - c.x, dz = p.z - c.z, d = Math.hypot(dx, dz), min = c.r + BODY_R;
       if (d < min) { const k = d > 1e-4 ? min / d : 1; p.x = c.x + (d > 1e-4 ? dx * k : min); p.z = c.z + dz * k; }
     }
+    constrainHallMove(p, previousPos);
   }
 
   // ---------- 输入 ----------
@@ -535,14 +599,15 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
       if (want.lengthSq() > 1) want.normalize();
       vel.lerp(want.multiplyScalar(WALK), 1 - Math.exp(-dt * 9));   // 起步、停步都有一点缓冲
       const px = p.x, pz = p.z;
-      p.addScaledVector(vel, dt); collide(p);
+      previousPos.copy(p); p.addScaledVector(vel, dt); collide(p);
       const d = Math.hypot(p.x - px, p.z - pz);
       walked += d; bobK += (clamp(d / Math.max(dt, 1e-4) / WALK) - bobK) * Math.min(1, dt * 6);
     }
     // 走出院门：回到池边
     if (!exiting && p.z > south + .55) { exiting = true; onExit(); }
     // 走路时镜头轻微起伏（一步约 0.75 米）
-    camera.position.set(p.x, EYE + Math.sin(walked / .75 * Math.PI * 2) * .02 * bobK, p.z);
+    eyeFloor += (p.y - eyeFloor) * (1 - Math.exp(-dt * 12));
+    camera.position.set(p.x, eyeFloor + EYE + Math.sin(walked / .75 * Math.PI * 2) * .02 * bobK, p.z);
     camera.rotation.set(player.pitch, player.yaw, 0);
     sky.position.copy(camera.position);
     fxT += dt; kit.update(fxT); plaques.update(fxT); grassCards.update(fxT); plantCards.update(fxT);
@@ -566,7 +631,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     resize(aspect) { camera.aspect = aspect; camera.fov = aspect < 1 ? FOV_PORTRAIT : FOV; camera.updateProjectionMatrix(); },
     // intro = false：直接站在院门里（调试、截图用）
     enter({ withIntro = true } = {}) {
-      player.pos.set(L.start.x, 0, L.start.z); player.yaw = 0; player.pitch = 0; vel.set(0, 0, 0); walked = 0; bobK = 0;
+      player.pos.set(L.start.x, 0, L.start.z); player.yaw = 0; player.pitch = 0; vel.set(0, 0, 0); walked = 0; bobK = 0; eyeFloor = 0;
       plaques.play(fxT);
       intro = null;
       if (withIntro) {

@@ -1,5 +1,5 @@
 // 许愿：点左边的石狐，一阵风送来一块长条木牌；先在一面写下愿望，字一笔一笔出现；木牌翻过来，在另一面写下名字（名字第一次写下后固定，之后自动写上）；
-// 木牌自己落进池里，愿望的墨迹随着它下沉慢慢散去，几秒后画面淡白，来到庭院（庭院在 courtyard.js，木牌会挂在那棵古树上）。
+// 木牌落水、墨迹散去后停留在池边；只有点击右侧石狐才进入庭院。
 // 下面是原来的龙的仪式（现在关着）：木牌落进池里，慢慢沉下去；
 // 四周渐渐安静下来（光变暗、风停、萤火虫躲起来），池底深处先亮起一对眼睛，
 // 青龙从正下方缓缓浮上来，张口衔走许愿签，转身潜回深处。
@@ -183,7 +183,8 @@ function makeJawGeometry() {
 // 龙须：从鼻头两侧往后飘，沿着须一道一道波动（每帧重算）
 const WR = 22, WS = 5, WLEN = 1.1;
 
-export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
+export function createWish({ scene, ripples, floorH, sound = {}, tex = null, onSettled = () => {} }) {
+  let settled = false;
   const group = new THREE.Group(); group.visible = false;
   scene.add(group);
 
@@ -607,7 +608,7 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
       if (bellyMat.map) bellyMat.color.setRGB(.95, 1.3, 1.5);   // 腹部贴图本身比背鳞亮一倍多（平均亮度 0.025 对 0.013），而且偏黄褐：压暗并偏向墨青，和背部协调
       plainMat.color.set(0x173f38);
       buildPath();
-      t = 0; pt = 0; called = !!opts.callNow; took = false; rippled = false; fired.clear(); hFinit = false; phase = phase0 + (Math.random() - .5) * .5;
+      t = 0; pt = 0; settled = false; called = !!opts.callNow; took = false; rippled = false; fired.clear(); hFinit = false; phase = phase0 + (Math.random() - .5) * .5;
       group.visible = true; group.scale.setScalar(1);
       dragon.visible = false; head.visible = false; motes.visible = false;
     },
@@ -621,7 +622,12 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null }) {
       const day = env.day ?? 1;
       pt += dt; dtNow = dt;
       t += dt; if (!called) t = Math.min(t, T.dread - .01);   // 还没唤龙：时间停在压迫感开始之前（四周不暗、龙不来）
-      if (!DRAGON_ENABLED && pt >= 4) t = T.end;   // 没有龙：木牌沉下去一半、墨迹散得差不多，仪式就收尾（这时 main.js 已经开始淡白去庭院）
+      if (!settled && pt >= 3.2) { settled = true; onSettled(thrownName); }
+      // Let the plaque disappear gently without jumping to the dragon's take frame.
+      if (!DRAGON_ENABLED) {
+        group.scale.setScalar(1 - smooth((pt - 3.8) / 2.2));
+        if (pt >= 6) { this.finish(); return; }
+      }
       const sway = Math.sin(pt * 1.3 + phase), sway2 = Math.sin(pt * .8 + phase * 2);
 
       // ---- 许愿签 ----
