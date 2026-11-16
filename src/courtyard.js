@@ -14,7 +14,9 @@ import { loadTree, createLeafKit, createGrove } from './courtyardTree.js';
 import { createPlaques } from './courtyardPlaques.js';
 import { createIncense } from './courtyardIncense.js';
 import { createBurner } from './courtyardBurner.js';
-import { createPlantCards, CELLS } from './courtyardPlants.js';
+import { createPlantCards, createHangCards, createDecals } from './courtyardPlants.js';
+import { ATLAS } from './qualityAtlases.js';
+import { loadProps, placeProps, createSign } from './courtyardProps.js';
 import { HALL_ACCESS, constrainHallMove } from './courtyardMovement.js';
 
 const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
@@ -50,8 +52,21 @@ const L = {
     [-6, 10, 3.5, 3.4], [6.5, 10.5, 3.9, 3.6], [-11.5, 8, 4.5, 3.6], [11.5, 8.5, 4.5, 3.6], [0, 14, 5.5, 4],
   ],
 };
+// 匾额和楹联上的字（改这里就行）：匾额从右往左读；楹联上联挂在右边
+const SIGN = { plaque: '寄愿堂', couplet: ['古木垂牌承宿愿', '清炉引篆寄初心'] };
+const PAVE_SCALE = 1 / 3.2, PAVE_JOINT = [.33, .4];   // 青石板贴图的尺寸（每米重复几次）和石缝的高度阈值（和 triMat 的 joint 一致）
 const EYE = 1.62, BODY_R = .35, WALK = 1.6;   // 眼睛高度、人的半径、步行速度（米/秒，比一般游戏慢一些）
 const FOV = 52, FOV_PORTRAIT = 68;            // 视野角（竖直方向）：横屏、竖屏
+
+// 把一张高度图读成可以查询的函数：isJoint(u, v, 阈值) —— (u, v) 是贴图坐标（和着色器里 texture2D 的坐标一致，v 向上）
+async function sampleJoints(url) {
+  const img = await createImageBitmap(await (await fetch(url)).blob());
+  const W = 512, c = document.createElement('canvas'); c.width = c.height = W;
+  const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0, W, W);
+  const d = g.getImageData(0, 0, W, W).data;
+  const fr = v => v - Math.floor(v);
+  return (u, v, th) => d[(Math.floor((1 - fr(v)) * W) % W * W + Math.floor(fr(u) * W) % W) * 4] / 255 < th;
+}
 
 // 一块不规则的石头：把球面按噪声推出凹凸，压扁（flat 越小越扁），底部削平
 function rockGeo(r, seed, flat = .68) {
@@ -98,7 +113,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
   // 贴图：全部下载完再揭开白幕（最多等 8 秒）
   const manager = new THREE.LoadingManager();
   const texReady = new Promise(res => { manager.onLoad = res; setTimeout(res, 8000); });
-  const tex = loadCourtTextures(renderer, manager);
+  const tex = loadCourtTextures(renderer, manager, { low });
   let ready = null;   // 贴图和古树都下载完（见古树那一段）
 
   // ---------- 光照：固定的清晨，暖色的阳光从右上方斜照下来，穿过古树的枝叶；略偏向院门一侧，殿的正面和树干有一层斜擦过去的光 ----------
@@ -135,14 +150,15 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
   const baseH = HALL_ACCESS.baseH;
   const M = (color, rough = .9) => new THREE.MeshStandardMaterial({ color, roughness: rough });
   const mat = {
-    ground: triMat({ set: tex.paving, moss: tex.moss, scale: .42, color: 0x8f968d, mossAmt: .95, mossAt: .6, wet: 1, roughMul: 1.05,
+    // 青石板：一张贴图 3.2 米见方（里面是一块块错缝的石板），石缝从高度图里找
+    ground: triMat({ set: tex.paving, moss: tex.moss, scale: PAVE_SCALE, color: 0xf2f2ec, mossAmt: .95, mossAt: .6, wet: 1, roughMul: 1.05, joint: PAVE_JOINT,
       paving: { yard: [-halfX, halfX, north, south + wallT], tree: [L.tree.x, L.tree.z, 1.5] } }),
-    wall: triMat({ set: tex.wall, moss: tex.moss, scale: .5, mossAmt: .92, mossAt: .34, grime: 1, blocks: true }),
-    stone: triMat({ set: tex.rock, moss: tex.moss, scale: .5, mossAmt: .8, mossAt: .5, grime: .6 }),
-    stoneClean: triMat({ set: tex.rock, moss: tex.moss, scale: .5, mossAmt: .6, mossAt: .7, grime: .3 }),   // 香炉的石基、柱础：苔少一些
+    wall: triMat({ set: tex.wall, moss: tex.moss, scale: .4, mossAmt: .9, mossAt: .4, grime: 1, joint: [.12, .26] }),   // 干垒的石墙：一张贴图 2.5 米
+    stone: triMat({ set: tex.rock, moss: tex.moss, scale: .45, mossAmt: .8, mossAt: .5, grime: .6 }),
+    stoneClean: triMat({ set: tex.rock, moss: tex.moss, scale: .45, mossAmt: .6, mossAt: .7, grime: .3 }),   // 香炉的石基、柱础：苔少一些
     bark: triMat({ set: tex.bark, moss: tex.moss, scale: .42, color: 0xf2e8dc, mossAmt: .7, mossAt: .64, mossScale: .55, grime: .5, norK: 1.3 }),
     wood: triMat({ set: tex.wood, scale: .55, color: 0xcabba8, weather: .7, weatherY: baseH }),
-    woodRed: triMat({ set: tex.wood, scale: .55, color: 0xffe2d2, weather: .55, weatherY: baseH }),   // 檐柱、门扇：褪了色的旧红漆（素材本身就是红褐色）
+    woodRed: triMat({ set: tex.lacquer, scale: .8, color: 0xffffff, weather: .25, weatherY: baseH }),   // 檐柱、门扇、窗框：剥落的旧红漆（露出底下的木头）
     woodDark: triMat({ set: tex.wood, scale: .55, color: 0x8a7c70, weather: .4, weatherY: baseH }),
     hallWood: triMat({ set: tex.wood, scale: .7, color: 0xc2bdb0, weather: .68, weatherY: baseH, wood: true, norK: .48 }),
     hallBeam: triMat({ set: tex.wood, scale: .49, color: 0x9c978b, weather: .55, weatherY: baseH, wood: true, norK: .42 }),
@@ -151,9 +167,9 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     ash: M(0xb8b2a3, 1), stick: M(0x7a4630),
     ember: new THREE.MeshBasicMaterial({ color: new THREE.Color(5, 1.4, .35) }),
   };
-  mat.stone.color.setScalar(1.6); mat.stoneClean.color.setScalar(1.6);   // 这套石头贴图偏暗：提亮一些，和青石板、院墙协调
+  mat.stone.color.setScalar(.95); mat.stoneClean.color.setScalar(1.02);
   // 旧木材的素材偏暗（平均亮度只有 0.15 左右）：殿的正面又在屋檐的阴影里，提亮一些才看得出木纹和色差
-  mat.wood.color.multiplyScalar(1.7); mat.woodRed.color.multiplyScalar(1.6); mat.woodDark.color.multiplyScalar(1.35); mat.gateWood.color.multiplyScalar(1.6);
+  mat.wood.color.multiplyScalar(1.7); mat.woodDark.color.multiplyScalar(1.35); mat.gateWood.color.multiplyScalar(1.6);
   mat.hallWood.color.multiplyScalar(1.85); mat.hallBeam.color.multiplyScalar(1.65);
   const colliders = [];   // 圆形的障碍：{ x, z, r }
   let parent = scene;     // add() 把东西加到这里：平时是场景，搭香炉时换成香炉的组（整体缩放）
@@ -161,6 +177,9 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = cast; o.receiveShadow = recv; parent.add(o); return o;
   };
   const box = (w, h, d, m, x, y, z, o) => add(new THREE.BoxGeometry(w, h, d), m, x, y, z, o);
+  // 小模型（鸱吻、斗拱、石栏、石灯、门环、门钉，见 courtyardProps.js）：先留一个空组，模型下载完再换成实例
+  const slots = [];
+  const slot = (type, x, y, z, ry = 0, sc = 1, par = parent) => { const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = ry; g.scale.setScalar(sc); par.add(g); slots.push({ type, obj: g }); return g; };
   // 一批同样的小方块（椽子、瓦当之类）：实例化，只画一次
   const batch = (geo, m, list) => {
     const im = new THREE.InstancedMesh(geo, m, list.length), mx = new THREE.Matrix4(), one = new THREE.Vector3(1, 1, 1);
@@ -184,7 +203,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     box(w - .5, .08, d - .5, mat.woodDark, x, y - .03, z);
     const rl = w * (opt.ridge ?? .45) + .3;
     box(rl, h * .14 + .08, .26, mat.roof, x, y + h + .02, z);
-    for (const s of [-1, 1]) box(.22, h * .24 + .16, .3, mat.roof, x + s * rl / 2, y + h + .09, z);   // 正脊两头翘起的鸱吻（简化）
+    for (const s of [-1, 1]) slot('chiwen', x + s * rl / 2, y + h - .02, z, s < 0 ? Math.PI / 2 : -Math.PI / 2, (h * .3 + .2) / .89);   // 正脊两头的鸱吻：张口咬住正脊
     const q = new THREE.Quaternion();
     batch(new THREE.CylinderGeometry(.052, .052, .035, 10), mat.tileEnd, geo.userData.eave.map(e =>
       [new THREE.Vector3(x + e.x + e.nx * .012, y + e.y + .03, z + e.z + e.nz * .012), q.clone().setFromUnitVectors(UP, new THREE.Vector3(e.nx, 0, e.nz))]));
@@ -209,6 +228,8 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
       box(pierW, pierH, .8, mat.wall, s * (gateHalf + pierW / 2), pierH / 2, gz);
       const hinge = new THREE.Group(); hinge.position.set(s * gateHalf, 0, south - .06); hinge.rotation.y = s * -2.92; scene.add(hinge);
       const leaf = new THREE.Mesh(new THREE.BoxGeometry(gateHalf, 2.3, .07), mat.gateWood); leaf.position.set(-s * gateHalf / 2, 1.2, 0); leaf.castShadow = leaf.receiveShadow = true; hinge.add(leaf);
+      if (!low) for (const f of [-1, 1]) for (let r = 0; r < 5; r++) for (let c = 0; c < 4; c++)
+        slot('door_stud', -s * gateHalf / 2 + (c - 1.5) * .24, .55 + r * .36, f * .035, f < 0 ? Math.PI : 0, 1, hinge);
     }
     box(gateHalf * 2 + pierW * 2 + .5, .28, .55, mat.gateWood, 0, pierH + .14, gz);    // 门梁
     box(gateHalf * 2, .1, .26, mat.gateWood, 0, .05, gz);                              // 门槛
@@ -232,7 +253,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
       box(HALL_ACCESS.stairWidth, h, HALL_ACCESS.stepDepth, mat.stoneClean, 0, h / 2, front + (i + .5) * HALL_ACCESS.stepDepth);
     }
     // 殿里的地面：干的青石板，墙根和石缝里有一点苔
-    const hallFloor = triMat({ set: tex.paving, moss: tex.moss, scale: .55, color: 0xb8b3a3, mossAmt: .08, mossAt: .95, wet: .02, norK: .48, paving: { yard: [-ix, ix, iz0, iz1], tree: [0, 99, .1] } });
+    const hallFloor = triMat({ set: tex.hallPaving, moss: tex.moss, scale: .55, color: 0xb8b3a3, mossAmt: .08, mossAt: .95, wet: .02, norK: .48, paving: { yard: [-ix, ix, iz0, iz1], tree: [0, 99, .1] } });
     const floorAt = (x0, x1, z0, z1) => { add(new THREE.PlaneGeometry(x1 - x0, z1 - z0), hallFloor, (x0 + x1) / 2, baseH + .004, (z0 + z1) / 2, { cast: false }).rotation.x = -Math.PI / 2; };
     floorAt(-ix, ix, P.front, iz1); floorAt(-ix, ix, iz0, P.back); floorAt(-ix, -P.halfX, P.back, P.front); floorAt(P.halfX, ix, P.back, P.front);
 
@@ -332,7 +353,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
       colliders.push({ x, z: pz, r: .22 });
       add(new THREE.CylinderGeometry(.16, .18, H - .3, 14), mat.woodRed, x, baseH + (H - .3) / 2, pz);
       add(new THREE.CylinderGeometry(.24, .28, .16, 14), mat.stoneClean, x, baseH + .08, pz);
-      box(.5, .13, .3, mat.woodDark, x, top - .36, pz); box(.26, .13, .62, mat.woodDark, x, top - .23, pz + .08); box(.72, .1, .2, mat.woodDark, x, top - .12, pz + .2);
+      slot('dougong', x, top - .43, pz, 0, .6);   // 柱头上的斗拱
     }
     box(W + .4, .26, .26, mat.woodRed, 0, top - .52, pz); box(W + .2, .12, .16, mat.woodDark, 0, top - .72, pz);   // 额枋：一粗一细两道横梁
     const RW = W + 3.4, RD = D + 3.4, rz = bz + .2, ry = top + .06;
@@ -352,9 +373,9 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
       lattice(lw - .13, lh - .925, cx, (lh + .725) / 2, 0, 0, hinge, .38, .02);
       // 兽面门环：门板靠中缝的一侧，一个鼓起的兽面衔着铜环
       const rx = -s * (lw - .26), ry = .62;
-      add(new THREE.SphereGeometry(.075, 14, 10), mat.bronze, rx, ry + .05, .03).scale.set(1.1, 1, .5);
-      add(new THREE.SphereGeometry(.035, 10, 8), mat.bronze, rx, ry + .015, .06).scale.set(1.1, .8, .8);
-      add(new THREE.TorusGeometry(.085, .014, 8, 24), mat.bronze, rx, ry - .07, .065);
+      slot('door_ring', rx, ry - .14, .028);
+      // 门钉：下半截门板上三排、每排四颗
+      for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++) slot('door_stud', cx + (c - 1.5) * .26, .19 + r * .2 - .025, .018);
       parent = grp;
     }
     // 殿里：水池、卵石、苔石、猫像、水面的倒影和水光
@@ -362,6 +383,20 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     for (const p of hall.lanterns) { const l = new THREE.PointLight(0xffb45e, .8, 3.5, 1.7); l.position.copy(p); grp.add(l); }   // 清晨石灯仅保留微弱暖光
     grp.traverse(o => { if (!o.userData.noReflect) o.layers.enable(REFLECT_LAYER); });   // 整座殿都画进水面的倒影里
     parent = scene;
+  }
+
+  // ---------- 殿前：台基边上的石栏（台阶两侧）、甬道两侧一对石灯；檐下的匾额、中间两根檐柱上的楹联 ----------
+  {
+    const A = HALL_ACCESS, half = A.stairWidth / 2, seg = 1.4, n = Math.round((A.porchHalfX - half) / seg);
+    for (const s of [-1, 1]) for (let i = 0; i < n; i++) slot('stone_railing', s * (half + seg * (i + .5)), baseH, A.front - .14);
+    for (const s of [-1, 1]) { slot('lantern_outdoor', s * 2.25, 0, L.stepsZ + 1.7, 0, .9); colliders.push({ x: s * 2.25, z: L.stepsZ + 1.7, r: .38 }); }
+    const top = baseH + 4.9, pz = A.front - .45;
+    const plaque = createSign(manager, 'sign_plaque_blank.webp', SIGN.plaque, { w: 1.75, h: 1.75 * 352 / 1024 });
+    plaque.position.set(0, top - 1.12, pz + .06); plaque.rotation.x = .1; scene.add(plaque);
+    SIGN.couplet.forEach((t, i) => {   // 上联在右（面对殿门的右手边），下联在左
+      const b = createSign(manager, 'sign_couplet_blank.webp', t, { vertical: true, w: .3, h: 1.5 });
+      b.position.set((i ? -1 : 1) * 1.65, baseH + 2.45, pz + .2); scene.add(b);
+    });
   }
 
   // ---------- 古树：Tripo 模型（重塑成矮而宽的伞状，精简到 5.5 万面）+ 疏朗的阔叶 + 横枝下稀疏的木牌 ----------
@@ -407,46 +442,82 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     colliders.push({ x, z, r: r * .95 });
   });
 
-  // ---------- 植物：石缝里的小草、墙根的三叶草、边角的一两丛蕨；墙头的蕨和垂下来的枝叶 ----------
-  const R = rng(41), grass = [], plants = [], vines = [];
+  // ---------- 植物：石缝里的小草、墙根的小叶草、边角的蕨和枯叶堆；墙头的蕨和垂下来的藤；地上的落叶、石头上的苔斑 ----------
+  // 图集（textures/q/）里每一格的范围在 qualityAtlases.js；格子的编号见 textures-src/quality/ASSET_OVERVIEW.png（从左上角起一行一行数）
+  const cell = (name, i) => { const c = ATLAS[name][i]; return [[c[0], c[1], c[2], c[3]], c[4]]; };
+  const PL = { fern: [0, 1, 2, 3, 4, 5, 6], broad: [7, 8, 9], rosette: [10, 11, 12], litter: [13, 14, 15] };
+  const R = rng(41), pick = a => a[Math.floor(R() * a.length)];
+  const plants = [], wallTop = [], hangs = [], leafDecals = [], mossDecals = [];
+  const free = (x, z, r = 0) => Math.hypot(x - L.burner.x, z - L.burner.z) > 1.5 + r && Math.hypot(x - L.tree.x, z - L.tree.z) > 1.3 + r;
   {
-    const free = (x, z) => Math.hypot(x - L.burner.x, z - L.burner.z) > 1.5 && Math.hypot(x - L.tree.x, z - L.tree.z) > 1.3;
-    // 小草：长在石板的横缝里（横缝在 z = 0.62 的整数倍，和 courtyardMats.js 里石板的排法一致），越靠墙越多
-    for (let k = Math.ceil((L.stepsZ + .2) / .62); k * .62 < south - .2; k++) {
-      const n = 1 + Math.floor(R() * 4);
-      for (let i = 0; i < n; i++) {
-        const u = R(), x = (R() < .55 ? Math.sign(R() - .5) * (halfX - .15 - u * u * 2.6) : (R() - .5) * 2 * (halfX - .4)), z = k * .62 + (R() - .5) * .03;
-        if (free(x, z)) grass.push({ x, z, h: .05 + R() * .1, cell: CELLS.grass[0], yaw: R() * 6.28, tint: [.34 + R() * .1, .42 + R() * .1, .27] });
-      }
-    }
-    // 墙根：一圈小草和三叶草
-    for (let i = 0; i < 80; i++) {
-      const side = Math.floor(R() * 3), t = R(), d = .12 + R() * .5;
+    // 墙根：一圈小叶草（车前草、蜂斗菜），偶尔一小堆枯叶
+    for (let i = 0; i < 46; i++) {
+      const side = Math.floor(R() * 3), t = R(), d = .15 + R() * .4;
       const x = side === 0 ? -halfX + d : side === 1 ? halfX - d : (t - .5) * 2 * halfX, z = side === 2 ? south - d : L.stepsZ + t * (south - L.stepsZ);
       if (side === 2 && Math.abs(x) < gateHalf + .3) continue;
-      if (R() < .25) plants.push({ x, z, h: .14 + R() * .1, cell: CELLS.clover[i % 3], yaw: R() * 6.28, tint: [.36, .44, .3] });
-      else grass.push({ x, z, h: .08 + R() * .14, cell: CELLS.grass[0], yaw: R() * 6.28, tint: [.34 + R() * .1, .43 + R() * .1, .27] });
+      const k = R(), g = .7 + R() * .25;
+      plants.push({ x, z, h: k < .15 ? .14 + R() * .06 : .16 + R() * .12, cell: cell('plants_atlas_v2', pick(k < .15 ? PL.litter : k < .55 ? PL.rosette : PL.broad)), yaw: R() * 6.28, tint: [g * .95, g, g * .9] });
     }
-    // 蕨：院子里只在两个角落各一丛（靠着苔石），不堆满
-    for (const [x, z, h] of [[-6.5, 3.3, .62], [-6.75, 3.75, .48], [5.3, -3.9, .66], [5.75, -4.35, .5]]) plants.push({ x, z, h, cell: CELLS.fern[Math.floor(R() * 4)], yaw: R() * 6.28, tint: [.27, .34, .21] });
-    // 墙外：几丛蕨从墙后探出头来
+    // 蕨：院子里只在两个角落各一丛（靠着苔石），不堆满；树根旁一小堆枯叶
+    for (const [x, z, h] of [[-6.5, 3.3, .66], [-6.75, 3.75, .52], [5.3, -3.9, .7], [5.75, -4.35, .54], [-6.4, -3.3, .5]]) plants.push({ x, z, h, cell: cell('plants_atlas_v2', pick(PL.fern)), yaw: R() * 6.28, tint: [.78, .82, .74] });
+    for (const [x, z] of [[-5.2, -.4], [-2.4, -2.8], [-4.9, -2.6]]) plants.push({ x, z, h: .16, cell: cell('plants_atlas_v2', pick(PL.litter)), yaw: R() * 6.28, tint: [.8, .78, .74] });
+    // 墙外：几丛蕨从墙后探出头来；墙头上零星的小蕨和野草（vines_atlas 第二行）
     for (let i = 0; i < 7; i++) {
       const s = i % 2 ? 1 : -1, z = L.stepsZ + R() * (south - L.stepsZ);
-      plants.push({ x: s * (halfX + wallT + .1 + R() * .25), y: wallH - .5 + R() * .1, z, h: .6 + R() * .3, cell: CELLS.fern[Math.floor(R() * 4)], yaw: R() * 6.28, tint: [.24, .31, .2] });
+      plants.push({ x: s * (halfX + wallT + .1 + R() * .25), y: wallH - .5 + R() * .1, z, h: .65 + R() * .3, cell: cell('plants_atlas_v2', pick(PL.fern)), yaw: R() * 6.28, tint: [.72, .76, .7] });
     }
-    // 墙头垂下来的枝叶：几枝小叶贴着墙面往下挂
-    for (let i = 0; i < 9; i++) {
-      const s = i % 2 ? 1 : -1, z = L.stepsZ + R() * (south - L.stepsZ - 1);
-      vines.push({ p: new THREE.Vector3(s * (halfX - .02), wallH + .02 - R() * .1, z), yaw: s * Math.PI / 2 + (R() - .5) * .5, pitch: -1.25 - R() * .25, roll: (R() - .5) * .4, s: .45 + R() * .35, tint: [.22, .34, .6 + R() * .2] });
+    for (let i = 0; i < 12; i++) {
+      const s = i % 2 ? 1 : -1, z = L.stepsZ + R() * (south - L.stepsZ - .5);
+      wallTop.push({ x: s * (halfX + wallT / 2), y: wallH - .12, z, h: .22 + R() * .18, cell: cell('vines_atlas', 4 + Math.floor(R() * 4)), yaw: R() * 6.28, tint: [.78, .82, .76] });
+    }
+    // 墙头垂下来的藤和苔（vines_atlas 第一行、第四行）：贴着院墙的内面往下挂
+    for (let i = 0; i < 11; i++) {
+      const s = i % 2 ? 1 : -1, z = L.stepsZ + .5 + R() * (south - L.stepsZ - 1.5);
+      const moss = R() < .35, h = moss ? .35 + R() * .25 : .6 + R() * .45;
+      hangs.push({ x: s * (halfX - .015), y: wallH + .02 - R() * .08, z, h, nx: -s, nz: 0, cell: cell('vines_atlas', moss ? 12 + Math.floor(R() * 4) : Math.floor(R() * 4)), tint: [.8, .84, .78] });
+    }
+    // 地上的落叶：树冠下面多（往树干越近越密），墙根、台阶边零星几片
+    for (let i = 0; i < 90; i++) {
+      const a = R() * 6.28, r = 1.4 + Math.pow(R(), .7) * 5.5, x = L.tree.x + Math.cos(a) * r, z = L.tree.z + Math.sin(a) * r;
+      if (Math.abs(x) > halfX - .1 || z > south - .1 || z < L.stepsZ + .1) continue;
+      const brown = R() < .85;   // 大多是枯褐色的旧叶，少数几片发黄的；不要红叶（院子是夏末的清晨）
+      const k = .5 + R() * .2;
+      leafDecals.push({ x, z, s: .08 + R() * .07, rot: R() * 6.28, cell: cell('decal_leaves_atlas', brown ? pick([2, 6, 9, 12]) : pick([4, 7, 14])), tint: brown ? [k, k * .93, k * .84] : [k * .9, k * .88, k * .7] });
+    }
+    // 苔斑：墙根、石阶边、树根旁的石板上一块块的苔和地衣
+    for (let i = 0; i < 40; i++) {
+      let x, z;
+      if (i < 24) { const side = i % 2 ? 1 : -1; x = side * (halfX - .1 - Math.pow(R(), 2) * .9); z = L.stepsZ + R() * (south - L.stepsZ); }
+      else if (i < 32) { x = (R() - .5) * HALL_ACCESS.stairWidth * 1.4; z = L.stepsZ + .05 + R() * .5; }
+      else { const a = R() * 6.28; x = L.tree.x + Math.cos(a) * (1.6 + R()); z = L.tree.z + Math.sin(a) * (1.6 + R()); }
+      const lichen = R() < .15, k = lichen ? .38 : .5 + R() * .15;   // 大多是暗绿的苔，偶尔一块灰白的地衣（压暗，不要像贴纸）
+      mossDecals.push({ x, z, s: .22 + R() * .35, rot: R() * 6.28, cell: cell('decal_moss_atlas', lichen ? pick([2, 4, 9, 11, 14]) : pick([0, 1, 5, 7, 10, 12, 15])), tint: [k * .92, k, k * .82] });
     }
   }
-  const grassCards = createPlantCards(tex.grass, grass, { sway: .05 }), plantCards = createPlantCards(tex.plants, plants, { sway: .03 });
-  scene.add(grassCards.mesh, plantCards.mesh, kit.add(vines, { cast: false }));
+  const plantCards = createPlantCards(tex.plants, plants, { sway: .03 }), topCards = createPlantCards(tex.vines, wallTop, { sway: .04 });
+  const hangCards = createHangCards(tex.vines, hangs);
+  const decals = [createDecals(tex.decalMoss, mossDecals, { y: .006 }), createDecals(tex.decalLeaves, leafDecals, { y: .011 })];
+  scene.add(plantCards.mesh, topCards.mesh, hangCards.mesh, ...decals);
+  // 石缝里的小草：要知道石缝在哪，先把青石板的高度图读进来（和 triMat 用的是同一张），在缝上撒草
+  let grassCards = null;
+  const grassReady = sampleJoints(`${import.meta.env.BASE_URL}textures/q/paving_old_height_1k.webp`).then(isJoint => {
+    const G = rng(77), list = [];
+    for (let tries = 0; tries < 9000 && list.length < (low ? 260 : 420); tries++) {
+      const u = G(), x = (G() < .5 ? Math.sign(G() - .5) * (halfX - .1 - u * u * 3.2) : (G() - .5) * 2 * (halfX - .3)), z = L.stepsZ + .2 + G() * (south - L.stepsZ - .4);
+      if (!free(x, z) || !isJoint(x * PAVE_SCALE, z * PAVE_SCALE, PAVE_JOINT[0] - .02)) continue;
+      const near = Math.min(halfX - Math.abs(x), south - z);   // 越靠墙越密、越高
+      if (G() > .35 + .65 * Math.exp(-near * .7)) continue;
+      const g = .66 + G() * .2;
+      list.push({ x, z, h: .06 + G() * .08 + Math.exp(-near) * .08, cell: cell('grass_clumps_atlas', Math.floor(G() * 16)), yaw: G() * 6.28, tint: [g * .95, g, g * .82] });
+    }
+    grassCards = createPlantCards(tex.grass, list, { sway: .05 });
+    scene.add(grassCards.mesh);
+  }).catch(e => console.warn('石缝小草没有生成：', e));
 
   // ---------- 气氛：几道光柱、香烟、晨雾 ----------
   // 殿里还有一道：清晨的光从东窗的花格斜照进去，落在水池前的石板上（和殿里那盏 windowSun 聚光灯同一个方向）
   const hallBeam = [-1.6, HALL_ACCESS.doorZ - 3.4, 1.1, 8.2, { dir: new THREE.Vector3(8.9, 4.1, -.6).normalize(), y: baseH, k: .7 }];
-  const shafts = createShafts([...L.shafts, hallBeam], sunDir), smoke = createSmoke(24, 3);
+  const shafts = createShafts([...L.shafts, hallBeam], sunDir, tex.shaftNoise), smoke = createSmoke(24, 3);
   const dust = createDust([...L.shafts, hallBeam], sunDir, low ? 360 : 900);
   scene.add(dust.mesh);
   // 炉里的香：数据由外面给（setIncense）；?debug 时再多插几炷别人的，方便看效果
@@ -456,11 +527,17 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     [-10, 1.2, -17, 22, 5, .5], [9, 1.5, -18, 24, 6, .5], [0, 1, -19, 26, 5, .45], [-16, 1.5, 2, 20, 5, .42], [16, 1.2, -2, 20, 5, .42],
     [0, 1, 16, 24, 4, .38], [-9, 1, 13, 18, 4, .32], [10, 1.2, 12, 18, 4, .32],
     [0, .5, -4.6, 11, 1.5, .13], [-4.5, .5, 1.5, 8, 1.2, .08],   // 院子里贴着地面的两缕薄雾
-  ]);
+  ], { map: tex.fogPuffs, cells: ATLAS.fog_puffs });
   scene.add(shafts.mesh, smoke.mesh, mist.group);
   let fxT = 0;
   const bufSize = new THREE.Vector2();
-  ready = Promise.all([texReady, treeReady, hall.ready]).then(() => {});
+  const lampMat = new THREE.MeshStandardMaterial({ color: 0x5e5243, emissive: 0xffb25e, emissiveIntensity: .12, roughness: .9 });   // 石灯的灯室：清晨里只透一点暖光
+  const chiwenMat = triMat({ set: tex.rock, moss: tex.moss, scale: 1.4, color: 0x9a9ea0, mossAmt: .3, mossAt: .75 });              // 鸱吻：灰陶，略带苔
+  const propsReady = loadProps(manager).then(models => placeProps(scene, models, slots, {
+    chiwen: { default: chiwenMat }, dougong: { default: mat.woodDark }, stone_railing: { default: mat.stoneClean },
+    lantern_outdoor: { default: mat.stone, lamp_glass: lampMat }, door_ring: { default: mat.bronze }, door_stud: { default: mat.bronze },
+  }, { layer: REFLECT_LAYER })).catch(e => console.warn('小模型没有加载：', e));
+  ready = Promise.all([texReady, treeReady, hall.ready, grassReady, propsReady]).then(() => {});
 
   // ---------- 人：位置、朝向（yaw = 0 时面向小殿，也就是 -z）----------
   const player = { pos: new THREE.Vector3(L.start.x, 0, L.start.z), yaw: 0, pitch: 0 };
@@ -617,7 +694,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
       camera.updateProjectionMatrix();
     }
     sky.position.copy(camera.position);
-    fxT += dt; kit.update(fxT); plaques.update(fxT); grassCards.update(fxT); plantCards.update(fxT);
+    fxT += dt; kit.update(fxT); plaques.update(fxT); grassCards?.update(fxT); plantCards.update(fxT); topCards.update(fxT);
     shafts.uniforms.uTime.value = fxT; smoke.uniforms.uTime.value = fxT; mist.update(fxT); hall.update(fxT);
     dust.uniforms.uTime.value = fxT; backdrop.userData.uniforms.uTime.value = fxT;
     dust.uniforms.uPx.value = renderer.getDrawingBufferSize(bufSize).y / (2 * Math.tan(camera.fov * Math.PI / 360));   // 1 米远处 1 米有多少像素

@@ -1,0 +1,127 @@
+[
+  {
+    "name": "red_lacquer_peeled",
+    "width": 2048,
+    "height": 2048,
+    "edgeMax": 0,
+    "mirrorMAE": 22.835174560546875,
+    "maps": "estimated height-derived OpenGL normals; roof uses source-authored normal"
+  },
+  {
+    "name": "tile_mossy",
+    "width": 2048,
+    "height": 2048,
+    "edgeMax": 0,
+    "mirrorMAE": 20.012832641601562,
+    "maps": "estimated height-derived OpenGL normals; roof uses source-authored normal"
+  },
+  {
+    "name": "paving_old",
+    "width": 2048,
+    "height": 2048,
+    "edgeMax": 0,
+    "mirrorMAE": 19.192886352539062,
+    "maps": "estimated height-derived OpenGL normals; roof uses source-authored normal"
+  },
+  {
+    "name": "soil_gravel",
+    "width": 2048,
+    "height": 2048,
+    "edgeMax": 0,
+    "mirrorMAE": 28.275192260742188,
+    "maps": "estimated height-derived OpenGL normals; roof uses source-authored normal"
+  },
+  {
+    "name": "decal_leaves_atlas",
+    "width": 2048,
+    "height": 2048
+  },
+  {
+    "name": "decal_moss_atlas",
+    "width": 2048,
+    "height": 2048
+  },
+  {
+    "name": "plants_atlas_v2",
+    "width": 2048,
+    "height": 2048
+  },
+  {
+    "name": "mountain_mist_panorama",
+    "width": 4096,
+    "height": 1024
+  },
+  {
+    "name": "vines_atlas",
+    "width": 2048,
+    "height": 2048
+  },
+  {
+    "name": "grass_clumps_atlas",
+    "width": 2048,
+    "height": 2048
+  },
+  {
+    "name": "maple_branch_atlas",
+    "width": 2048,
+    "height": 2048
+  },
+  {
+    "name": "stone_worn",
+    "width": 2048,
+    "height": 2048,
+    "edgeMax": 0,
+    "mirrorMAE": 30.040939331054688,
+    "maps": "estimated height-derived OpenGL normals; roof uses source-authored normal"
+  },
+  {
+    "name": "moss_dense",
+    "width": 2048,
+    "height": 2048,
+    "edgeMax": 0,
+    "mirrorMAE": 28.878341674804688,
+    "maps": "estimated height-derived OpenGL normals; roof uses source-authored normal"
+  },
+  {
+    "name": "bark_ancient_v2",
+    "width": 2048,
+    "height": 2048,
+    "edgeMax": 0,
+    "mirrorMAE": 33.45240783691406,
+    "maps": "estimated height-derived OpenGL normals; roof uses source-authored normal"
+  },
+  {
+    "name": "wall_drystone",
+    "width": 2048,
+    "height": 2048,
+    "edgeMax": 0,
+    "mirrorMAE": 42.546630859375,
+    "maps": "estimated height-derived OpenGL normals; roof uses source-authored normal"
+  },
+  {
+    "name": "plaque_wood_new",
+    "width": 1024,
+    "height": 1024,
+    "edgeMax": 0,
+    "mirrorMAE": 3.66998291015625,
+    "maps": "estimated height-derived OpenGL normals; roof uses source-authored normal"
+  },
+  {
+    "name": "plaque_wood_old",
+    "width": 1024,
+    "height": 1024,
+    "edgeMax": 0,
+    "mirrorMAE": 22.01513671875,
+    "maps": "estimated height-derived OpenGL normals; roof uses source-authored normal"
+  },
+  {
+    "name": "sign_plaque_blank",
+    "width": 1024,
+    "height": 352
+  },
+  {
+    "name": "sign_couplet_blank",
+    "width": 256,
+    "height": 1280
+  }
+]

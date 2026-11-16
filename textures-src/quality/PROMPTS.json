@@ -1,0 +1,85 @@
+[
+  {
+    "name": "red_lacquer_peeled",
+    "prompt": "Photorealistic seamless square albedo texture of ancient Chinese temple red lacquered wood, vertical grain same fine scale as reference wood. 40 percent dark oxblood lacquer remaining, 60 percent peeled gray-brown silver weathered bare timber. Large irregular peeling patches, curled chipped edges, hairline lacquer cracks, knots and long rain streaks. Flat neutral diffuse illumination, no shadows highlights perspective objects labels. Non mirrored asymmetric organic pattern, all four edges tile exactly. 2048 square.",
+    "ref": "D:/wish/textures-src/temple/Temple_Wood/Temple_Wood_Source.png"
+  },
+  {
+    "name": "tile_mossy",
+    "prompt": "Edit target: supplied roof texture. Preserve every existing tile ridge and overlap position, scale and layout exactly. Change only surface weathering: patches of muted green moss and yellow green lichen concentrated in troughs and lower tile rims, dark rain streaks, small chips, some damp tiles. Blue-gray old Chinese clay roof. Flat albedo map no baked lighting shadow highlights. Seamless 2048 square, do not mirror.",
+    "ref": "D:/wish/textures-src/temple/Grey_Roof_Tile/Grey_Roof_Tile_Source.png"
+  },
+  {
+    "name": "paving_old",
+    "prompt": "Photorealistic seamless square albedo texture, top-down orthographic ancient Chinese courtyard blue-gray paving. About 5 rows by 3 irregular staggered rectangular slabs over 3 by 3 meters. Worn rounded chipped rims, cracks, mineral grains, damp discoloration, dark brown soil and restrained green moss and leaf fragments in joints, slight settling. Cool subdued gray, not yellow. Flat lighting no shadows highlights perspective text. Exactly tileable four edges, no mirror or symmetry. 2048 square."
+  },
+  {
+    "name": "soil_gravel",
+    "prompt": "Photorealistic seamless 2048 square flat albedo texture of damp dark gray-brown forest soil with tiny irregular gravel and fragments of dead leaves, fine granular detail. Flat overhead orthographic no shadows highlights text objects. All edges tile, non mirrored asymmetric organic pattern."
+  },
+  {
+    "name": "decal_leaves_atlas",
+    "prompt": "4 by 4 precisely evenly spaced atlas 16 single independent autumn leaves seen flat from directly above. Mix maple and broad leaves, golden yellow orange brown, intact and curled torn insect holes detailed veins. Each leaf within central 70 percent of its own cell with completely transparent gutter at least 32 px, no stems crossing cells. No grid lines no labels no shadows. Photoreal botanical cutouts. 2048 square."
+  },
+  {
+    "name": "decal_moss_atlas",
+    "prompt": "4 by 4 precisely evenly spaced atlas 16 independent irregular patches of moss and lichen seen directly above. Dark thick moss, fresh short moss, gray-green crustose lichen, yellow green leafy lichen, natural soft ragged semitransparent edges. Each patch in central 75 percent of own cell with completely transparent gutters at least 32 px. No grid lines labels shadows. Photoreal high frequency detail. 2048 square."
+  },
+  {
+    "name": "plants_atlas_v2",
+    "prompt": "4 by 4 precisely evenly spaced atlas 16 independent understory plant clumps, FRONT slightly elevated view for vertical crossed billboard cards, NOT top-down. First four feather ferns, next three small ferns, three butterbur broadleaf clumps, three plantain rosettes, three dead twig leaf piles. Each rooted base bottom center of own cell, 32 px transparent gutters all sides, no overlap between cells, natural muted gray green leaves detailed veins and some dry edges, photoreal. No shadows grid labels. 2048 square."
+  },
+  {
+    "name": "mountain_mist_panorama",
+    "prompt": "Photorealistic matte background panorama 4:1 horizontal, 4096x1024. Eastern forested mountains at quiet cool dawn. Foreground dark gray green treeline in lower third, layered blue green hills broken by thin white horizontal mist, pale blue gray mountains far away. Pale cyan sky upper two thirds. Soft subdued low contrast, no sun no architecture no people no torii no text. Left and right edges MUST meet seamlessly as an endless circular panorama, matched horizon and color."
+  },
+  {
+    "name": "vines_atlas",
+    "prompt": "4x4 precisely spaced transparent atlas 16 plant cutouts for game cards. Front view. First row four trailing ivy and creeper vertical leaf strings, their tops aligned near top center of cells, bottom tips inside cell. Second row walltop small ferns and wild grass. Third row small leafy shrub branches emerging from wall cracks. Fourth row hanging moss tufts. Natural muted gray green and dark green detailed foliage. Each isolated, 32 pixel transparent margin, no grid text shadow. 2048 square."
+  },
+  {
+    "name": "grass_clumps_atlas",
+    "prompt": "4x4 precisely spaced transparent atlas of 16 small wild grass tufts front view, each rooted bottom center with 32 px transparent padding, height only 40 to 60 percent cell height. Fine blade grass, broad short grass, seed heads, dry mixed grass, four variants each. Photoreal muted gray-green not fluorescent. No shadows grid text. 2048 square."
+  },
+  {
+    "name": "maple_branch_atlas",
+    "prompt": "Production botanical transparent atlas six separate thin woody maple branch sprays arranged exactly 3 columns by 2 rows with generous clear gutters and 32 px exterior margin. Realistic sharply lobed maple leaves mostly gray green, some yellow green and yellow edges, visible veins, naturally branching slender twigs. Orthographic frontal foliage card view, same scale and botanical realism as East Asian tree textures. No shadow no text grid. 2048 square."
+  },
+  {
+    "name": "stone_worn",
+    "prompt": "Photoreal seamless 2048 square albedo texture flat front orthographic weathered cool gray granite continuous uneven stone surface NOT masonry blocks. Pitted worn mineral grains small cracks rounded worn relief, scattered yellow-green lichen and restrained moss in cracks, dark thin rain streaks. Flat diffuse light no shadows highlights perspective. Four edges match, no mirroring symmetry text."
+  },
+  {
+    "name": "moss_dense",
+    "prompt": "Photoreal seamless 2048 square albedo top-down carpet of thick forest moss covering entire frame. Deep green muted fresh green small yellow green patches, fine tiny fronds and granular cushioned height variations with very sparse fern sprouts and small dead leaf crumbs. No soil gaps. Flat neutral lighting no baked shadows highlights perspective. Four edges match, no mirror symmetry text."
+  },
+  {
+    "name": "bark_ancient_v2",
+    "prompt": "Photoreal 2048 square seamless albedo texture of ancient broadleaf tree bark, vertical deep interrupted fissures uneven depth, dark gray brown ridges, very sparse gray green lichen and minimal moss. Scale of bark flakes similar reference but create NEW asymmetrical bark pattern, absolutely no mirrored bilateral pattern. Flat diffuse orthographic no shadows highlights text. All edges seamlessly tile.",
+    "ref": "D:/wish/textures-src/temple/Ancient_Bark/Ancient_Bark_Source.png"
+  },
+  {
+    "name": "wall_drystone",
+    "prompt": "Photoreal seamless 2048 square albedo texture, straight frontal old dry stone wall, irregular cool blue gray granite blocks varied size and depth in staggered layers, no mortar. Dark deep gaps with modest moss and small ferns, weathered pitted surfaces and lichen. Covers 3x3 meters. Flat illumination no lighting shadows highlights perspective text. No symmetry no mirror. Four edges tile exactly."
+  },
+  {
+    "name": "plaque_wood_new",
+    "prompt": "Photoreal seamless 1024 square base color texture, pale raw cypress timber, subtle fine straight vertical wood grain, clean light straw yellow toned down, natural tiny grain variations no big knots. Flat diffuse illumination no shadows highlights frame text perspective. Seamless edges no mirror."
+  },
+  {
+    "name": "plaque_wood_old",
+    "prompt": "Photoreal seamless 1024 square base color texture, weathered cypress timber, fine vertical grain, grayed dark brown from sun and rain, fine cracks dark water streaks some blackened patches, same small-scale grain as new cypress wish tablets. Flat diffuse illumination no shadows highlights frame text perspective. Seamless edges no mirror."
+  },
+  {
+    "name": "sign_plaque_blank",
+    "prompt": "Orthographic flat front view Chinese temple black lacquer horizontal signboard background, 1024x352 ratio 32:11. Frame fills rectangular image to edges. Subtle old black wood grain and fine lacquer cracking, aged muted gold double line border, small simple angular meander decoration four corners. Entire central field empty black, absolutely no text symbols glyphs lettering. Flat uniform illumination no shadows highlight perspective."
+  },
+  {
+    "name": "sign_couplet_blank",
+    "prompt": "Orthographic flat front view Chinese temple black lacquer vertical couplet board background, 256x1280 ratio 1:5, very tall narrow rectangular board. Frame fills image. Fine aged black wood grain lacquer cracking, muted antique gold double thin border and simple tiny ruyi meander ornament top and bottom only. Entire long middle black field completely blank no writing symbols text glyphs. Flat albedo illumination no shadows highlights perspective."
+  },
+  {
+    "name": "grass_clumps_atlas_revision",
+    "prompt": "Use case: precise-object-edit. Edit target: grass atlas. Replace the pale cloudy halos with clean empty fully transparent space. Preserve sixteen separate grass clumps in a precise 4 by 4 atlas, but render grass blades fully opaque natural muted green/brown, crisp sharp thin botanical cutout silhouettes, realistic veins and sharp seed heads. Absolutely NO glow, no fog, no white patches, no smoke, no cloudy circles, no semitransparent filled blob around the grass, no backlighting. Front orthographic view. Root of each clump at bottom center of own cell, clump only half the cell height. Wide transparent gutters all sides. 2048 square, genuinely transparent background."
+  }
+]

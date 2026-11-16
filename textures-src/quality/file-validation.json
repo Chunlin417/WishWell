@@ -1,0 +1,611 @@
+[
+  {
+    "file": "ASSET_OVERVIEW.png",
+    "width": 1280,
+    "height": 1400,
+    "channels": 4,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "bark_ancient_v2_diff.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "bark_ancient_v2_diff_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "bark_ancient_v2_height.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "bark_ancient_v2_height_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "bark_ancient_v2_nor_gl.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "bark_ancient_v2_nor_gl_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "bark_ancient_v2_rough.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "bark_ancient_v2_rough_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "decal_leaves_atlas.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 4,
+    "fullyTransparentPixels": 2298613
+  },
+  {
+    "file": "decal_moss_atlas.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 4,
+    "fullyTransparentPixels": 1760729
+  },
+  {
+    "file": "dust_motes.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 4,
+    "fullyTransparentPixels": 997458
+  },
+  {
+    "file": "film_grain.png",
+    "width": 512,
+    "height": 512,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "fog_puffs.png",
+    "width": 2048,
+    "height": 1024,
+    "channels": 4,
+    "fullyTransparentPixels": 1212204
+  },
+  {
+    "file": "grass_clumps_atlas.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 4,
+    "fullyTransparentPixels": 1790003
+  },
+  {
+    "file": "grime_blotches.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "grime_blotches_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "grime_edge_wear.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "grime_edge_wear_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "grime_moisture.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "grime_moisture_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "grime_rain_streaks.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "grime_rain_streaks_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "maple_branch_atlas.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 4,
+    "fullyTransparentPixels": 2264651
+  },
+  {
+    "file": "MODEL_OVERVIEW.png",
+    "width": 1500,
+    "height": 1000,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "moss_dense_diff.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "moss_dense_diff_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "moss_dense_height.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "moss_dense_height_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "moss_dense_nor_gl.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "moss_dense_nor_gl_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "moss_dense_rough.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "moss_dense_rough_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "mountain_mist_panorama.png",
+    "width": 4096,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "paving_old_diff.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "paving_old_diff_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "paving_old_height.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "paving_old_height_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "paving_old_nor_gl.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "paving_old_nor_gl_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "paving_old_rough.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "paving_old_rough_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "plants_atlas_v2.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 4,
+    "fullyTransparentPixels": 1703704
+  },
+  {
+    "file": "plaque_wood_new_diff.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "plaque_wood_new_nor_gl.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "plaque_wood_new_rough.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "plaque_wood_old_diff.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "plaque_wood_old_nor_gl.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "plaque_wood_old_rough.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "red_lacquer_peeled_diff.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "red_lacquer_peeled_diff_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "red_lacquer_peeled_nor_gl.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "red_lacquer_peeled_nor_gl_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "red_lacquer_peeled_rough.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "red_lacquer_peeled_rough_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "shaft_noise.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "sign_couplet_blank.png",
+    "width": 256,
+    "height": 1280,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "sign_plaque_blank.png",
+    "width": 1024,
+    "height": 352,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "soil_gravel_diff.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "soil_gravel_diff_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "soil_gravel_nor_gl.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "soil_gravel_nor_gl_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "soil_gravel_rough.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "soil_gravel_rough_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "stone_worn_diff.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "stone_worn_diff_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "stone_worn_height.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "stone_worn_height_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "stone_worn_nor_gl.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "stone_worn_nor_gl_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "stone_worn_rough.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "stone_worn_rough_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "tile_mossy_diff.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "tile_mossy_diff_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "tile_mossy_nor_gl.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "tile_mossy_nor_gl_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "tile_mossy_rough.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "tile_mossy_rough_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "vines_atlas.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 4,
+    "fullyTransparentPixels": 1029563
+  },
+  {
+    "file": "wall_drystone_diff.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "wall_drystone_diff_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "wall_drystone_height.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "wall_drystone_height_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "wall_drystone_nor_gl.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "wall_drystone_nor_gl_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "wall_drystone_rough.png",
+    "width": 2048,
+    "height": 2048,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  },
+  {
+    "file": "wall_drystone_rough_1k.png",
+    "width": 1024,
+    "height": 1024,
+    "channels": 3,
+    "fullyTransparentPixels": 0
+  }
+]

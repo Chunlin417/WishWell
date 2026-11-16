@@ -136,7 +136,8 @@ export function createCanopyShade(tex, center, radius, height = 10) {
 // 第五项可选：dir 这道光自己的方向（比如从殿的东窗斜照进去的那一道）、y 落地点的高度、k 亮度倍数
 // 每道光柱由三片错开一点角度、宽窄不同的长片叠成：中间一片窄而亮，两边各一片宽而淡——看起来有厚度，不是一张纸
 const beamDir = (b, sunDir) => b[4]?.dir || sunDir;
-export function createShafts(beams, sunDir) {
+// noise：一张可平铺的灰度噪声图（光柱里雾气的浓淡），没有就用程序噪声
+export function createShafts(beams, sunDir, noise = null) {
   const pos = [], par = [], seed = [], dir = [], idx = [];
   beams.forEach((beam, i) => {
     const [x, z, w, len, o = {}] = beam, d = beamDir(beam, sunDir), k = o.k ?? 1;
@@ -154,9 +155,10 @@ export function createShafts(beams, sunDir) {
   g.setAttribute('aSeed', new THREE.Float32BufferAttribute(seed, 3));
   g.setAttribute('aDir', new THREE.Float32BufferAttribute(dir, 3));
   g.setIndex(idx);
-  const uniforms = { uTime: { value: 0 }, uCol: { value: new THREE.Color(1, .88, .64).multiplyScalar(.11) } };
+  const uniforms = { uTime: { value: 0 }, uCol: { value: new THREE.Color(1, .88, .64).multiplyScalar(.11) }, tNoise: { value: noise } };
   const mesh = new THREE.Mesh(g, new THREE.ShaderMaterial({
     uniforms, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false,
+    defines: noise ? { NOISE_TEX: '' } : {},
     vertexShader: /* glsl */`
       attribute vec4 aP; attribute vec3 aSeed, aDir;
       varying vec2 vQ; varying vec3 vSeed; varying float vDist, vFace;
@@ -173,7 +175,7 @@ export function createShafts(beams, sunDir) {
         gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: /* glsl */`
-      uniform float uTime; uniform vec3 uCol; varying vec2 vQ; varying vec3 vSeed; varying float vDist, vFace;
+      uniform float uTime; uniform vec3 uCol; uniform sampler2D tNoise; varying vec2 vQ; varying vec3 vSeed; varying float vDist, vFace;
       ${NOISE_GLSL}
       void main(){
         float a = pow(max(1. - abs(vQ.x), 0.), 1.8);                                    // 横向：中间亮、两边淡
@@ -182,7 +184,11 @@ export function createShafts(beams, sunDir) {
         float strands = vnoise(vec2(vQ.x * 5. + vSeed.x * 7. + sin(uTime * .21 + vSeed.x) * .35, vSeed.x));
         a *= .3 + .7 * strands * strands * 1.6;
         // 雾气不均匀：一团团的浓淡顺着光柱慢慢往上飘
-        a *= .55 + .45 * fbm2(vec2(vQ.x * 1.6 + vSeed.x, vQ.y * 4. - uTime * .045));
+        #ifdef NOISE_TEX
+          a *= .45 + .65 * texture2D(tNoise, vec2(vQ.x * .45 + vSeed.x * .37, vQ.y * 1.1 - uTime * .011)).r;
+        #else
+          a *= .55 + .45 * fbm2(vec2(vQ.x * 1.6 + vSeed.x, vQ.y * 4. - uTime * .045));
+        #endif
         a *= .85 + .15 * sin(uTime * .37 + vSeed.x * 3.);                        // 整道光极慢地一明一暗（云从太阳前面飘过）
         a *= 1. + vFace * .6;
         a *= smoothstep(.8, 4.5, vDist);                                        // 走到光柱里时淡掉，不会糊在眼前
@@ -303,16 +309,25 @@ export function createSmoke(maxCols = 24, height = 2.8) {
   return { mesh, uniforms, setTip(i, x, y, z, w) { tips[i].set(x, y, z, w); } };
 }
 
-// 薄雾：院墙外、殿后低低地浮着几团雾（始终朝向镜头的柔边圆片）
-export function createMist(haze, spots) {
-  const c = document.createElement('canvas'); c.width = c.height = 128;
-  const g = c.getContext('2d'), grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-  grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(.5, 'rgba(255,255,255,.45)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
-  const map = new THREE.CanvasTexture(c);
+// 薄雾：院墙外、殿后低低地浮着几团雾（始终朝向镜头的柔边片）。
+// puffs：{ map, cells } 雾团图集（每团形状不同、里面有浓淡）；没有就用一个柔边圆
+export function createMist(haze, spots, puffs = null) {
+  let map = puffs?.map;
+  if (!map) {
+    const c = document.createElement('canvas'); c.width = c.height = 128;
+    const g = c.getContext('2d'), grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(.5, 'rgba(255,255,255,.45)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+    map = new THREE.CanvasTexture(c);
+  }
   const group = new THREE.Group(), list = [];
   spots.forEach(([x, y, z, w, h, o], i) => {
-    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map, color: haze, opacity: o, depthWrite: false, fog: false, transparent: true }));
+    let m = map;
+    if (puffs) {   // 每团雾取图集里的一格（贴图对象各自一份，图像数据共用）
+      const c = puffs.cells[i % puffs.cells.length]; m = map.clone();
+      m.offset.set(c[0], c[1]); m.repeat.set(c[2] - c[0], c[3] - c[1]); m.needsUpdate = true;
+    }
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: m, color: haze, opacity: o * (puffs ? 1.25 : 1), depthWrite: false, fog: false, transparent: true }));
     s.position.set(x, y, z); s.scale.set(w, h, 1); s.renderOrder = 2;
     group.add(s); list.push({ s, x, ph: i * 1.9 });
   });

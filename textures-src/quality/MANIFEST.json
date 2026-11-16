@@ -1,0 +1,978 @@
+{
+  "items": [
+    {
+      "item": 1,
+      "files": [
+        "red_lacquer_peeled_diff.png",
+        "red_lacquer_peeled_diff_tile_preview.png",
+        "red_lacquer_peeled_diff_1k.png",
+        "red_lacquer_peeled_nor_gl.png",
+        "red_lacquer_peeled_nor_gl_tile_preview.png",
+        "red_lacquer_peeled_nor_gl_1k.png",
+        "red_lacquer_peeled_rough.png",
+        "red_lacquer_peeled_rough_tile_preview.png",
+        "red_lacquer_peeled_rough_1k.png"
+      ]
+    },
+    {
+      "item": 2,
+      "files": [
+        "tile_mossy_diff.png",
+        "tile_mossy_diff_tile_preview.png",
+        "tile_mossy_diff_1k.png",
+        "tile_mossy_nor_gl.png",
+        "tile_mossy_nor_gl_tile_preview.png",
+        "tile_mossy_nor_gl_1k.png",
+        "tile_mossy_rough.png",
+        "tile_mossy_rough_tile_preview.png",
+        "tile_mossy_rough_1k.png"
+      ]
+    },
+    {
+      "item": 3,
+      "files": [
+        "paving_old_diff.png",
+        "paving_old_diff_tile_preview.png",
+        "paving_old_diff_1k.png",
+        "paving_old_nor_gl.png",
+        "paving_old_nor_gl_tile_preview.png",
+        "paving_old_nor_gl_1k.png",
+        "paving_old_rough.png",
+        "paving_old_rough_tile_preview.png",
+        "paving_old_rough_1k.png",
+        "paving_old_height.png",
+        "paving_old_height_tile_preview.png",
+        "paving_old_height_1k.png"
+      ]
+    },
+    {
+      "item": 4,
+      "files": [
+        "decal_leaves_atlas.png"
+      ]
+    },
+    {
+      "item": 5,
+      "files": [
+        "decal_moss_atlas.png"
+      ]
+    },
+    {
+      "item": 6,
+      "files": [
+        "mountain_mist_panorama.png"
+      ]
+    },
+    {
+      "item": 7,
+      "files": [
+        "maple_branch_atlas.png"
+      ]
+    },
+    {
+      "item": 8,
+      "files": [
+        "soil_gravel_diff.png",
+        "soil_gravel_diff_tile_preview.png",
+        "soil_gravel_diff_1k.png",
+        "soil_gravel_nor_gl.png",
+        "soil_gravel_nor_gl_tile_preview.png",
+        "soil_gravel_nor_gl_1k.png",
+        "soil_gravel_rough.png",
+        "soil_gravel_rough_tile_preview.png",
+        "soil_gravel_rough_1k.png"
+      ]
+    },
+    {
+      "item": 9,
+      "files": [
+        "plants_atlas_v2.png"
+      ]
+    },
+    {
+      "item": 10,
+      "files": [
+        "vines_atlas.png"
+      ]
+    },
+    {
+      "item": 11,
+      "files": [
+        "grass_clumps_atlas.png"
+      ]
+    },
+    {
+      "item": 12,
+      "files": [
+        "stone_worn_diff.png",
+        "stone_worn_diff_tile_preview.png",
+        "stone_worn_diff_1k.png",
+        "stone_worn_nor_gl.png",
+        "stone_worn_nor_gl_tile_preview.png",
+        "stone_worn_nor_gl_1k.png",
+        "stone_worn_rough.png",
+        "stone_worn_rough_tile_preview.png",
+        "stone_worn_rough_1k.png",
+        "stone_worn_height.png",
+        "stone_worn_height_tile_preview.png",
+        "stone_worn_height_1k.png"
+      ]
+    },
+    {
+      "item": 13,
+      "files": [
+        "moss_dense_diff.png",
+        "moss_dense_diff_tile_preview.png",
+        "moss_dense_diff_1k.png",
+        "moss_dense_nor_gl.png",
+        "moss_dense_nor_gl_tile_preview.png",
+        "moss_dense_nor_gl_1k.png",
+        "moss_dense_rough.png",
+        "moss_dense_rough_tile_preview.png",
+        "moss_dense_rough_1k.png",
+        "moss_dense_height.png",
+        "moss_dense_height_tile_preview.png",
+        "moss_dense_height_1k.png"
+      ]
+    },
+    {
+      "item": 14,
+      "files": [
+        "bark_ancient_v2_diff.png",
+        "bark_ancient_v2_diff_tile_preview.png",
+        "bark_ancient_v2_diff_1k.png",
+        "bark_ancient_v2_nor_gl.png",
+        "bark_ancient_v2_nor_gl_tile_preview.png",
+        "bark_ancient_v2_nor_gl_1k.png",
+        "bark_ancient_v2_rough.png",
+        "bark_ancient_v2_rough_tile_preview.png",
+        "bark_ancient_v2_rough_1k.png",
+        "bark_ancient_v2_height.png",
+        "bark_ancient_v2_height_tile_preview.png",
+        "bark_ancient_v2_height_1k.png"
+      ]
+    },
+    {
+      "item": 15,
+      "files": [
+        "wall_drystone_diff.png",
+        "wall_drystone_diff_tile_preview.png",
+        "wall_drystone_diff_1k.png",
+        "wall_drystone_nor_gl.png",
+        "wall_drystone_nor_gl_tile_preview.png",
+        "wall_drystone_nor_gl_1k.png",
+        "wall_drystone_rough.png",
+        "wall_drystone_rough_tile_preview.png",
+        "wall_drystone_rough_1k.png",
+        "wall_drystone_height.png",
+        "wall_drystone_height_tile_preview.png",
+        "wall_drystone_height_1k.png"
+      ]
+    },
+    {
+      "item": 16,
+      "files": [
+        "plaque_wood_new_diff.png",
+        "plaque_wood_new_diff_tile_preview.png",
+        "plaque_wood_new_nor_gl.png",
+        "plaque_wood_new_nor_gl_tile_preview.png",
+        "plaque_wood_new_rough.png",
+        "plaque_wood_new_rough_tile_preview.png",
+        "plaque_wood_old_diff.png",
+        "plaque_wood_old_diff_tile_preview.png",
+        "plaque_wood_old_nor_gl.png",
+        "plaque_wood_old_nor_gl_tile_preview.png",
+        "plaque_wood_old_rough.png",
+        "plaque_wood_old_rough_tile_preview.png"
+      ]
+    },
+    {
+      "item": 17,
+      "files": [
+        "dust_motes.png"
+      ]
+    },
+    {
+      "item": 18,
+      "files": [
+        "shaft_noise.png"
+      ]
+    },
+    {
+      "item": 19,
+      "files": [
+        "fog_puffs.png"
+      ]
+    },
+    {
+      "item": 20,
+      "files": [
+        "film_grain.png"
+      ]
+    },
+    {
+      "item": 21,
+      "files": [
+        "grime_rain_streaks.png",
+        "grime_blotches.png",
+        "grime_edge_wear.png",
+        "grime_moisture.png"
+      ]
+    },
+    {
+      "item": 22,
+      "files": [
+        "chiwen.glb"
+      ]
+    },
+    {
+      "item": 23,
+      "files": [
+        "dougong.glb"
+      ]
+    },
+    {
+      "item": 24,
+      "files": [
+        "stone_railing.glb"
+      ]
+    },
+    {
+      "item": 25,
+      "files": [
+        "lantern_outdoor.glb"
+      ]
+    },
+    {
+      "item": 26,
+      "files": [
+        "door_ring.glb"
+      ]
+    },
+    {
+      "item": 27,
+      "files": [
+        "door_stud.glb"
+      ]
+    },
+    {
+      "item": 28,
+      "files": [
+        "sign_plaque_blank.png",
+        "sign_couplet_blank.png"
+      ]
+    }
+  ],
+  "checks": {
+    "all28ItemsPresent": true,
+    "atlas4pxGutters": true,
+    "modelTriangleLimits": true
+  },
+  "files": [
+    {
+      "file": "ASSET_OVERVIEW.png",
+      "bytes": 3537706,
+      "sha256": "2012378c126cf8a50df057cfa54e2514b6f6bd8725e9d7db0578a3803994e169"
+    },
+    {
+      "file": "bark_ancient_v2_diff.png",
+      "bytes": 10823584,
+      "sha256": "23e5b5497e3c8da8ba239aba660a206e0e4f6a72cb95340e2078b8856a7963a3"
+    },
+    {
+      "file": "bark_ancient_v2_diff_1k.png",
+      "bytes": 2723297,
+      "sha256": "8dd0a99c44cce3a6fccfeaf6aa86bcf50ef39c39503d21f563ae069726e9ab76"
+    },
+    {
+      "file": "bark_ancient_v2_diff_tile_preview.png",
+      "bytes": 1259022,
+      "sha256": "e7cbdd67a5b682b15615aa647b9283718d8e2abd2850fa393acca3164c1f528f"
+    },
+    {
+      "file": "bark_ancient_v2_height.png",
+      "bytes": 7255662,
+      "sha256": "19e463758aa2a2820f1efae2535531a0260e541957d2c66b5f262a8176507f6b"
+    },
+    {
+      "file": "bark_ancient_v2_height_1k.png",
+      "bytes": 2067999,
+      "sha256": "97ca8843787806154e3d5139b4f8be12c4bc5b3f2300b0b368bb118454b2f2bb"
+    },
+    {
+      "file": "bark_ancient_v2_height_tile_preview.png",
+      "bytes": 701984,
+      "sha256": "999044a364e680a7cbd101ab1375a455e0e588cd42cca8b13d761bce3184b602"
+    },
+    {
+      "file": "bark_ancient_v2_nor_gl.png",
+      "bytes": 11258111,
+      "sha256": "3fa5d69d0de0a2c42a571ba48d43d8dc67a2a4ab9d6cce309b030d24b18c9c43"
+    },
+    {
+      "file": "bark_ancient_v2_nor_gl_1k.png",
+      "bytes": 2833191,
+      "sha256": "f21155753d5805e0ad0511486426d91b7909a8ef05541601488ba9f210feed71"
+    },
+    {
+      "file": "bark_ancient_v2_nor_gl_tile_preview.png",
+      "bytes": 1260032,
+      "sha256": "a6cfb76c173c84e0a1272a65152d7a16f5236713b15eca69da7dad13c6282dc5"
+    },
+    {
+      "file": "bark_ancient_v2_rough.png",
+      "bytes": 2140690,
+      "sha256": "e46ea7cc5877f64f18588ede664e1177c6e2acc50ac79b34e97c43ef0213eb00"
+    },
+    {
+      "file": "bark_ancient_v2_rough_1k.png",
+      "bytes": 654248,
+      "sha256": "1d743e9d0f3bbd7f9cf62dafe00c4f275e2c618297aff7bb5fa1a42335709c0c"
+    },
+    {
+      "file": "bark_ancient_v2_rough_tile_preview.png",
+      "bytes": 357454,
+      "sha256": "03cc87ad116e361346714bd44cff8ab9029598cae991cdab2b7b49311fb8f584"
+    },
+    {
+      "file": "chiwen.glb",
+      "bytes": 1455432,
+      "sha256": "121877e5037d0988a98e81edcfb0cb0d91f61311be80c6a42165021bb5bb0f9c"
+    },
+    {
+      "file": "decal_leaves_atlas.png",
+      "bytes": 6018317,
+      "sha256": "feb7e738e8c458deaf0cee4123011c85085c9c2474b86492faf2cda69b010adf"
+    },
+    {
+      "file": "decal_moss_atlas.png",
+      "bytes": 6951102,
+      "sha256": "fe3ae38ad9d3e5f3c56f0ac4453e23272f4e307614774616b6c0bba46f5ff071"
+    },
+    {
+      "file": "door_ring.glb",
+      "bytes": 207448,
+      "sha256": "a4b743f25d6f29ef7cf31060fb65dfed66376954bc0911446e0494baec598e7f"
+    },
+    {
+      "file": "door_stud.glb",
+      "bytes": 60296,
+      "sha256": "529594e7cc172fea6ff21eb3ae60af49257263fa3187ce9ef85d8550d1bb62c4"
+    },
+    {
+      "file": "dougong.glb",
+      "bytes": 1231476,
+      "sha256": "cfcd1a280107a524ac000ba3ef8220bdd517a01e8d8a36ce3fabbd0025141f4f"
+    },
+    {
+      "file": "dust_motes.png",
+      "bytes": 62000,
+      "sha256": "f9c7533214f6ea1601a707002a755f766b9a0a51f6be894025f1079ee0c4e308"
+    },
+    {
+      "file": "file-validation.json",
+      "bytes": 12022,
+      "sha256": "742436d986020459f2cf4e1a5913026e9719bded0ca57ff05a7b9cfa5d0bf70e"
+    },
+    {
+      "file": "film_grain.png",
+      "bytes": 226711,
+      "sha256": "f58b84891e623b75c621838d459bb318616bd229192dd6c26e61737a1d844334"
+    },
+    {
+      "file": "film_grain_tile_preview.png",
+      "bytes": 184246,
+      "sha256": "496dba25edfa404ae2f8a2b26cd2486f1c9f49ca22ac64bdf62fc06a6614b8d6"
+    },
+    {
+      "file": "fog_puffs.png",
+      "bytes": 251831,
+      "sha256": "ce24304a42e82c38c14369b77a8eaa4a3dfe2b4aeac5f69b1be615e86c760c6d"
+    },
+    {
+      "file": "grass_clumps_atlas.png",
+      "bytes": 2721598,
+      "sha256": "54a9c1af79a444ba6902e93fa3574445890100f78c8371f740b8aa7cdd6af972"
+    },
+    {
+      "file": "grime_blotches.png",
+      "bytes": 1791956,
+      "sha256": "d0fbf1cbad95d9b75e3c68952de8fd5d9f5bdea7356a55bea27b0bba26b9f1c5"
+    },
+    {
+      "file": "grime_blotches_1k.png",
+      "bytes": 805282,
+      "sha256": "7cafb0a5eb0dc1f6f2643d0cd533c501a7ec462511594a83fd21dab9f38c976a"
+    },
+    {
+      "file": "grime_blotches_tile_preview.png",
+      "bytes": 259329,
+      "sha256": "95ea691eb7e2d523bea04c6c51419b59d91eb8b91fca6c3e141584f31f29573c"
+    },
+    {
+      "file": "grime_edge_wear.png",
+      "bytes": 2103811,
+      "sha256": "e304765edc4c7d712eaa4c971a1536371b66244536b1024e98bbe9e3946ac010"
+    },
+    {
+      "file": "grime_edge_wear_1k.png",
+      "bytes": 678747,
+      "sha256": "e4dd82ea182739737146f16e3af025590fd1d22a291f106d3f42ae1b327895be"
+    },
+    {
+      "file": "grime_edge_wear_tile_preview.png",
+      "bytes": 202701,
+      "sha256": "33716149b836e2f359e486ea707180a1f4b9b36adb344620c4b0546bc4c8d3f5"
+    },
+    {
+      "file": "grime_moisture.png",
+      "bytes": 832566,
+      "sha256": "c1afa1f7c664972811e687ec30c092952477f8dd1259e5c44d46980ace50306c"
+    },
+    {
+      "file": "grime_moisture_1k.png",
+      "bytes": 458975,
+      "sha256": "c955adae6997935964e382b53527138653198c7c7e75be8770010b5e3abfb5f7"
+    },
+    {
+      "file": "grime_moisture_tile_preview.png",
+      "bytes": 222763,
+      "sha256": "48de391dbbf8e04d9b480cb8a4c7884fb6d8988134a3ba81f2c9c236c24ede7e"
+    },
+    {
+      "file": "grime_rain_streaks.png",
+      "bytes": 2757752,
+      "sha256": "dc4c1d733f485c48d286317d5c1388ff7893ea9a05282adae5f1eb6916a7cd7f"
+    },
+    {
+      "file": "grime_rain_streaks_1k.png",
+      "bytes": 1042637,
+      "sha256": "b5b12255aaa5e29ebc5310c4a838eabce05abb1f14cb170b36d3c0bfd64af90b"
+    },
+    {
+      "file": "grime_rain_streaks_tile_preview.png",
+      "bytes": 254413,
+      "sha256": "37b6102f377492838f1b74dc6c9f248190bc1c056f547406c0048ab33ed023ec"
+    },
+    {
+      "file": "lantern_outdoor.glb",
+      "bytes": 1425588,
+      "sha256": "3632caaf9deb2f7067879331623184bf37d9b739725ded768cc7c1faec188041"
+    },
+    {
+      "file": "maple_branch_atlas.png",
+      "bytes": 4259163,
+      "sha256": "2bf74c73f3763c7066aa4251a15585bd78241e66c4e8f2b4afe7d0759b00af76"
+    },
+    {
+      "file": "model-validation.json",
+      "bytes": 2078,
+      "sha256": "6cac0a8afad298eed25b4c2efbdcada3acb594939c04a22e1bfd93ca11593a48"
+    },
+    {
+      "file": "MODEL_OVERVIEW.png",
+      "bytes": 243833,
+      "sha256": "620c4233d0f55548b9906d4befc98f83ce536e3d3e83f35bdb9c67d9c5fb2273"
+    },
+    {
+      "file": "moss_dense_diff.png",
+      "bytes": 10106704,
+      "sha256": "acaf59c9bf40aa1c9f1e55c5a2b62e68092792f575927e756c3af5c6e9dc8c74"
+    },
+    {
+      "file": "moss_dense_diff_1k.png",
+      "bytes": 2566164,
+      "sha256": "8fd3175834fc3aed6ba392b055d1ea5e7c8c3c422764b0550a68da9fb30c58ee"
+    },
+    {
+      "file": "moss_dense_diff_tile_preview.png",
+      "bytes": 1253939,
+      "sha256": "bbd77de17775073cc63fa2f42d0e04694ad4ce5114d8c88ce68533f03c421fbd"
+    },
+    {
+      "file": "moss_dense_height.png",
+      "bytes": 6850983,
+      "sha256": "50cf02e498028edfd7023adc75a0132ec4f2bfd281d243520d86f96941117b91"
+    },
+    {
+      "file": "moss_dense_height_1k.png",
+      "bytes": 2015755,
+      "sha256": "6690103a1a26a5ffabc7dd559b9519c9198b3c92cdd19f5cc43f5323794ae501"
+    },
+    {
+      "file": "moss_dense_height_tile_preview.png",
+      "bytes": 706701,
+      "sha256": "0f47b323c0178ce56e66034bdf00abb05ea59cfde8138fe9372c3e6a1347b4fe"
+    },
+    {
+      "file": "moss_dense_nor_gl.png",
+      "bytes": 11261656,
+      "sha256": "5866f987410b8db290d26b825fc606fdd27bb2c0e62658fdd7f240b7f4c885f6"
+    },
+    {
+      "file": "moss_dense_nor_gl_1k.png",
+      "bytes": 2849957,
+      "sha256": "1dde4fdeb5766e170d87477677d85bc7dc64aa78ff16ee58306576a9c47db6d6"
+    },
+    {
+      "file": "moss_dense_nor_gl_tile_preview.png",
+      "bytes": 1291943,
+      "sha256": "ebf10b0578792938aa986f34e9bd58a7f81b5dc8a8b42484440fd83d85d193e2"
+    },
+    {
+      "file": "moss_dense_rough.png",
+      "bytes": 2709922,
+      "sha256": "30037928f0f8c8322b3dd88d77e316d4be980f59f4ab435d42d07370de8b1c3c"
+    },
+    {
+      "file": "moss_dense_rough_1k.png",
+      "bytes": 736140,
+      "sha256": "6775f2665b31992c189aeb1d809661a0cb6817865d617dfda54851b22c4acc48"
+    },
+    {
+      "file": "moss_dense_rough_tile_preview.png",
+      "bytes": 404846,
+      "sha256": "6120f417cba8b3fa1a51fb1612c22c2f4116b3b743c911b004384b9efd5c4f1b"
+    },
+    {
+      "file": "mountain_mist_panorama.png",
+      "bytes": 4743540,
+      "sha256": "bc4de9811a4ab5e07b458880edbed27869f43120b6b1ba88e3d72b7d157d64a5"
+    },
+    {
+      "file": "mountain_mist_panorama_tile_preview.png",
+      "bytes": 394003,
+      "sha256": "0346ab070d33ecd46779d2cd0ef63560a6fea3ac2c2b0bf86aff12df7119ef5e"
+    },
+    {
+      "file": "NOTES.md",
+      "bytes": 3144,
+      "sha256": "14a251dac4c4cd7cdca9d036a4c3c5fbe364da7f9e77846739dcf11b80a66cc2"
+    },
+    {
+      "file": "paving_old_diff.png",
+      "bytes": 9592917,
+      "sha256": "efa12117d814e1e7c9e19c16d7d52262ba4fa0660cc70cf4a92de844d2547834"
+    },
+    {
+      "file": "paving_old_diff_1k.png",
+      "bytes": 2428621,
+      "sha256": "3f1c7fc066396ca2ea547046d4e0f3642b5b7f8e2784c037829a0b9a8171b9ea"
+    },
+    {
+      "file": "paving_old_diff_tile_preview.png",
+      "bytes": 1150272,
+      "sha256": "3c67dd3d133eaef0a040bc8293625394570639402ce68010519fb01489788998"
+    },
+    {
+      "file": "paving_old_height.png",
+      "bytes": 5687220,
+      "sha256": "87cf16bae56f089a6d7eff710bef7665bab93cd49e5e072419006c1f9eb5fa90"
+    },
+    {
+      "file": "paving_old_height_1k.png",
+      "bytes": 1601930,
+      "sha256": "fda4decb357fcf5a0309d49287a7362016ae1583cdde32c511903948cec1407d"
+    },
+    {
+      "file": "paving_old_height_tile_preview.png",
+      "bytes": 633583,
+      "sha256": "e60638c5642b01b2a989ba54b0168b27c751554dce78364488accf90b4695087"
+    },
+    {
+      "file": "paving_old_nor_gl.png",
+      "bytes": 10345805,
+      "sha256": "74af635c2d2e226fd825cdfd83ddff94636d7fa65fcde115f8837f46b470391b"
+    },
+    {
+      "file": "paving_old_nor_gl_1k.png",
+      "bytes": 2618676,
+      "sha256": "c28c38b752d4f9d3bd125834e8516f2c3773e9775fec605f0624d9f00029c88a"
+    },
+    {
+      "file": "paving_old_nor_gl_tile_preview.png",
+      "bytes": 1125302,
+      "sha256": "d7986a5f207c79447fcee0aa84d4c285a941a5b73391e97078bc095795abec1c"
+    },
+    {
+      "file": "paving_old_rough.png",
+      "bytes": 2241645,
+      "sha256": "ec6c4a82475d9112338aafe3c68d377b91934048e7f67f35081372c735268c5c"
+    },
+    {
+      "file": "paving_old_rough_1k.png",
+      "bytes": 613084,
+      "sha256": "5f5e727b819ee3c9c680c062b2d766aeb38335e6a7840c83d29f4e42476145cc"
+    },
+    {
+      "file": "paving_old_rough_tile_preview.png",
+      "bytes": 329638,
+      "sha256": "45bb22b599066a6619d4de2d9c98e9bbc10e7a22256f9a9d051bf2dca93f1ebd"
+    },
+    {
+      "file": "plants_atlas_v2.png",
+      "bytes": 6075427,
+      "sha256": "786f3ca1a6acc7871e753ddf91a0010ba7141bd4d6983ae9363c45b6e32b5f78"
+    },
+    {
+      "file": "plaque_wood_new_diff.png",
+      "bytes": 1961972,
+      "sha256": "3744737b30d4286f3c5db21a312653036d8881e8cc8fe4ee9e8198606e6d28fe"
+    },
+    {
+      "file": "plaque_wood_new_diff_tile_preview.png",
+      "bytes": 851657,
+      "sha256": "617fa239a9d5db9b68e91e25d42a8e617c9edb107061ad231be7039e9a9ceb1a"
+    },
+    {
+      "file": "plaque_wood_new_nor_gl.png",
+      "bytes": 16045,
+      "sha256": "71edbb8760e77feb98919b614627c556e8d7e6c159eb1ec8075722e353cd8862"
+    },
+    {
+      "file": "plaque_wood_new_nor_gl_tile_preview.png",
+      "bytes": 28495,
+      "sha256": "62942d92af5241681a94db1627b2a7ab0b62c9c6c73eb24a917b1f724e5bd140"
+    },
+    {
+      "file": "plaque_wood_new_rough.png",
+      "bytes": 317775,
+      "sha256": "71d9d10ca31eebc8bebf3bfbd59d2df03540e82e0c4791cf8e063f381a464ee7"
+    },
+    {
+      "file": "plaque_wood_new_rough_tile_preview.png",
+      "bytes": 193310,
+      "sha256": "145afedf5f0f0f968c66fcbc0bebf52ce3ffc7c9a489f46e03c6bd2183e88d84"
+    },
+    {
+      "file": "plaque_wood_old_diff.png",
+      "bytes": 2481051,
+      "sha256": "461738e129182de16797db2988f44e3fcf7be1775bf41df13e59a2a65969c651"
+    },
+    {
+      "file": "plaque_wood_old_diff_tile_preview.png",
+      "bytes": 1072028,
+      "sha256": "ae1dcb66cf40a2d5ac4746a664d5eac32e0ebe562813a479cacf7843bf21e22b"
+    },
+    {
+      "file": "plaque_wood_old_nor_gl.png",
+      "bytes": 2782032,
+      "sha256": "dc832c3c7444ec431225b064f57a500084f194d2e3d64beef78aefbb20642609"
+    },
+    {
+      "file": "plaque_wood_old_nor_gl_tile_preview.png",
+      "bytes": 1253896,
+      "sha256": "f30ceff0d00bfd5799986f1cd88d2cfebc9516317e22025b3510f7511f5399cf"
+    },
+    {
+      "file": "plaque_wood_old_rough.png",
+      "bytes": 612584,
+      "sha256": "400a68b5de96730ec1e9f32328aa308582bd1c06e19370075608ed1772ed2681"
+    },
+    {
+      "file": "plaque_wood_old_rough_tile_preview.png",
+      "bytes": 297631,
+      "sha256": "637e34bb23185245e1b0bd6096de5d0f8121561b3dc570f996d6cd0d029d6f33"
+    },
+    {
+      "file": "PROMPTS.json",
+      "bytes": 10011,
+      "sha256": "f06b3409e4d78750e8a0774256709c2c7f8d86b889225191838e1d082c811d7c"
+    },
+    {
+      "file": "QUALITY_ASSET_TASKS_COMPLETED.md",
+      "bytes": 25218,
+      "sha256": "bfaf9bbc6e773086c287c08dc132b41e4c82fa68ceb0669de3e960d01e76da5a"
+    },
+    {
+      "file": "red_lacquer_peeled_diff.png",
+      "bytes": 10556057,
+      "sha256": "df13cdef6a1abae8b0a5f82e86f605c1bb720b442c55413eab7871c6416ff06a"
+    },
+    {
+      "file": "red_lacquer_peeled_diff_1k.png",
+      "bytes": 2659811,
+      "sha256": "1f771ac8494d9f290c290af57dcf3f015309df01aa8dd37b142132d065e79561"
+    },
+    {
+      "file": "red_lacquer_peeled_diff_tile_preview.png",
+      "bytes": 1283122,
+      "sha256": "0e942eb1c6db520bcfcc1d33cb866fca4919277aba0b401a895f102e00e4af4b"
+    },
+    {
+      "file": "red_lacquer_peeled_nor_gl.png",
+      "bytes": 10243511,
+      "sha256": "803722b7b1cf18ee8b1e42fa5bb8be9fd4e212ef00e8eba4ce0b84cb20b446ec"
+    },
+    {
+      "file": "red_lacquer_peeled_nor_gl_1k.png",
+      "bytes": 2589550,
+      "sha256": "31ca2c250fde4f461fde6cec56668d8534a3a20225a6792aca8736965c469ee0"
+    },
+    {
+      "file": "red_lacquer_peeled_nor_gl_tile_preview.png",
+      "bytes": 1138424,
+      "sha256": "1313d161ce1b9ecb5291ed7c64b0f929a1122abc467ec789b04511a2bec51a69"
+    },
+    {
+      "file": "red_lacquer_peeled_rough.png",
+      "bytes": 2989725,
+      "sha256": "732238c7f285476f3fd22dfa47e8bc6a7f355ef9c9a148ac3bdfcbef4a7a34a3"
+    },
+    {
+      "file": "red_lacquer_peeled_rough_1k.png",
+      "bytes": 897354,
+      "sha256": "6783b8661ff70b3234e772d384f9e9af48fabf431c60fe7234fce98aac4aa0e7"
+    },
+    {
+      "file": "red_lacquer_peeled_rough_tile_preview.png",
+      "bytes": 507332,
+      "sha256": "952c2276cb1bb5d49eb16f5dd41e1b75d735291647e0d895ed8ee56ca7922efb"
+    },
+    {
+      "file": "shaft_noise.png",
+      "bytes": 297388,
+      "sha256": "59b1324227d30e06fbeb5346443b956ccbbe76931833a26a068713ad16dd8bc9"
+    },
+    {
+      "file": "shaft_noise_tile_preview.png",
+      "bytes": 190735,
+      "sha256": "16569181f36f95b44c89d38534be59f9878c0660eb7cab02192f13a55c7f4a50"
+    },
+    {
+      "file": "sign_couplet_blank.png",
+      "bytes": 551691,
+      "sha256": "34889be299f9ef06dbc288763706756606921d2057e33f786328413541bf8643"
+    },
+    {
+      "file": "sign_plaque_blank.png",
+      "bytes": 509041,
+      "sha256": "80ed8f0466599253c5ffbf65f4f8225e12f7e2ff0c94847b95775a169263aefe"
+    },
+    {
+      "file": "soil_gravel_diff.png",
+      "bytes": 10190500,
+      "sha256": "c56e44512e7f857e1777e132bfe93293dcae736cd598125cddb8d14d9d4767fc"
+    },
+    {
+      "file": "soil_gravel_diff_1k.png",
+      "bytes": 2570990,
+      "sha256": "d36c35c7b0fcefd34078a2a37a1b7c3b14ea3c429359d0b7200996091e7b259c"
+    },
+    {
+      "file": "soil_gravel_diff_tile_preview.png",
+      "bytes": 1191340,
+      "sha256": "299328126f81f49cce016e0ec5c5bdaf243eaf24a7db871a5ee566e7c7c268ce"
+    },
+    {
+      "file": "soil_gravel_nor_gl.png",
+      "bytes": 10975526,
+      "sha256": "6d197e148a3f32d54728950588c7fc69b1fa44a2078790100c5e03d89406b097"
+    },
+    {
+      "file": "soil_gravel_nor_gl_1k.png",
+      "bytes": 2774253,
+      "sha256": "8f5a44a4d17de045fd8da1a9a72e60b8e4e0d57779dea28079e4955712bcb0fa"
+    },
+    {
+      "file": "soil_gravel_nor_gl_tile_preview.png",
+      "bytes": 1242567,
+      "sha256": "f2445a768917a68ae994c414c28025016cf32feaad2f0a35e14c663b8b1b010c"
+    },
+    {
+      "file": "soil_gravel_rough.png",
+      "bytes": 1951452,
+      "sha256": "314356d1a0364188e587ed476d4224149c1f7c9e7293aa165b63bb72e3a65fb2"
+    },
+    {
+      "file": "soil_gravel_rough_1k.png",
+      "bytes": 608903,
+      "sha256": "16b773bde84040f7d0736fa50ebc691fd95949f2b6dba44f4f7234f5b06a1109"
+    },
+    {
+      "file": "soil_gravel_rough_tile_preview.png",
+      "bytes": 335581,
+      "sha256": "6b102e20894d5b1011faebf047b7aad5247d392abddab898b219d32faa5129d0"
+    },
+    {
+      "file": "stone_railing.glb",
+      "bytes": 1363904,
+      "sha256": "21a47125954804ddfecfdd55ea5b7bda4fc0b4879b65b14cc4aedfcaba85c44a"
+    },
+    {
+      "file": "stone_worn_diff.png",
+      "bytes": 10603262,
+      "sha256": "6cbab4bac8c5ef3d785501a40223ad44b90f811a2017e764460db8f24ef6b2f8"
+    },
+    {
+      "file": "stone_worn_diff_1k.png",
+      "bytes": 2667753,
+      "sha256": "12f4b9ace62905f596ac270d830031d6fa4cea45594bcf5b68c73c237cd30390"
+    },
+    {
+      "file": "stone_worn_diff_tile_preview.png",
+      "bytes": 1240722,
+      "sha256": "63bc17597ab86043f9059bf7c9a962598749f54854a5303beedff917da4c7a3d"
+    },
+    {
+      "file": "stone_worn_height.png",
+      "bytes": 6872609,
+      "sha256": "aa03366030b195ce4c11842c7897f47d5611fea984d446f4ec775f52cf882a11"
+    },
+    {
+      "file": "stone_worn_height_1k.png",
+      "bytes": 1982949,
+      "sha256": "1b2838b2e92ad44f3019e265689465154455d56027f2f97936ee20ad0b94d578"
+    },
+    {
+      "file": "stone_worn_height_tile_preview.png",
+      "bytes": 686171,
+      "sha256": "6c469d6495b07620d55b74bf40cc19c350a62bb850eb04f9e2693bfec884a1d9"
+    },
+    {
+      "file": "stone_worn_nor_gl.png",
+      "bytes": 11543232,
+      "sha256": "fb9cb5f9da11e522a947f03f05cf24e12c92b12e5fb1a3c1b3e3e96de1472093"
+    },
+    {
+      "file": "stone_worn_nor_gl_1k.png",
+      "bytes": 2885493,
+      "sha256": "92ff1ebef07919445d7f0803c21699bb62f503cdcdc16d3f630fcfb65dc5afb4"
+    },
+    {
+      "file": "stone_worn_nor_gl_tile_preview.png",
+      "bytes": 1265953,
+      "sha256": "012f90afabbb5b5b023203003a0b331693989f67176001ec75ffc38776d29f81"
+    },
+    {
+      "file": "stone_worn_rough.png",
+      "bytes": 2352098,
+      "sha256": "7e16503c72b7535cf0949dd4d4689efb5b325b0f0111b618a623c24c16dd5c3d"
+    },
+    {
+      "file": "stone_worn_rough_1k.png",
+      "bytes": 656986,
+      "sha256": "f5cdf3579b2f715d22efc45483b31ec22fb07e3e27ae83fe25e5a0b1dad36f35"
+    },
+    {
+      "file": "stone_worn_rough_tile_preview.png",
+      "bytes": 356474,
+      "sha256": "01ce3bd74a4eb796b6014e3dd04490814e8555e32ad718fe721edd255d106144"
+    },
+    {
+      "file": "texture-validation.json",
+      "bytes": 2907,
+      "sha256": "e5d94c30ec195a3421508104ca279ddb759c3c54bcf185ab9fcb58e36b94e268"
+    },
+    {
+      "file": "tile_mossy_diff.png",
+      "bytes": 9720052,
+      "sha256": "3285e6395727de32e41979efddcab548b0ce8a88ce208e337b04b8221a2195e5"
+    },
+    {
+      "file": "tile_mossy_diff_1k.png",
+      "bytes": 2501033,
+      "sha256": "344474778c2e65d897560652059c60b0c332608e9b02c0a8d79cbeffbe8acfc8"
+    },
+    {
+      "file": "tile_mossy_diff_tile_preview.png",
+      "bytes": 1220187,
+      "sha256": "1761c04bd8cb330946a81b621e16dace361a4ac2e2328944b4be17d08f615f54"
+    },
+    {
+      "file": "tile_mossy_nor_gl.png",
+      "bytes": 11872637,
+      "sha256": "eca40c6b6bb59a3380bd98d04a4fd51ceef2337df3ec7c5283c421c4540e9098"
+    },
+    {
+      "file": "tile_mossy_nor_gl_1k.png",
+      "bytes": 2887217,
+      "sha256": "d69e1ef523f37dcc659afe8d85d33d5fd0989016484b236772eeb04acbe172dd"
+    },
+    {
+      "file": "tile_mossy_nor_gl_tile_preview.png",
+      "bytes": 1273589,
+      "sha256": "7949ae7139e10cbfc12a3b6cb1928b576dbc653cf352b611aa2d364cd13c5d2a"
+    },
+    {
+      "file": "tile_mossy_rough.png",
+      "bytes": 2201452,
+      "sha256": "b627e1a3072fb681bb0199a5817c6e6ea2ca4640556a832a50769788b9038bca"
+    },
+    {
+      "file": "tile_mossy_rough_1k.png",
+      "bytes": 598765,
+      "sha256": "94aa08326c33f0e7cc063b982c887bee8d5c2ffc06103f2fbf0d6a4be80d6383"
+    },
+    {
+      "file": "tile_mossy_rough_tile_preview.png",
+      "bytes": 328990,
+      "sha256": "12d00153a4e98012421fd4db46e911cd617394fa9568f654da2f82a3e6ce7ffe"
+    },
+    {
+      "file": "vines_atlas.png",
+      "bytes": 4988352,
+      "sha256": "a50780fc417d22fbf8aaf87bc5ef2bd7b93f8a400673289374192ca592349b33"
+    },
+    {
+      "file": "wall_drystone_diff.png",
+      "bytes": 11369433,
+      "sha256": "65e4107e934a43994cd9824c74380b359532f30725383cd328ecbf70deea82e9"
+    },
+    {
+      "file": "wall_drystone_diff_1k.png",
+      "bytes": 2870479,
+      "sha256": "645cc18ec62d4101fb8dcb9ab1e943f2322f9f34b7bfd1fa81d1fe0074b90fe0"
+    },
+    {
+      "file": "wall_drystone_diff_tile_preview.png",
+      "bytes": 1386313,
+      "sha256": "242405ac276d4dccdb64a050d95cd0cbf5dbf2f004207d1c211fdd231ddace1a"
+    },
+    {
+      "file": "wall_drystone_height.png",
+      "bytes": 7294861,
+      "sha256": "a700516787e374e5ec6186159b4d8cd2730a2b527c9792b34cb2eab4fb428168"
+    },
+    {
+      "file": "wall_drystone_height_1k.png",
+      "bytes": 2129971,
+      "sha256": "94be860a1d14cce8abfde750eae85f20088906967604882ac18c37e32b4c8fa1"
+    },
+    {
+      "file": "wall_drystone_height_tile_preview.png",
+      "bytes": 724382,
+      "sha256": "cef522db7fd00cf3d5e7bd037f9a74b29c7014f994e217dd0dd9d1be27dc8a04"
+    },
+    {
+      "file": "wall_drystone_nor_gl.png",
+      "bytes": 11338041,
+      "sha256": "c51e6976a2c0ab7e22888136ee2eec87492c45028a094a1514d962bebb16edfe"
+    },
+    {
+      "file": "wall_drystone_nor_gl_1k.png",
+      "bytes": 2896464,
+      "sha256": "a1379e19afe53720ae3b879f54cd02b443f537f7e810c99a7353b52e54fd140d"
+    },
+    {
+      "file": "wall_drystone_nor_gl_tile_preview.png",
+      "bytes": 1297248,
+      "sha256": "9ca89393e87c9fa072e5e059601e9b0983cf3646a3247c115929f92db4e82749"
+    },
+    {
+      "file": "wall_drystone_rough.png",
+      "bytes": 2658421,
+      "sha256": "5f960098868681742a6b27eb1cce82b49f40d49a6e3a77a3485f07f69ed30bce"
+    },
+    {
+      "file": "wall_drystone_rough_1k.png",
+      "bytes": 742229,
+      "sha256": "f40d5cf753f6fd200819250ada015bc532763d47a26d9e1fb39182956b2b329c"
+    },
+    {
+      "file": "wall_drystone_rough_tile_preview.png",
+      "bytes": 399857,
+      "sha256": "0c0b17daaf62088f9505b995b157981ff5ef1809f586b413cdc2cd74b49b6410"
+    }
+  ]
+}

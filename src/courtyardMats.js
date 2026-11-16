@@ -5,7 +5,8 @@ import { NOISE_GLSL } from './shaders.js';
 
 const BASE = `${import.meta.env.BASE_URL}textures/`;
 
-export function loadCourtTextures(renderer, manager) {
+// low：手机档——新素材一律用 1024 的版本
+export function loadCourtTextures(renderer, manager, { low = false } = {}) {
   const loader = new THREE.TextureLoader(manager), aniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
   const load = (file, srgb, repeat = true) => {
     const t = loader.load(BASE + file);
@@ -13,17 +14,30 @@ export function loadCourtTextures(renderer, manager) {
     return t;
   };
   const set = n => ({ diff: load(`${n}_diff.webp`, true), nor: load(`${n}_nor_gl.webp`, false), rough: load(`${n}_rough.webp`, false) });
+  // 第二批素材（textures-src/quality → scripts/pack_quality_textures.py → textures/q/）：颜色和法线电脑上 2048、手机上 1024；粗糙度、高度只有 1024
+  const qset = (n, { big = true, height = false } = {}) => {
+    const s = big && !low ? '' : '_1k';
+    return { diff: load(`q/${n}_diff${s}.webp`, true), nor: load(`q/${n}_nor_gl${s}.webp`, false), rough: load(`q/${n}_rough_1k.webp`, false),
+      height: height ? load(`q/${n}_height_1k.webp`, false) : null };
+  };
   return {
-    paving: set('rock_lichen'),      // 青石板：浅色地衣花岗岩
-    wall: set('rock_mossy_a'),       // 院墙：大片苔藓的花岗岩
-    rock: set('rock_mossy_b'),       // 散石、台基
+    paving: qset('paving_old', { height: true }),       // 院子里的旧青石板（石板的排法就在贴图里；高度图找石缝）
+    hallPaving: set('rock_lichen'),                     // 殿里的地面：干净的浅色石板（石板按程序排）
+    wall: qset('wall_drystone', { height: true }),      // 院墙：干垒的青灰石块
+    rock: qset('stone_worn'),                           // 散石、台基、石阶：风化的灰色花岗岩
+    lacquer: qset('red_lacquer_peeled'),                // 檐柱、门扇、窗框：剥落的旧红漆
     pebbles: set('ganges_river_pebbles'),   // 殿里水池边的卵石
-    moss: { diff: load('moss_ground_diff.webp', true), nor: load('moss_ground_nor_gl.webp', false) },
+    moss: (() => { const m = qset('moss_dense', { big: false }); return { diff: m.diff, nor: m.nor }; })(),
     canopy: load('canopy_mask.webp', false),            // 叶影遮罩（R 粗 / G 细）：树荫光斑用
-    plants: load('groundplants_atlas.webp', true, false),   // 三叶草 / 蕨 / 蜂斗菜 / 白花（带透明通道的图集）
-    grass: load('grass_atlas.webp', true, false),           // 草丛图集
+    plants: load(`q/plants_atlas_v2${low ? '_1k' : ''}.webp`, true, false),         // 蕨 / 蜂斗菜 / 车前草 / 枯叶堆（4×4 透明图集）
+    grass: load(`q/grass_clumps_atlas${low ? '_1k' : ''}.webp`, true, false),       // 石缝小草（4×4）
+    vines: load(`q/vines_atlas${low ? '_1k' : ''}.webp`, true, false),              // 墙头垂下的藤、墙头小蕨（4×4）
+    decalLeaves: load(`q/decal_leaves_atlas${low ? '_1k' : ''}.webp`, true, false), // 地上的落叶（4×4）
+    decalMoss: load(`q/decal_moss_atlas${low ? '_1k' : ''}.webp`, true, false),     // 石头上、地上的苔藓和地衣斑（4×4）
+    fogPuffs: load('q/fog_puffs.webp', true, false),                                // 雾团（4×2）
+    shaftNoise: load('q/shaft_noise.webp', false),                                  // 光柱里雾气的浓淡
     // 东方寺庙素材包（scripts/pack_temple_textures.py 从 UE5 素材包转换）：古树皮、古殿旧木材、灰色筒瓦、阔叶枝条图集
-    bark: set('temple_bark'), wood: set('temple_wood'), roof: set('temple_roof'),
+    bark: set('temple_bark'), wood: set('temple_wood'), roof: qset('tile_mossy'),   // 屋瓦：在原来那套筒瓦上加了苔和水渍，排法不变
     leaves: load('temple_leaves_diff.webp', true, false),
   };
 }
@@ -49,11 +63,13 @@ function worldVary(sh) {
 // paving：{ yard: [minX, maxX, minZ, maxZ], tree: [x, z, r] } 把地面切成一块块石板，石缝里是泥土和苔，墙根、树根周围长苔，院外全是苔地
 // blocks：砌石墙——一层层错缝的石块，缝里更暗、更容易长苔
 // weather：旧木头——大块的色差、竖向的雨痕、靠近地面受潮发暗、局部褪成灰白（0 = 没有，1 = 明显）；weatherY：木构件脚下的高度
-export function triMat({ set, moss = null, scale = .5, color = 0xffffff, mossAmt = .8, mossAt = .5, mossScale = .7, grime = 0, wet = 0, roughMul = 1, norK = 1, roughness = 1, paving = null, blocks = false, weather = 0, weatherY = 0, wood = false }) {
+// joint：[lo, hi] 用 set.height 找砌缝（高度低于 lo 是缝，高于 hi 是石面）：地面上缝里是泥土和苔，墙上缝里更暗、更容易长苔
+export function triMat({ set, moss = null, scale = .5, color = 0xffffff, mossAmt = .8, mossAt = .5, mossScale = .7, grime = 0, wet = 0, roughMul = 1, norK = 1, roughness = 1, paving = null, blocks = false, weather = 0, weatherY = 0, wood = false, joint = null }) {
   const mat = new THREE.MeshStandardMaterial({ color, roughness });
   const D = {};
   if (set.nor) D.HAS_NOR = ''; if (set.rough) D.HAS_ROUGH = ''; if (moss) D.HAS_MOSS = ''; if (paving) D.PAVING = ''; if (blocks) D.BLOCKS = ''; if (weather) D.WEATHER = '';
   if (wood) D.WOOD = '';
+  if (joint && set.height) D.HAS_HEIGHT = '';
   mat.defines = { ...(mat.defines || {}), ...D };
   const U = {
     tDiff: { value: set.diff }, tNor: { value: set.nor || null }, tRough: { value: set.rough || null },
@@ -62,6 +78,7 @@ export function triMat({ set, moss = null, scale = .5, color = 0xffffff, mossAmt
     uMoss: { value: new THREE.Vector4(mossAmt, mossAt, grime, wet) },
     uWeather: { value: new THREE.Vector2(weather, weatherY) },
     uYard: { value: new THREE.Vector4(...(paving?.yard || [0, 0, 0, 0])) }, uTree: { value: new THREE.Vector3(...(paving?.tree || [0, 0, 0])) },
+    tHeight: { value: set.height || null }, uJoint: { value: new THREE.Vector2(...(joint || [0, 0])) },
   };
   mat.customProgramCacheKey = () => 'court-tri-' + Object.keys(D).join('-');
   mat.onBeforeCompile = sh => {
@@ -83,6 +100,9 @@ export function triMat({ set, moss = null, scale = .5, color = 0xffffff, mossAmt
         #ifdef PAVING
           uniform vec4 uYard; uniform vec3 uTree;
         #endif
+        #ifdef HAS_HEIGHT
+          uniform sampler2D tHeight; uniform vec2 uJoint;
+        #endif
         ${NOISE_GLSL}
         vec3 gW; vec3 gWn; vec2 gUx; vec2 gUy; vec2 gUz; float gMoss = 0.; float gWet = 0.; float gPuddle = 0.;
         vec4 tri(sampler2D t){ return texture2D(t, gUx) * gW.x + texture2D(t, gUy) * gW.y + texture2D(t, gUz) * gW.z; }
@@ -98,6 +118,14 @@ export function triMat({ set, moss = null, scale = .5, color = 0xffffff, mossAmt
           #ifdef PAVING
             // 石板：一排排错缝铺，每排的石板宽窄不同，有的两块并成一长条；缝的边缘用噪声搅得参差不齐
             float inYard = step(uYard.x, vWp.x) * step(vWp.x, uYard.y) * step(uYard.z, vWp.z) * step(vWp.z, uYard.w);
+          #ifdef HAS_HEIGHT
+            // 石板的排法来自贴图本身：高度图里低的地方就是石缝
+            float hh = texture2D(tHeight, gUy).r;
+            float gap = (1. - smoothstep(uJoint.x, uJoint.y, hh)) * inYard;
+            soil = (1. - smoothstep(uJoint.x - .12, uJoint.x - .02, hh)) * inYard;
+            float slabId = fbm2(vWp.xz * .45 + 11.);   // 没有石板编号：用大尺度的噪声给深浅（也打散贴图的重复）
+            float edge = 1.;
+          #else
             float slabH = .62, row = floor(vWp.z / slabH), fz = fract(vWp.z / slabH);
             float slabW = mix(.7, 1.5, hash12(vec2(row, 3.7)));
             float sx = (vWp.x + hash12(vec2(row, 9.1)) * 5.) / slabW, col = floor(sx), fx = fract(sx);
@@ -107,10 +135,15 @@ export function triMat({ set, moss = null, scale = .5, color = 0xffffff, mossAmt
             soil = (1. - smoothstep(0., .017, edge)) * inYard;
             float slabId = hash12(vec2(col - mergeL, row) + 17.);
             gUy += vec2(slabId * 7.3, slabId * 3.1);   // 每块石板取贴图上不同的位置：花纹不会连着跨过石缝
+          #endif
             float edgeD = min(min(vWp.x - uYard.x, uYard.y - vWp.x), min(vWp.z - uYard.z, uYard.w - vWp.z));
             float treeD = length(vWp.xz - uTree.xy) - uTree.z;
             mossBias = max(smoothstep(1.9, .1, edgeD), smoothstep(2.2, .1, treeD)) * .45 + gap * 2. + (1. - inYard) * 2.;
-            tint = mix(.72, 1.08, slabId) * mix(.7, 1., smoothstep(0., .1, edge));   // 每块石板深浅略不同；靠近石缝的一圈暗一些（磨圆的棱）
+            #ifdef HAS_HEIGHT
+              tint = mix(.8, 1.12, slabId) * mix(.72, 1., 1. - gap);
+            #else
+              tint = mix(.72, 1.08, slabId) * mix(.7, 1., smoothstep(0., .1, edge));   // 每块石板深浅略不同；靠近石缝的一圈暗一些（磨圆的棱）
+            #endif
             float wn = fbm2(vWp.xz * .27 + 3.);
             gPuddle = smoothstep(.6, .66, wn + (slabId - .5) * .06) * inYard * (1. - gap) * uMoss.w;   // 低洼处一小滩积水
             gWet = max(smoothstep(.4, .6, wn) * .75, gPuddle) * uMoss.w * inYard;                      // 周围一片还没干的水迹
@@ -127,6 +160,13 @@ export function triMat({ set, moss = null, scale = .5, color = 0xffffff, mossAmt
             gUx += vec2(bid * 5., bid * 3.); gUz += vec2(bid * 4., bid * 6.);
             tint = mix(.7, 1.15, bid) * mix(1., .38, joint);
             mossBias += joint * .5;
+          #endif
+          #if defined(HAS_HEIGHT) && !defined(PAVING)
+          {
+            // 砌石墙：贴图里的石块之间的缝（高度低）更暗、更容易长苔；顶面不算
+            float hj = (1. - smoothstep(uJoint.x, uJoint.y, tri(tHeight).r)) * (1. - gW.y);
+            tint *= mix(1., .55, hj); mossBias += hj * .7;
+          }
           #endif
           vec3 base = tri(tDiff).rgb * tint;
           #ifdef WOOD
@@ -153,7 +193,7 @@ export function triMat({ set, moss = null, scale = .5, color = 0xffffff, mossAmt
             gMoss = smoothstep(uMoss.y - .12, uMoss.y + .12, gWn.y * .5 + mn * .9 - .5 + grime * .4 + mossBias) * uMoss.x;
             vec2 ms = vec2(uTri.w);
             vec3 mc = (texture2D(tMossD, vWp.zy * ms) * gW.x + texture2D(tMossD, vWp.xz * ms) * gW.y + texture2D(tMossD, vWp.xy * ms) * gW.z).rgb;
-            diffuseColor.rgb = mix(diffuseColor.rgb, mc * vec3(2.1, 2.3, 1.7), gMoss);
+            diffuseColor.rgb = mix(diffuseColor.rgb, mc * vec3(1., .97, 2.2), gMoss);   // 苔藓贴图（moss_dense）偏黄：补一点蓝，压成灰绿
           #endif
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.035, .026, .016) * (.7 + .6 * vnoise(vWp.xz * 60.)), soil * .85);   // 石缝正中露出泥土
           diffuseColor.rgb *= 1. - .5 * gWet * (1. - gMoss);   // 湿的石面颜色更深

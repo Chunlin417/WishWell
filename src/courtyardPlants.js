@@ -1,4 +1,4 @@
-// 小院里的地面植物：石缝里的小草、院子边角的蕨类和三叶草。贴图是许愿池已有的两张植物图集（照片抠出来的草丛、蕨）。
+// 小院里的植物和地上的贴花：石缝里的小草、院子边角的蕨、墙根的小叶草、墙头垂下的藤、落叶和苔斑。图集在 textures/q/（格子范围见 qualityAtlases.js）。
 // 每株是三张交叉的竖直面片（从哪个方向看都有叶子），法线一律朝上（受光和地面一致，不会一张亮一张暗），随风轻轻摆
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -51,3 +51,55 @@ export function createPlantCards(map, items, { sway = .04 } = {}) {
   mesh.castShadow = false; mesh.receiveShadow = true; mesh.frustumCulled = false;
   return { mesh, update(t) { uTime.value = t; } };
 }
+
+// 实例的贴图格子：几何体的 uv（0～1）换算到图集里的这一格
+function cellMaterial(map, { alphaTest = .45, roughness = .85, flatUp = false, key }) {
+  const mat = new THREE.MeshStandardMaterial({ map, alphaTest, side: THREE.DoubleSide, roughness });
+  mat.customProgramCacheKey = () => key;
+  mat.onBeforeCompile = sh => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute vec4 aCell;')
+      .replace('#include <uv_vertex>', '#include <uv_vertex>\nvMapUv = vMapUv * aCell.zw + aCell.xy;');
+    if (flatUp) sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\nnormal = normalize((viewMatrix * vec4(0., 1., 0., 0.)).xyz);');
+  };
+  return mat;
+}
+
+// 贴着墙面往下垂的藤和苔：一张竖直的面片，上沿挂在 (x, y, z)，朝着 (nx, nz) 那一边，往下垂 h 米
+// items：[{ x, y, z, h, nx, nz, cell, tint? }]
+export function createHangCards(map, items) {
+  const geo = new THREE.PlaneGeometry(1, 1); geo.translate(0, -.5, 0);
+  const cell = new Float32Array(items.length * 4);
+  geo.setAttribute('aCell', new THREE.InstancedBufferAttribute(cell, 4));
+  const mesh = new THREE.InstancedMesh(geo, cellMaterial(map, { key: 'court-hang' }), items.length);
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3(), col = new THREE.Color(), e = new THREE.Euler();
+  items.forEach((it, i) => {
+    const [[u0, v0, u1, v1], aspect] = it.cell;
+    cell.set([u0, v0, u1 - u0, v1 - v0], i * 4);
+    m.compose(p.set(it.x + it.nx * .01, it.y, it.z + it.nz * .01), q.setFromEuler(e.set(0, Math.atan2(it.nx, it.nz), 0)), s.set(it.h * aspect, it.h, 1));
+    mesh.setMatrixAt(i, m); mesh.setColorAt(i, col.setRGB(...(it.tint || [.8, .85, .75])));
+  });
+  mesh.castShadow = true; mesh.receiveShadow = true;
+  return { mesh };
+}
+
+// 平铺在地上的贴花（落叶、苔斑）：水平的面片，略高出地面一点，法线朝上，接受阴影（树荫、光斑照样落在上面）
+// items：[{ x, z, s: 大小（米）, rot, cell, tint? }]
+export function createDecals(map, items, { y = .008 } = {}) {
+  const geo = new THREE.PlaneGeometry(1, 1); geo.rotateX(-Math.PI / 2);
+  const cell = new Float32Array(items.length * 4);
+  geo.setAttribute('aCell', new THREE.InstancedBufferAttribute(cell, 4));
+  const mat = cellMaterial(map, { key: 'court-decal', alphaTest: .4, roughness: .9, flatUp: true });
+  mat.polygonOffset = true; mat.polygonOffsetFactor = -2; mat.polygonOffsetUnits = -2;
+  const mesh = new THREE.InstancedMesh(geo, mat, items.length);
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3(), col = new THREE.Color();
+  items.forEach((it, i) => {
+    const [[u0, v0, u1, v1], aspect] = it.cell;
+    cell.set([u0, v0, u1 - u0, v1 - v0], i * 4);
+    m.compose(p.set(it.x, y, it.z), q.setFromAxisAngle(UP, it.rot), s.set(it.s * aspect, 1, it.s));
+    mesh.setMatrixAt(i, m); mesh.setColorAt(i, col.setRGB(...(it.tint || [.8, .8, .8])));
+  });
+  mesh.receiveShadow = true;
+  return mesh;
+}
+const UP = new THREE.Vector3(0, 1, 0);
