@@ -212,8 +212,8 @@ export function bronzeMat() {
 // 殿里猫像的青铜：和香炉一样的铜底、铜绿，但更旧——铜绿更多；凸起的纹饰（模型里的 _relief）被摸得发亮，露出铜色；
 // 模型的顶点色里烘了凹处的暗部
 export function statueMat() {
-  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: .72, metalness: .55, vertexColors: true, envMapIntensity: .32 });
-  mat.customProgramCacheKey = () => 'court-statue-aged';
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: .48, metalness: .88, vertexColors: true, envMapIntensity: .85 });
+  mat.customProgramCacheKey = () => 'court-statue-aged-v2';
   mat.onBeforeCompile = sh => {
     worldVary(sh);
     sh.vertexShader = sh.vertexShader
@@ -224,14 +224,16 @@ export function statueMat() {
       .replace('#include <map_fragment>', /* glsl */`#include <map_fragment>
         {
           float n = fbm2(vWp.xy * 3.2 + vWp.z * 2.4) * .6 + fbm2(vWp.zy * 2.8 + vWp.x * 2. + 9.) * .4;
-          gPat = smoothstep(.3, .62, n + (1. - abs(normalize(vWn).y)) * .08) * (1. - .62 * vRelief);
-          vec3 c = mix(vec3(.155, .112, .067), vec3(.105, .155, .128), gPat);
-          c = mix(c, vec3(.34, .245, .125), vRelief * .68);
+          float relief = clamp(vRelief,0.,1.);
+          gPat = smoothstep(.43, .69, n + (1. - abs(normalize(vWn).y)) * .055) * (1. - .88 * relief);
+          vec3 c = mix(vec3(.24, .155, .073), vec3(.045, .092, .073), gPat);
+          c = mix(c, vec3(.42, .29, .135), relief * .72);
           diffuseColor.rgb *= c * (.86 + .2 * vnoise(vWp.xz * 23. + vWp.y * 17.));
         }`)
       .replace('#include <metalnessmap_fragment>', /* glsl */`#include <metalnessmap_fragment>
-        metalnessFactor = mix(.58, .18, gPat);
-        roughnessFactor = max(roughnessFactor, mix(.66, .91, gPat));`);
+        metalnessFactor = mix(.9, .22, gPat);
+        roughnessFactor = mix(.48, .84, gPat) + (vnoise(vWp.xz*110.+vWp.y*71.)-.5)*.09;
+        roughnessFactor = mix(roughnessFactor, .32, clamp(vRelief,0.,1.)*.75);`);
   };
   return mat;
 }

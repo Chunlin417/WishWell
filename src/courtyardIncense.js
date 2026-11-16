@@ -59,6 +59,7 @@ export function createIncense({ parent, ashY, stickMat, slots = 100, smokeCols =
         smoke.setTip(i, tip.x, tip.y, tip.z, smooth(300, 4500, age) * smooth(0, 90e3, rest));
       }
       haze.material.opacity = Math.min(.3, Math.max(0, live.length - smokeCols) * .02 + (live.length > 0 ? .03 : 0));
+      return { count: live.length, newest: live.length ? live[0][1] : Infinity };   // 给香炉用：香越多炉灰越红；刚点着的那一下亮一亮
     },
   };
 }

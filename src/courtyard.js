@@ -8,10 +8,12 @@ import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
 import { loadCourtTextures, triMat, bronzeMat, roofMat, roofGeo } from './courtyardMats.js';
 import { createHallInterior, REFLECT_LAYER } from './courtyardHall.js';
-import { createSky, createBackdrop, createCanopyShade, createShafts, createSmoke, createMist } from './courtyardFx.js';
+import { createSky, createBackdrop, createCanopyShade, createShafts, createDust, createSmoke, createMist } from './courtyardFx.js';
+import { installHeightFog, heightFog } from './heightFog.js';
 import { loadTree, createLeafKit, createGrove } from './courtyardTree.js';
 import { createPlaques } from './courtyardPlaques.js';
 import { createIncense } from './courtyardIncense.js';
+import { createBurner } from './courtyardBurner.js';
 import { createPlantCards, CELLS } from './courtyardPlants.js';
 import { HALL_ACCESS, constrainHallMove } from './courtyardMovement.js';
 
@@ -24,16 +26,17 @@ const rng = seed => () => (seed = (seed * 16807) % 2147483647) / 2147483647;
 const L = {
   halfX: 7.5,          // 院墙内侧到中线的距离（院子宽 15 米）
   south: 6.2,          // 南墙（院门所在）的 z
-  north: -22.8,        // 留出加深后的殿身、后檐和院墙间距
+  north: -18.4,        // 北墙在殿的后檐外面
   wallH: 1.55, wallT: .55,
   gateHalf: 1.2,       // 院门半宽
   hallFront: HALL_ACCESS.front,
   stepsZ: HALL_ACCESS.front + HALL_ACCESS.steps * HALL_ACCESS.stepDepth,
-  doorOpen: 0,         // 殿门朝里开多少（弧度）：0 = 关着（现在这样；从门上半截和窗的格子里能看到殿内），1.2 = 半掩（门缝约 1.25 米），1.57 = 完全敞开
-  pool: { halfX: 3.25, front: -8.65, back: -16.7, depth: .32, drop: .09, border: .24 },
-  statue: { z: -18.25, scale: 1.9 },
+  doorOpen: .88,       // 半掩的门扇框住中轴，露出蒲团、踏石和猫像；仍从殿外观看。
+  hallDepth: 8,        // 殿的进深（米）：只能隔着窗看，太深了里面只是一片黑，猫像也小成一个点
+  pool: { halfX: 3.6, front: -8.25, back: -11.3, depth: .22, drop: .09, border: .24 },   // 浅池向供桌延伸，保留入口蒲团平台
+  statue: { z: -13.15, height: 1.65 },   // 主体后退并收小，让金月和周边空间露出来
   tree: { x: -3.7, z: -1.5, scale: 6.6, yaw: 0 },   // 古树：树干中心的位置、缩放（要和 scripts/build-tree.mjs 的缩放参数一致）、绕树干转多少
-  burner: { x: 2.9, z: -.2, scale: 1.44, scaleY: 1.25 },   // 香炉的位置、横向大小、竖向大小（竖向 1 = 炉口约 1.2 米高）
+  burner: { x: 3.15, z: -.75, scale: 1.24, scaleY: 1.24 },   // 香炉的位置、横向大小、竖向大小（竖向 1 = 炉口约 1.2 米高）；比原来小一圈、往右后让一点，让出进院第一眼的前景
   rocks: [[-6.1, 4.2, .8], [6.0, -3.4, .9], [6.2, 4.6, .55], [-6.2, -3.9, .65], [5.3, 5.0, .34]],   // 院子边角的苔石：x, z, 半径
   shade: { dx: 1.2, dz: 1.2, r: 7 },                // 树荫光斑的中心（相对树干）和半径
   // 光柱落地的位置、宽、长：树干旁、香炉、殿前、院子中间各一道
@@ -43,7 +46,7 @@ const L = {
   grove: [
     [-10.5, 3, 3.1, 3.2], [-11.5, -3, 3.9, 3.6], [-10.2, -8.5, 3.5, 3.4], [-13.5, 0, 5.3, 4],
     [10.5, 2, 3.3, 3.2], [11.5, -4, 4.3, 3.8], [10.2, -9.5, 3.5, 3.3], [13.5, -1, 5.7, 4.2],
-    [-5, -21, 5.8, 4], [1.5, -22, 6.6, 4.4], [7, -20.5, 5.4, 3.8], [-10.5, -18, 5.2, 3.6], [11.5, -18.5, 5.6, 3.8],
+    [-5, -21.5, 5.8, 4], [1.5, -22.5, 6.6, 4.4], [7, -21, 5.4, 3.8], [-11.5, -16.5, 5.2, 3.6], [12, -17, 5.6, 3.8],
     [-6, 10, 3.5, 3.4], [6.5, 10.5, 3.9, 3.6], [-11.5, 8, 4.5, 3.6], [11.5, 8.5, 4.5, 3.6], [0, 14, 5.5, 4],
   ],
 };
@@ -81,9 +84,14 @@ function wallGeo(len, h, t, seed, alongX) {
 
 // onLight：点香（返回 { ok, text? }）；canLight：现在能不能点香（返回 { ok, text? }）；now：当前时间（毫秒，以后是服务器时间）
 export function createCourtyard({ renderer, canvas, isMobile = false, onExit = () => {}, onLight = () => ({ ok: false }), canLight = () => ({ ok: false }), now = () => Date.now() }) {
+  // 画质：手机（或网址带 ?q=low）用低档——浮尘少一些、远山的雾带少画一条、胶片颗粒淡一些；?q=high 强制高档
+  const qParam = new URLSearchParams(location.search).get('q');
+  const low = qParam === 'low' || (isMobile && qParam !== 'high');
   const scene = new THREE.Scene();
   const haze = new THREE.Color(0xb3bfaa);
-  scene.fog = new THREE.FogExp2(haze, .021);
+  // 高度雾：贴地浓、往上薄，远处有一层底雾；殿里不起雾（见 heightFog.js）
+  installHeightFog({ halfH: 1.2, clear: 4, hall: { halfX: 6.1, front: HALL_ACCESS.doorZ - .05, back: HALL_ACCESS.doorZ - L.hallDepth - .5, top: HALL_ACCESS.baseH + 5 } });
+  scene.fog = heightFog(haze, .013, .003);   // 只在远处和墙根显出来：近处的东西要清清楚楚
   const camera = new THREE.PerspectiveCamera(FOV, 1, .05, 150);
   camera.rotation.order = 'YXZ';
 
@@ -106,7 +114,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
   // 地面和院墙反上来的暖光：从院门一侧低低地补一点，殿的正面、树干朝着人的一面不至于一片黑（不投影）
   const fill = new THREE.DirectionalLight(0xffe2bd, .55); fill.position.set(3, 4, 10); scene.add(fill);
 
-  const sky = createSky(haze, sunDir), backdrop = createBackdrop(haze);
+  const sky = createSky(haze, sunDir), backdrop = createBackdrop(haze, sunDir, { mistBands: low ? 1 : 2 });
   scene.add(sky, backdrop);
   // 殿里水面的倒影只画 REFLECT_LAYER 这一层：灯光、天空、远山也算在里面（倒影里的窗外才不是黑的）
   for (const o of [sun, hemi, fill, sky, ...backdrop.children]) o.layers.enable(REFLECT_LAYER);
@@ -136,8 +144,8 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     wood: triMat({ set: tex.wood, scale: .55, color: 0xcabba8, weather: .7, weatherY: baseH }),
     woodRed: triMat({ set: tex.wood, scale: .55, color: 0xffe2d2, weather: .55, weatherY: baseH }),   // 檐柱、门扇：褪了色的旧红漆（素材本身就是红褐色）
     woodDark: triMat({ set: tex.wood, scale: .55, color: 0x8a7c70, weather: .4, weatherY: baseH }),
-    hallWood: triMat({ set: tex.wood, scale: .7, color: 0xd4c5a9, weather: .6, weatherY: baseH, wood: true, norK: .7 }),
-    hallBeam: triMat({ set: tex.wood, scale: .58, color: 0xb8a88d, weather: .45, weatherY: baseH, wood: true, norK: .65 }),
+    hallWood: triMat({ set: tex.wood, scale: .7, color: 0xc2bdb0, weather: .68, weatherY: baseH, wood: true, norK: .48 }),
+    hallBeam: triMat({ set: tex.wood, scale: .49, color: 0x9c978b, weather: .55, weatherY: baseH, wood: true, norK: .42 }),
     gateWood: triMat({ set: tex.wood, scale: .55, color: 0xc8b8a6, weather: .8, weatherY: 0 }),
     roof: roofMat(tex.roof), tileEnd: M(0x4a5052, .75), bronze: bronzeMat(),
     ash: M(0xb8b2a3, 1), stick: M(0x7a4630),
@@ -161,10 +169,10 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
   };
   // 镂空的方格窗棂：w × h 的窗洞里横竖排开细木条（cell 米一格），看得穿、也投影。窗面在局部的 xy 平面，ry 把它转到墙的方向
   const barGeo = new THREE.BoxGeometry(1, 1, 1);
-  const lattice = (w, h, x, y, z, ry = 0, par = parent, cell = .17) => {
+  const lattice = (w, h, x, y, z, ry = 0, par = parent, cell = .17, thickness = .028) => {
     const nx = Math.round(w / cell), ny = Math.round(h / cell), bars = [];
-    for (let i = 1; i < nx; i++) bars.push([(i / nx - .5) * w, 0, .028, h, .036]);
-    for (let j = 1; j < ny; j++) bars.push([0, (j / ny - .5) * h, w, .028, .03]);
+    for (let i = 1; i < nx; i++) bars.push([(i / nx - .5) * w, 0, thickness, h, .036]);
+    for (let j = 1; j < ny; j++) bars.push([0, (j / ny - .5) * h, w, thickness, .03]);
     const im = new THREE.InstancedMesh(barGeo, mat.wood, bars.length), mx = new THREE.Matrix4();
     bars.forEach(([bx, by, sx, sy, sz], i) => im.setMatrixAt(i, mx.makeScale(sx, sy, sz).setPosition(bx, by, 0)));
     im.position.set(x, y, z); im.rotation.y = ry; im.castShadow = im.receiveShadow = true; par.add(im); return im;
@@ -210,7 +218,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
   // ---------- 小殿：前墙和两侧墙上是镂空的花格窗，殿门的上半截也是镂空的；里面是水池、苔石和青铜猫像（courtyardHall.js）----------
   let hall = null;
   {
-    const W = 11.8, H = 4.9, D = 13, front = L.hallFront, fz = HALL_ACCESS.doorZ, bz = fz - D / 2, top = baseH + H, pz = front - .45;
+    const W = 11.8, H = 4.9, D = L.hallDepth, front = L.hallFront, fz = HALL_ACCESS.doorZ, bz = fz - D / 2, top = baseH + H, pz = front - .45;
     const P = L.pool, pMid = (P.front + P.back) / 2, pLen = P.front - P.back, back = fz - D - .8, platformHalf = HALL_ACCESS.porchHalfX;
     const ix = W / 2 - .2, iz0 = fz - D + .2, iz1 = fz - .1, ceil = top - .14;   // 殿内的范围（x 方向的半宽、后墙和前墙内面的 z）、顶棚的高度
     const grp = new THREE.Group(); scene.add(grp); parent = grp;
@@ -240,10 +248,11 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
       const bar = (len, h, a, y) => box(alongX ? len : .28, h, alongX ? .28 : len, mat.woodRed, alongX ? a : c, y, alongX ? c : a);
       for (const y of [y0 - .03, y1 + .03]) bar(w + .22, .1, m, y);
       for (const e of [-1, 1]) bar(.1, y1 - y0 + .06, m + e * (w / 2 + .03), (y0 + y1) / 2);
-      lattice(w, y1 - y0, alongX ? m : c, (y0 + y1) / 2, alongX ? c : m, alongX ? 0 : Math.PI / 2, parent, .26);
+      lattice(w, y1 - y0, alongX ? m : c, (y0 + y1) / 2, alongX ? c : m, alongX ? 0 : Math.PI / 2, parent, .3);
     };
     // 墙：后墙是整面；正面留出门洞和左右两扇窗；两侧各三扇大窗（清晨日光从东窗照进来）
-    const winF = [baseH + 1.1, baseH + 3.65], winS = [baseH + 1, baseH + 3.6], sideZ = [fz - 10.5, fz - 3.5, fz - 1.3];
+    const winF = [baseH + 1.1, baseH + 3.65], winS = [baseH + 1, baseH + 3.6], sideZ = [fz - 6.6, fz - 4.0, fz - 1.4];
+    const rowZ = [fz - 2.6, fz - 5.3];   // 殿里两排立柱和大梁的位置；后面那一排的梁下挂帷幔
     box(W, H, .2, mat.wood, 0, baseH + H / 2, fz - D + .1);
     wall(true, -W / 2, W / 2, fz, [[-4.9, -2, ...winF], [-1.3, 1.3, baseH, top - .08], [2, 4.9, ...winF]]);
     for (const s of [-1, 1]) {
@@ -258,7 +267,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     box(W, .14, D, mat.woodDark, 0, top - .07, bz, { cast: false });                                              // 顶棚
     // 殿里的木构：靠墙的立柱、后墙的一道横枋、抬高的三根大梁和两道檩条；后墙根一条长凳
     const columnZ = [iz1 - .1, fz - D / 3, fz - D * 2 / 3, iz0 + .1];
-    for (const z of [fz - 3.8, fz - 8.1]) {
+    for (const z of rowZ) {
       for (const side of [-1, 1]) {
         const x = side * 4.35;
         box(.36, ceil - baseH, .36, mat.woodDark, x, (ceil + baseH) / 2, z);
@@ -299,23 +308,20 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
       }
       box(.08, .12, iz1 - iz0, mat.hallBeam, s * (ix - .035), baseH + .72, (iz0 + iz1) / 2);
     }
-    // Warm reflected daylight reveals timber grain without flattening beam shadows.
-    const glow = new THREE.PointLight(0xffe0b6, 11, 12, 1.5);
-    glow.position.set(0, baseH + 3.2, fz - 2.2); grp.add(glow);
-    for (const s of [-1, 1]) {
-      const bounce = new THREE.PointLight(s > 0 ? 0xffe3bc : 0xd3ddd6, s > 0 ? 11 : 6.5, 11, 1.6);
-      bounce.position.set(s * (ix - .45), baseH + 2.45, fz - D * .5); grp.add(bounce);
-    }
+    // 殿里的光（整体偏暗，亮处只有猫像、壁画和灯笼）：
+    //   - 门里一盏很弱的暖光：木构的轮廓和水池隐约可见；
+    //   - 一束晨光从东窗的花格斜照进来，落在水池和石板路上（投影，花格的影子铺在地上）；
+    //   - 猫像头顶一片柔光（面光源，不投影），让它从暗处浮出来；两盏石灯笼各一点暖光（见下面 hall 建好之后）。
+    const glow = new THREE.PointLight(0xffdcb0, 3.4, 9, 1.6);
+    glow.position.set(0, baseH + 2.5, fz - 2.2); grp.add(glow);
     RectAreaLightUniformsLib.init();
-    const windowFill = new THREE.RectAreaLight(0xffe4bd, 4.2, 5.8, 2.4);
-    windowFill.position.set(0, baseH + 3.8, fz - 6.5);
-    windowFill.lookAt(0, baseH + .9, L.statue.z); grp.add(windowFill);
-    // Low morning sunlight through the east lattice: stable, once-baked shadows.
-    const windowSun = new THREE.SpotLight(0xffdfaa, 60, 20, .72, .85, 2);
-    // Keep the source outside the lattice so the viewer sees the cast light,
-    // rather than an overexposed hotspot sitting directly on the window frame.
-    windowSun.position.set(-ix - .9, baseH + 3.45, fz - 10.5);
-    windowSun.target.position.set(.65, baseH + 1.9, L.statue.z - .4);
+    const statueKey = new THREE.RectAreaLight(0xffe2b4, 7.5, 2.4, 1.3);
+    statueKey.position.set(0, ceil - .35, L.statue.z + 2.5);
+    statueKey.lookAt(0, baseH + 2.1, L.statue.z); grp.add(statueKey);
+    const windowSun = new THREE.SpotLight(0xffdfaa, 46, 18, .5, .8, 2);
+    // 光源放在窗外：看到的是照进来的光，而不是窗框上一块过曝的亮斑
+    windowSun.position.set(ix + 1.6, baseH + 4.1, fz - 4.0);
+    windowSun.target.position.set(-1.6, baseH, fz - 3.4);
     windowSun.castShadow = true;
     windowSun.shadow.mapSize.setScalar(isMobile ? 512 : 1024);
     windowSun.shadow.camera.near = .2; windowSun.shadow.camera.far = 18;
@@ -340,14 +346,20 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     for (const s of [-1, 1]) {
       const hinge = new THREE.Group(); hinge.position.set(s * 1.297, baseH, fz); hinge.rotation.y = s * -L.doorOpen; grp.add(hinge); parent = hinge;
       const lw = 1.292, lh = 3.3, cx = -s * lw / 2;
-      for (const e of [-1, 1]) box(.1, lh, .06, mat.woodRed, cx + e * (lw / 2 - .05), lh / 2, 0);      // 两边的立梃
-      for (const y of [.06, .98, lh - .06]) box(lw - .2, .12, .06, mat.woodRed, cx, y, 0);             // 下、中、上三道横档
-      box(lw - .2, .8, .035, mat.woodRed, cx, .52, 0);                                                  // 下半截的木板
-      lattice(lw - .2, lh - 1.16, cx, (lh + .92) / 2, 0, 0, hinge, .23);
+      for (const e of [-1, 1]) box(.065, lh, .055, mat.woodRed, cx + e * (lw / 2 - .0325), lh / 2, 0);
+      for (const y of [.05, .78, lh - .05]) box(lw - .13, .09, .055, mat.woodRed, cx, y, 0);
+      box(lw - .13, .64, .035, mat.woodRed, cx, .415, 0);
+      lattice(lw - .13, lh - .925, cx, (lh + .725) / 2, 0, 0, hinge, .38, .02);
+      // 兽面门环：门板靠中缝的一侧，一个鼓起的兽面衔着铜环
+      const rx = -s * (lw - .26), ry = .62;
+      add(new THREE.SphereGeometry(.075, 14, 10), mat.bronze, rx, ry + .05, .03).scale.set(1.1, 1, .5);
+      add(new THREE.SphereGeometry(.035, 10, 8), mat.bronze, rx, ry + .015, .06).scale.set(1.1, .8, .8);
+      add(new THREE.TorusGeometry(.085, .014, 8, 24), mat.bronze, rx, ry - .07, .065);
       parent = grp;
     }
     // 殿里：水池、卵石、苔石、猫像、水面的倒影和水光
-    hall = createHallInterior({ parent: grp, tex, manager, camera, baseH, pool: P, statue: L.statue, room: { halfX: ix, front: iz1, back: iz0, top: ceil }, floorMat: hallFloor, isMobile });
+    hall = createHallInterior({ parent: grp, tex, manager, camera, baseH, pool: P, statue: L.statue, room: { halfX: ix, front: iz1, back: iz0, top: ceil, curtainX: 5.45, curtainZ: rowZ[1] }, floorMat: hallFloor, isMobile });
+    for (const p of hall.lanterns) { const l = new THREE.PointLight(0xffb45e, .8, 3.5, 1.7); l.position.copy(p); grp.add(l); }   // 清晨石灯仅保留微弱暖光
     grp.traverse(o => { if (!o.userData.noReflect) o.layers.enable(REFLECT_LAYER); });   // 整座殿都画进水面的倒影里
     parent = scene;
   }
@@ -375,36 +387,18 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
   // 院外的树林：挡住院墙后面的天空和地图的边界
   scene.add(createGrove(kit, L.grove, { perTree: isMobile ? 110 : 220 }));
 
-  // ---------- 香炉：一块低矮的天然石头上立着三足青铜鼎，两只立耳、腹部一对兽面衔环；炉里插着三炷香 ----------
-  let burnerGrp = null, burnerAshY = 0;   // 香炉的组和炉灰的高度：炉里的香（courtyardIncense.js）插在这里
+  // ---------- 香炉：一块低矮的天然石头上立着三足青铜鼎（courtyardBurner.js）；炉里的香在 courtyardIncense.js ----------
+  let burnerGrp = null, burnerAshY = 0, burner = null;   // 香炉的组和炉灰的高度：炉里的香（courtyardIncense.js）插在这里
   {
-    const B = L.burner, x = 0, z = 0, y0 = .58;   // y0：鼎腹底部的高度（下面都按原始大小搭，最后整体缩放）
+    const B = L.burner;
     // 石基：一块压得很扁的天然石头，顶面略有起伏，长着少量青苔
-    add(rockGeo(1.3, 9.4, .3), mat.stoneClean, B.x, .01, B.z).rotation.y = 1.1;
-    const grp = new THREE.Group(); grp.position.set(B.x, -.08, B.z); grp.scale.set(B.scale, B.scaleY, B.scale); scene.add(grp); parent = grp;
-    const prof = [[0, 0], [.22, 0], [.4, .05], [.52, .16], [.57, .3], [.55, .42], [.5, .5], [.485, .54], [.53, .58], [.58, .6], [.58, .64], [.52, .64], [.5, .58]]
-      .map(([r, y]) => new THREE.Vector2(r, y));
-    add(new THREE.LatheGeometry(prof, 40), mat.bronze, x, y0, z);
-    for (const [r, y] of [[.575, .3], [.505, .5]]) add(new THREE.TorusGeometry(r, .016, 8, 48), mat.bronze, x, y0 + y, z).rotation.x = Math.PI / 2;   // 腹部的两道弦纹
-    for (let i = 0; i < 3; i++) {   // 三足：上粗下细，膝部鼓起，脚掌略大
-      const a = i * 2.094 + .52, lx = x + Math.cos(a) * .36, lz = z + Math.sin(a) * .36;
-      add(new THREE.CylinderGeometry(.08, .055, .36, 12), mat.bronze, lx, .44, lz);
-      add(new THREE.SphereGeometry(.1, 14, 10), mat.bronze, lx, .6, lz);
-      add(new THREE.SphereGeometry(.075, 12, 8), mat.bronze, lx, .29, lz).scale.y = .6;
-    }
-    for (const s of [-1, 1]) {
-      const ear = add(new THREE.TorusGeometry(.085, .024, 8, 20), mat.bronze, x + s * .55, y0 + .74, z); ear.rotation.y = Math.PI / 2; ear.scale.y = 1.35;   // 立耳
-      // 兽面衔环：鼓起的兽面（额头、鼻吻、两只眼）+ 嘴里衔的环
-      add(new THREE.SphereGeometry(.085, 14, 10), mat.bronze, x, y0 + .35, z + s * .555).scale.set(1.15, 1, .5);
-      add(new THREE.SphereGeometry(.04, 10, 8), mat.bronze, x, y0 + .3, z + s * .6).scale.set(1.1, .8, .8);
-      for (const e of [-1, 1]) add(new THREE.SphereGeometry(.017, 8, 6), mat.bronze, x + e * .04, y0 + .375, z + s * .592);
-      add(new THREE.TorusGeometry(.07, .013, 8, 20), mat.bronze, x, y0 + .23, z + s * .615);
-    }
-    const ashY = y0 + .585;
-    add(new THREE.CylinderGeometry(.5, .5, .02, 28), mat.ash, x, ashY, z, { cast: false });
+    add(rockGeo(1.15, 9.4, .22), mat.stoneClean, B.x, .01, B.z).rotation.y = 1.1;   // 压得更扁：鼎的三只脚站在石面上，不埋进去
+    const grp = new THREE.Group(); grp.position.set(B.x, -.01, B.z); grp.scale.set(B.scale, B.scaleY, B.scale); scene.add(grp); parent = grp;
+    burner = createBurner({ parent: grp });   // 鼎本身（炉身、浮雕、立耳、蹄足、衔环、炉灰）在 courtyardBurner.js
+    const ashY = burner.ashY;
     burnerGrp = grp; burnerAshY = ashY; grp.updateMatrixWorld(true);
     parent = scene;
-    colliders.push({ x: B.x, z: B.z, r: 1.3 });
+    colliders.push({ x: B.x, z: B.z, r: 1.15 });
   }
 
   // ---------- 院子边角的几块苔石 ----------
@@ -450,7 +444,11 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
   scene.add(grassCards.mesh, plantCards.mesh, kit.add(vines, { cast: false }));
 
   // ---------- 气氛：几道光柱、香烟、晨雾 ----------
-  const shafts = createShafts(L.shafts, sunDir), smoke = createSmoke(24, 3);
+  // 殿里还有一道：清晨的光从东窗的花格斜照进去，落在水池前的石板上（和殿里那盏 windowSun 聚光灯同一个方向）
+  const hallBeam = [-1.6, HALL_ACCESS.doorZ - 3.4, 1.1, 8.2, { dir: new THREE.Vector3(8.9, 4.1, -.6).normalize(), y: baseH, k: .7 }];
+  const shafts = createShafts([...L.shafts, hallBeam], sunDir), smoke = createSmoke(24, 3);
+  const dust = createDust([...L.shafts, hallBeam], sunDir, low ? 360 : 900);
+  scene.add(dust.mesh);
   // 炉里的香：数据由外面给（setIncense）；?debug 时再多插几炷别人的，方便看效果
   const incense = createIncense({ parent: burnerGrp, ashY: burnerAshY, stickMat: mat.stick });
   const demoIncense = new URLSearchParams(location.search).has('debug') ? [3, 11, 19, 26, 8, 29].map((m, i) => ({ id: 'd' + i, slot: [4, 17, 33, 48, 62, 81][i], t: Date.now() - m * 60e3, mine: false })) : [];
@@ -461,6 +459,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
   ]);
   scene.add(shafts.mesh, smoke.mesh, mist.group);
   let fxT = 0;
+  const bufSize = new THREE.Vector2();
   ready = Promise.all([texReady, treeReady, hall.ready]).then(() => {});
 
   // ---------- 人：位置、朝向（yaw = 0 时面向小殿，也就是 -z）----------
@@ -609,10 +608,20 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     eyeFloor += (p.y - eyeFloor) * (1 - Math.exp(-dt * 12));
     camera.position.set(p.x, eyeFloor + EYE + Math.sin(walked / .75 * Math.PI * 2) * .02 * bobK, p.z);
     camera.rotation.set(player.pitch, player.yaw, 0);
+    // 靠近殿门时轻收视角，保留走动时的广视野；入口查看主体更接近设计稿。
+    const hallView = (1 - THREE.MathUtils.smoothstep(p.z, HALL_ACCESS.doorZ + .6, HALL_ACCESS.front + 1.8))
+      * (1 - THREE.MathUtils.smoothstep(Math.abs(p.x), .9, 2.4));
+    const targetFov = camera.aspect < 1 ? FOV_PORTRAIT : THREE.MathUtils.lerp(FOV, 44, hallView);
+    if (Math.abs(camera.fov - targetFov) > .01) {
+      camera.fov = THREE.MathUtils.lerp(camera.fov, targetFov, 1 - Math.exp(-dt * 5));
+      camera.updateProjectionMatrix();
+    }
     sky.position.copy(camera.position);
     fxT += dt; kit.update(fxT); plaques.update(fxT); grassCards.update(fxT); plantCards.update(fxT);
     shafts.uniforms.uTime.value = fxT; smoke.uniforms.uTime.value = fxT; mist.update(fxT); hall.update(fxT);
-    incense.update(now(), smoke); updateLightBtn(dt);
+    dust.uniforms.uTime.value = fxT; backdrop.userData.uniforms.uTime.value = fxT;
+    dust.uniforms.uPx.value = renderer.getDrawingBufferSize(bufSize).y / (2 * Math.tan(camera.fov * Math.PI / 360));   // 1 米远处 1 米有多少像素
+    burner.update(fxT, incense.update(now(), smoke)); updateLightBtn(dt);
   }
 
   return {
@@ -624,6 +633,9 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
       plaqueSig = sig; plaqueList = [...demo, ...list.map(p => ({ ...p, fresh: p.id === freshId }))]; applyPlaques();
     },
     exposure: .98,
+    // 全画面调色（main.js 的 GradeShader）：小院的"清晨"——亮处偏暖、暗处偏青绿，绿色收一点饱和，轻微的 S 曲线和暗角；
+    // 不加胶片颗粒（画面会发糊），反而轻轻锐化一下，让石缝、木纹、叶子边缘清楚
+    grade: { saturation: 1, vig: .16, dayWarm: .28, court: 1, grain: 0, sharp: low ? .25 : .35 },
     update,
     // 阴影是静态的：进院后画几帧就够（渲染器的阴影不是每帧自动更新）
     // 阴影画好之后，每帧先画殿里水面的倒影（阴影还没画的那几帧不画：倒影只画殿这一层，会把阴影贴图画成只有殿的影子）

@@ -1,98 +1,177 @@
+// 殿里的陈设（隔着花格窗从门外看）：沿中轴线依次是蒲团、浅水池里的一条石板路、供桌、石台上的青铜猫像、后墙的金月壁画；
+// 猫像两侧各一盏石灯笼，再往外是两幅束起来的织锦帷幔——像戏台的台口，把视线收到猫像和它身后的金月上。
+// 壁画（textures/hall_mural.webp）和帷幔（textures/hall_drape.webp）是图像生成的素材，原图在 textures-src/hall/；其余都是几何体。
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { triMat } from './courtyardMats.js';
+import { finishMural, finishCloth, finishPoolStone } from './hallSurface.js';
 
-// Architectural details share materials and geometry; relief is real shallow geometry.
+const TEX = `${import.meta.env.BASE_URL}textures/`;
+
+// 一幅束起来的帷幔：上沿平直地挂着，在 tie（离地的比例）处被绳子收到一侧（+x 那一边），下摆再散开一些；布面有竖向的褶
+function drapeGeo(w, h, tie = .4) {
+  const g = new THREE.PlaneGeometry(w, h, 48, 40), p = g.attributes.position, uv = g.attributes.uv;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), u = x / w + .5, v = y / h + .5;
+    const gather = .72 * Math.exp(-(((v - tie) / .23) ** 2)) + (v < tie ? .46 * (tie - v) / tie : 0);
+    const f = 1 - gather;
+    const fold = Math.sin(u * Math.PI * 12 + v * .8) * (.045 - .025 * gather) + Math.sin(u * Math.PI * 4 + v) * .018;
+    p.setXYZ(i, w / 2 + (x - w / 2) * f, y - gather * .09 * (1 - u), fold);
+    uv.setXY(i, u * (w / (h / 2)), v);   // 织锦原图是 1:2 的竖幅：按实际尺寸铺，不拉伸
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
+// 漂在水面上的落叶：一小片扇形的黄叶
+function leafTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d');
+  g.translate(32, 54); g.fillStyle = '#c9a23a';
+  g.beginPath(); g.moveTo(0, 0); g.bezierCurveTo(-34, -14, -30, -48, -6, -46); g.lineTo(0, -34); g.lineTo(6, -46); g.bezierCurveTo(30, -48, 34, -14, 0, 0); g.fill();
+  g.strokeStyle = 'rgba(120,84,20,.6)'; g.lineWidth = 1.2;
+  for (let a = -1; a <= 1; a += .4) { g.beginPath(); g.moveTo(0, 0); g.lineTo(Math.sin(a) * 40, -Math.cos(a) * 40); g.stroke(); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+
 export function createSanctuary({ parent, tex, manager, baseH, room, pool, statue }) {
-  const stone = triMat({ set: tex.rock, scale: .85, color: 0xd5cbb4, roughMul: 1.2, norK: .28 });
-  stone.color.multiplyScalar(1.7);
-  const wood = triMat({ set: tex.wood, scale: .62, color: 0xc0a98a, wood: true, norK: .4 });
-  wood.color.multiplyScalar(1.7);
-  const dark = wood.clone(); dark.color.multiplyScalar(.65);
-  const brass = new THREE.MeshStandardMaterial({ color: 0x9b8050, metalness: .65, roughness: .65 });
-  const clay = new THREE.MeshStandardMaterial({ color: 0x677b72, roughness: .92 });
-  const paper = new THREE.MeshStandardMaterial({ color: 0xb7a381, roughness: 1 });
-  const unit = new THREE.BoxGeometry(1, 1, 1);
-  const box = (w, h, d, m, x, y, z, target = parent) => {
-    const o = new THREE.Mesh(unit, m); o.scale.set(w, h, d); o.position.set(x, y, z);
-    o.castShadow = o.receiveShadow = true; target.add(o); return o;
-  };
-  const rounded = (w, h, d, x, y, z) => {
-    const o = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 2, .035), stone);
-    o.position.set(x, y, z); o.castShadow = o.receiveShadow = true; parent.add(o); return o;
-  };
-  // Coping hides the foundation edge; inner faces continue beneath water level.
-  const mid = (pool.front + pool.back) / 2, length = pool.front - pool.back;
-  for (const s of [-1, 1]) {
-    rounded(.24, .14, length + .48, s * (pool.halfX + .12), baseH + .025, mid);
-    box(.08, pool.depth, length, stone, s * (pool.halfX + .015), baseH - pool.depth / 2, mid);
-  }
-  for (const z of [pool.front, pool.back]) rounded(pool.halfX * 2, .14, .24, 0, baseH + .025, z);
-  rounded(3.9, .15, 2.1, 0, baseH + .075, statue.z);
-  rounded(3.5, .28, 1.85, 0, baseH + .29, statue.z);
-  const moss = triMat({ set: tex.rock, moss: tex.moss, scale: 1.1, color: 0xc8c1a5, mossAmt: .4, mossAt: .7, norK: .5 });
+  const loader = new THREE.TextureLoader(manager);
+  const stone = triMat({ set: tex.paving, scale: .85, color: 0xa9afa4, roughMul: 1.2, norK: .38 });
+  stone.color.multiplyScalar(1.25);
+  const pedestal = triMat({ set: tex.paving, scale: .62, color: 0x858b86, roughMul: 1.1, norK: .55, blocks: true });
+  const poolStone = finishPoolStone(triMat({ set: tex.paving, moss: tex.moss, scale: .8, color: 0xa8a58e, mossAmt: .24, mossAt: .63, norK: .5 }), baseH - pool.drop);
+  const moss = triMat({ set: tex.rock, moss: tex.moss, scale: 1.1, color: 0xc8c1a5, mossAmt: .5, mossAt: .62, norK: .5 });
   moss.color.multiplyScalar(1.6);
-  box(3.36, .09, 1.72, moss, 0, baseH + .475, statue.z);
+  const wood = triMat({ set: tex.wood, scale: .62, color: 0xa49a88, wood: true, weather: .3, weatherY: baseH, norK: .35 });
+  const dark = triMat({ set: tex.wood, scale: .78, color: 0x897c69, wood: true, weather: .25, weatherY: baseH, norK: .3 });
+  const brass = new THREE.MeshStandardMaterial({ color: 0x9b8050, metalness: .65, roughness: .6 });
+  const clay = new THREE.MeshStandardMaterial({ color: 0x5d6f68, roughness: .9 });
+  const unit = new THREE.BoxGeometry(1, 1, 1);
+  const put = (o, x, y, z, target = parent) => { o.position.set(x, y, z); o.castShadow = o.receiveShadow = true; target.add(o); return o; };
+  const box = (w, h, d, m, x, y, z, target = parent) => { const o = put(new THREE.Mesh(unit, m), x, y, z, target); o.scale.set(w, h, d); return o; };
+  const rounded = (w, h, d, x, y, z, m = stone, r = .035) => put(new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 2, Math.min(r, h / 2 - .001)), m), x, y, z);
 
-  // Bespoke mineral-pigment mural. The same restrained image drives a very
-  // shallow bump response, so side light reveals carving without looking like
-  // a glossy printed poster.
-  const muralMap = new THREE.TextureLoader(manager).load(`${import.meta.env.BASE_URL}textures/hall_guardian_mural.svg`);
-  muralMap.colorSpace = THREE.SRGBColorSpace;
-  muralMap.anisotropy = 8;
-  muralMap.wrapS = muralMap.wrapT = THREE.ClampToEdgeWrapping;
-  const plaster = new THREE.MeshStandardMaterial({
-    map: muralMap,
-    bumpMap: muralMap,
-    bumpScale: .026,
-    color: 0xd8d0c1,
-    roughness: .96,
-    metalness: 0,
-  });
-  const panelW = 8.1, panelH = 3.0, py = baseH + 2.72, pz = room.back + .16;
-  box(panelW, panelH, .11, plaster, 0, py, pz);
+  // ---------- 水池：石头压顶、池壁；池中间一条石板路从门口通向供桌 ----------
+  const mid = (pool.front + pool.back) / 2, length = pool.front - pool.back, waterY = baseH - pool.drop;
   for (const s of [-1, 1]) {
-    box(panelW + .18, .09, .17, wood, 0, py + s * (panelH / 2 + .045), pz + .015);
-    box(.09, panelH, .17, wood, s * (panelW / 2 + .045), py, pz + .015);
+    rounded(.26, .14, length + .5, s * (pool.halfX + .13), baseH + .025, mid, poolStone);
+    box(.08, pool.depth, length, poolStone, s * (pool.halfX + .015), baseH - pool.depth / 2, mid);
   }
-  // A real raised rim catches the side light around the painted moon while the
-  // foxes, cloud scrolls and water remain a quieter second reading.
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(.96, .014, 7, 96), brass);
-  rim.position.set(0, py + .47, pz + .135);
-  rim.castShadow = rim.receiveShadow = true;
-  parent.add(rim);
+  for (const z of [pool.front, pool.back]) rounded(pool.halfX * 2, .14, .26, 0, baseH + .025, z, poolStone);
+  const slabs = 5;
+  for (let i = 0; i < slabs; i++) {
+    const z = pool.front - .33 - i * (length - .66) / (slabs - 1), k = Math.sin(i * 12.9898) * .5;   // 每块石板大小、位置略有出入
+    const s = rounded(.96 + k * .1, .15, .54, k * .05, baseH + .005, z, moss); s.rotation.y = k * .05;
+    box(.8, pool.depth, .3, stone, 0, baseH - pool.depth / 2 - .05, z);   // 水下的石墩
+  }
+  // 水面上漂着的几片黄叶（避开石板路）
+  {
+    const n = 14, im = new THREE.InstancedMesh(new THREE.PlaneGeometry(.12, .12).rotateX(-Math.PI / 2),
+      new THREE.MeshStandardMaterial({ map: leafTexture(), alphaTest: .5, roughness: .8, side: THREE.DoubleSide }), n);
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), sc = new THREE.Vector3();
+    let seed = 91; const R = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    for (let i = 0; i < n; i++) {
+      const side = i % 2 ? 1 : -1, x = side * (.85 + R() * (pool.halfX - 1.1)), z = pool.back + .25 + R() * (length - .5), s = .7 + R() * .7;
+      im.setMatrixAt(i, m.compose(new THREE.Vector3(x, waterY + .006, z), q.setFromEuler(e.set(0, R() * 6.28, 0)), sc.set(s, 1, s)));
+    }
+    im.castShadow = false; im.receiveShadow = true; im.userData.noReflect = true; parent.add(im);
+  }
 
-  // Two closed-base wish archives fit the solid bays between side windows.
+  // ---------- 蒲团：门里正对着猫像的地方 ----------
+  const drape = loader.load(TEX + 'hall_drape.webp');
+  drape.colorSpace = THREE.SRGBColorSpace; drape.wrapS = drape.wrapT = THREE.RepeatWrapping; drape.anisotropy = 4;
+  const cushionMat = new THREE.MeshStandardMaterial({ map: drape, color: 0x9a8474, roughness: .95 });
+  rounded(.84, .15, .6, 0, baseH + .078, pool.front + .62, cushionMat, .07);
+
+  // ---------- 石台和猫像身后的金月壁画 ----------
+  rounded(3.3, .2, 2.2, 0, baseH + .1, statue.z, pedestal);
+  rounded(2.8, .5, 1.9, 0, baseH + .45, statue.z, pedestal);
+  rounded(3.0, .14, 2.0, 0, baseH + .77, statue.z, pedestal);
+  box(2.86, .09, 1.86, moss, 0, baseH + .885, statue.z);
+  const statueY = baseH + .93;
+
+  // 壁画：斑驳的深色墙面上一轮金箔圆月，两侧祥云，下面是层层水波。图本身带一点自发光（殿里暗，隔着窗格也看得清），
+  // 同一张图当凹凸贴图用——侧光照过来，金箔的龟裂和墙皮的剥落有一点起伏，不像一张印刷的海报
+  const muralMap = loader.load(TEX + 'hall_mural.webp');
+  muralMap.colorSpace = THREE.SRGBColorSpace; muralMap.anisotropy = 8;
+  const plaster = finishMural(new THREE.MeshStandardMaterial({ map: muralMap, bumpMap: muralMap, bumpScale: .012, emissive: 0xffffff, emissiveMap: muralMap, emissiveIntensity: .025, roughness: .92, metalness: .035 }));
+  const panelW = 6.4, panelH = 3.2, py = statueY + statue.height * .88 - panelH * .14, pz = room.back + .16;
+  const panel = new THREE.Mesh(new THREE.PlaneGeometry(panelW, panelH), plaster);
+  put(panel, 0, py, pz + .058); panel.castShadow = false;
+  box(panelW, panelH, .1, dark, 0, py, pz);
   for (const s of [-1, 1]) {
-    const cabinet = new THREE.Group(); cabinet.position.set(s * (room.halfX - .13), baseH, room.front - 6.1);
-    cabinet.rotation.y = -s * Math.PI / 2; parent.add(cabinet);
-    box(2.05, 3.15, .12, dark, 0, 1.575, 0, cabinet);
-    for (const x of [-1.02, 1.02]) box(.12, 3.25, .62, wood, x, 1.625, .26, cabinet);
-    for (const y of [.08, 1.18, 2.12, 3.2]) box(2.12, .1, .64, wood, 0, y, .27, cabinet);
-    for (const x of [-.49, .49]) {
-      box(.94, .98, .085, wood, x, .63, .52, cabinet);
-      box(.035, .13, .045, brass, x * .28, .72, .59, cabinet);
-    }
-    // Partially closed lattice shutter, with a quiet reveal behind it.
-    for (let i = 0; i < 6; i++) box(.025, 1.88, .035, wood, -.92 + i * .105, 2.2, .6, cabinet);
-    for (let i = 0; i < 11; i++) box(.56, .025, .035, wood, -.66, 1.3 + i * .17, .6, cabinet);
-    box(.7, .38, .38, wood, .33, 1.43, .3, cabinet);
-    box(.72, .045, .4, dark, .33, 1.64, .3, cabinet);
-    box(.055, .13, .035, brass, .33, 1.47, .51, cabinet);
-    for (let i = 0; i < 4; i++) {
-      const plaque = box(.065, .43 + i * .02, .13, paper, .45 + i * .09, 2.4, .25, cabinet); plaque.rotation.z = -.12;
-    }
-    const vessel = new THREE.Mesh(new THREE.LatheGeometry([[.13, 0], [.22, .12], [.21, .27], [.09, .36], [.085, .43]].map(p => new THREE.Vector2(...p)), 20), clay);
-    vessel.position.set(-.02, 2.17, .26); cabinet.add(vessel);
-
-    const lx = s * (pool.halfX + .61), lz = pool.back + .7;
-    rounded(.65, .17, .65, lx, baseH + .085, lz);
-    rounded(.53, .3, .53, lx, baseH + .32, lz);
-    const glass = new THREE.MeshStandardMaterial({ color: 0xd8be8c, emissive: 0xffc46c, emissiveIntensity: .32, roughness: .85 });
-    box(.4, .34, .4, glass, lx, baseH + .64, lz);
-    for (const dx of [-.23, .23]) for (const dz of [-.23, .23]) box(.045, .4, .045, brass, lx + dx, baseH + .64, lz + dz);
-    rounded(.64, .09, .64, lx, baseH + .87, lz);
-    rounded(.47, .055, .47, lx, baseH + .94, lz);
+    box(panelW + .08, .04, .08, dark, 0, py + s * (panelH / 2 + .02), pz + .02);
+    box(.04, panelH, .08, dark, s * (panelW / 2 + .02), py, pz + .02);
   }
-  return { statueY: baseH + .52 };
+  // 金月的位置（图上量出来的）：圆心比壁画中心高 0.14 个画高，半径约 0.96 米。外圈压一道细铜边，侧光下会亮起一线
+  const discY = py + panelH * .14, discR = .955;
+  const rim = put(new THREE.Mesh(new THREE.TorusGeometry(discR, .006, 7, 96), brass), -.02, discY, pz + .066); rim.castShadow = false;
+
+  // ---------- 供桌：猫像前面一张深色的木桌，桌上一只小香炉、一盘橘子、一只插着枯枝的陶瓶、一对蜡烛 ----------
+  {
+    const az = statue.z + 1.47, top = baseH + .86, g = new THREE.Group();
+    g.name = 'hall-offering-table';
+    // 以地面为缩放支点，供品随桌一起收小，不悬空。
+    g.scale.setScalar(.78); g.position.set(0, baseH * (1 - .78), az); parent.add(g);
+    box(2.7, .07, .78, dark, 0, top, 0, g);
+    box(2.5, .17, .035, wood, 0, top - .13, .34, g); box(2.5, .17, .035, wood, 0, top - .13, -.34, g);   // 牙板
+    for (const x of [-1.22, 1.22]) for (const z of [-.3, .3]) box(.11, top - baseH, .11, dark, x, (top + baseH) / 2, z, g);
+    for (const x of [-1.22, 1.22]) box(.07, .07, .6, dark, x, baseH + .2, 0, g);
+    box(2.44, .06, .07, dark, 0, baseH + .2, 0, g);
+    const t = top + .035;
+    const censer = put(new THREE.Mesh(new THREE.LatheGeometry([[0, 0], [.1, 0], [.15, .05], [.16, .12], [.13, .17], [.15, .19]].map(p => new THREE.Vector2(...p)), 20), brass), 0, t, .05, g);
+    censer.castShadow = false;
+    put(new THREE.Mesh(new THREE.CylinderGeometry(.17, .14, .02, 20), clay), -.82, t + .01, .03, g);
+    const orange = new THREE.MeshStandardMaterial({ color: 0xc8742a, roughness: .7 }), ball = new THREE.SphereGeometry(.058, 12, 9);
+    for (const [x, y, z] of [[-.07, 0, -.04], [.07, 0, -.04], [0, 0, .08], [0, .09, .01]]) put(new THREE.Mesh(ball, orange), -.82 + x, t + .075 + y, .03 + z, g).castShadow = false;
+    put(new THREE.Mesh(new THREE.LatheGeometry([[0, 0], [.07, 0], [.11, .1], [.1, .2], [.045, .29], [.055, .34]].map(p => new THREE.Vector2(...p)), 18), clay), .82, t, .02, g);
+    const twig = new THREE.MeshStandardMaterial({ color: 0x3c2e22, roughness: 1 }), bud = new THREE.MeshStandardMaterial({ color: 0xe8dcc0, roughness: .8 });
+    for (const [lean, len, turn] of [[.18, .62, 0], [-.3, .5, 2.2], [.42, .44, 4.1]]) {
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(.004, .008, len, 5).translate(0, len / 2, 0), twig);
+      b.position.set(.82, t + .32, .02); b.rotation.set(lean * Math.cos(turn), 0, lean * Math.sin(turn) + lean * .6); g.add(b);
+      for (let k = 0; k < 4; k++) { const d = new THREE.Mesh(new THREE.SphereGeometry(.014, 6, 5), bud); d.position.set((k % 2 ? .012 : -.012), len * (.4 + k * .17), 0); b.add(d); }
+    }
+    const wax = new THREE.MeshStandardMaterial({ color: 0xd9c9a6, roughness: .6 }), flame = new THREE.MeshBasicMaterial({ color: new THREE.Color(3.4, 1.9, .6) });
+    for (const s of [-1, 1]) {
+      put(new THREE.Mesh(new THREE.CylinderGeometry(.045, .06, .03, 12), brass), s * .42, t + .015, .08, g).castShadow = false;
+      put(new THREE.Mesh(new THREE.CylinderGeometry(.02, .022, .2, 10), wax), s * .42, t + .13, .08, g).castShadow = false;
+      const f = put(new THREE.Mesh(new THREE.SphereGeometry(.016, 8, 6), flame), s * .42, t + .255, .08, g); f.scale.y = 1.9; f.castShadow = f.receiveShadow = false;
+    }
+  }
+
+  // ---------- 石灯笼：猫像两侧各一盏，灯室里透出暖光 ----------
+  const glass = new THREE.MeshStandardMaterial({ color: 0x8e8064, emissive: 0xffa94e, emissiveIntensity: .12, roughness: .85 });
+  const lanterns = [];
+  for (const s of [-1, 1]) {
+    const lx = s * 2.85, lz = statue.z + .3, y = baseH;
+    const firstChild = parent.children.length;
+    rounded(.76, .16, .76, lx, y + .08, lz, moss);
+    rounded(.5, .14, .5, lx, y + .23, lz);
+    box(.26, .96, .26, stone, lx, y + .78, lz);
+    rounded(.68, .12, .68, lx, y + 1.32, lz);
+    box(.4, .4, .4, glass, lx, y + 1.58, lz).castShadow = false;
+    for (const dx of [-.22, .22]) for (const dz of [-.22, .22]) box(.07, .42, .07, stone, lx + dx, y + 1.59, lz + dz);
+    rounded(.62, .07, .62, lx, y + 1.835, lz);
+    const roof = put(new THREE.Mesh(new THREE.ConeGeometry(.6, .34, 4).rotateY(Math.PI / 4), moss), lx, y + 2.04, lz);
+    roof.scale.set(1, 1, 1);
+    put(new THREE.Mesh(new THREE.SphereGeometry(.075, 10, 8), stone), lx, y + 2.25, lz);
+    const lantern = new THREE.Group(); lantern.name = `hall-stone-lantern-${s}`;
+    const pieces = parent.children.slice(firstChild);
+    for (const piece of pieces) {
+      piece.position.sub(new THREE.Vector3(lx, y, lz)); lantern.add(piece);
+    }
+    lantern.position.set(lx, y, lz); lantern.scale.setScalar(.72); parent.add(lantern);
+    lanterns.push(new THREE.Vector3(lx, y + 1.58 * .72, lz));
+  }
+
+  // ---------- 帷幔：两幅深红织锦挂在猫像前面那道横梁下，各自束向外侧的柱子 ----------
+  const drapeMat = finishCloth(new THREE.MeshStandardMaterial({ map: drape, side: THREE.DoubleSide, roughness: 1, color: 0xb8a59b }));
+  const dw = 2.05, dh = room.top - baseH - .35, dgeo = drapeGeo(dw, dh);
+  for (const s of [-1, 1]) {
+    const d = put(new THREE.Mesh(dgeo, drapeMat), s * (room.curtainX - dw / 2), baseH + dh / 2 + .12, room.curtainZ + .2);
+    d.scale.x = s;   // 左边那幅是右边的镜像
+    box(.09, .07, .09, brass, s * (room.curtainX - .16), baseH + .12 + dh * .4 - .02, room.curtainZ + .24);   // 束带上的铜扣
+  }
+
+  return { statueY, discY, lanterns };
 }

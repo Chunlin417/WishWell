@@ -38,12 +38,21 @@ float moonDapple(vec3 wp, vec3 L, float t){
 // 调色：对比度 + 饱和度，作用于整个画面（输出到屏幕前的 sRGB 颜色）
 export const GradeShader = {
   // night：夜里的"月夜"调色——暗处褪色、偏冷蓝；被灯照亮的亮处保留原本的暖色
-  uniforms: { tDiffuse: { value: null }, contrast: { value: 1.1 }, saturation: { value: 1.12 }, night: { value: 0 }, dayWarm: { value: 0 }, vig: { value: 0 } },
+  // court：小院的清晨调色（0～1）；grain：胶片颗粒的强度；time：让颗粒每帧变
+  uniforms: { tDiffuse: { value: null }, contrast: { value: 1.1 }, saturation: { value: 1.12 }, night: { value: 0 }, dayWarm: { value: 0 }, vig: { value: 0 },
+    court: { value: 0 }, grain: { value: 0 }, time: { value: 0 }, sharp: { value: 0 }, texel: { value: { x: 1e-3, y: 1e-3 } } },
   vertexShader: /* glsl */`varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`,
   fragmentShader: /* glsl */`
     uniform sampler2D tDiffuse; uniform float contrast; uniform float saturation; uniform float night; uniform float dayWarm; uniform float vig; varying vec2 vUv;
+    uniform float court, grain, time, sharp; uniform vec2 texel;
     void main(){
       vec4 c = texture2D(tDiffuse, vUv);
+      if (sharp > 0.) {
+        // 轻微锐化：减去上下左右四个邻居的平均（只锐化细节，不改变大块明暗）；限幅，避免亮边出现白色描边
+        vec3 nb = texture2D(tDiffuse, vUv + vec2(texel.x, 0.)).rgb + texture2D(tDiffuse, vUv - vec2(texel.x, 0.)).rgb
+                + texture2D(tDiffuse, vUv + vec2(0., texel.y)).rgb + texture2D(tDiffuse, vUv - vec2(0., texel.y)).rgb;
+        c.rgb += clamp((c.rgb - nb * .25) * sharp * 2., -.06, .06);
+      }
       vec3 col = (c.rgb - .5) * contrast + .5;
       float l = dot(col, vec3(.2126, .7152, .0722));
       col = mix(vec3(l), col, saturation);
@@ -62,7 +71,29 @@ export const GradeShader = {
         vec3 moon = mix(vec3(l), col, .78) * vec3(.9, .99, 1.07);   // 月夜：保留一半原色（石头的灰绿、植物的深绿），只轻轻偏冷，不整体刷成蓝灰
         col = mix(col, mix(moon, col, lit), night);
       }
+      if (court > 0.) {
+        // 小院的清晨：亮处偏暖（阳光）、暗处偏青绿（树荫和苔），中间调不动
+        float lc = dot(col, vec3(.2126, .7152, .0722));
+        vec3 tint = mix(vec3(.94, 1.0, .99), vec3(1.045, 1.0, .91), smoothstep(.12, .7, lc));
+        col *= mix(vec3(1.), tint, court);
+        // 太"新鲜"的绿色收一点饱和：真实的树叶和苔偏灰绿
+        float green = clamp((col.g - max(col.r, col.b)) * 6., 0., 1.);
+        col = mix(col, mix(vec3(lc), col, .8), green * court);
+        // 轻微的 S 曲线：暗处压实、亮处收住，画面不发灰
+        vec3 sc = clamp(col, 0., 1.);
+        col = mix(col, sc * sc * (3. - 2. * sc), .22 * court);
+        // 最暗处稍微抬起一点、带一点青——胶片的黑不是纯黑
+        col += vec3(.006, .011, .012) * court * (1. - smoothstep(0., .18, lc));
+      }
       if (vig > 0.) col *= 1. - vig * smoothstep(.3, .95, length((vUv - .5) * vec2(1.25, 1.)));   // 夜里的暗角
+      if (grain > 0.) {
+        // 胶片颗粒：每帧换一组随机数；暗处、中间调明显，亮处几乎看不见
+        vec2 gp = floor(gl_FragCoord.xy) + fract(time * vec2(13.71, 7.93)) * 517.;
+        vec3 p3 = fract(vec3(gp.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33);
+        float n = fract((p3.x + p3.y) * p3.z) + fract((p3.y + p3.z) * p3.x) - 1.;   // 两个均匀随机数相加：近似高斯
+        float lg = dot(col, vec3(.2126, .7152, .0722));
+        col += n * grain * (1. - smoothstep(.45, 1., lg));
+      }
       gl_FragColor = vec4(clamp(col, 0., 1.), c.a);
     }`,
 };

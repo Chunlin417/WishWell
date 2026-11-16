@@ -1,4 +1,5 @@
-// 小殿里面：一方浅水池，池边一圈白卵石；池子靠后的苔石上端坐着一尊青铜猫像，水面映着它的倒影，水光晃在顶棚上。
+// 小殿里面：门里一方浅水池，池后的石台上端坐着一尊青铜猫像，身后是金月壁画；水面映着猫像、灯笼和壁画的倒影。
+// 陈设（石台、供桌、灯笼、帷幔、壁画）在 hallSanctuary.js。
 // 殿的墙、窗、门在 courtyard.js；这里只做池子里外的东西
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -59,11 +60,13 @@ export function createHallInterior({ parent, tex, manager, camera, baseH, pool, 
   // 池边的一圈卵石：下面垫一层卵石贴图（缝里不露石板），上面是一颗颗立体的石头
   const sanctuary = createSanctuary({ parent, tex, manager, baseH, room, pool, statue });
 
-  const bronze = statueMat();
+  const bronze = statueMat(); bronze.color.setRGB(.92, .88, .8);   // 铜底与铜绿在材质里分区，避免再次整体压暗金属反射
   const ready = new GLTFLoader(manager).loadAsync(BASE + 'temple_cat.glb').then(gltf => {
     const cat = gltf.scene.children[0];
     cat.traverse(o => { if (o.isMesh) { o.material = bronze; o.castShadow = o.receiveShadow = true; o.layers.enable(REFLECT_LAYER); } });
-    cat.scale.setScalar(statue.scale); cat.position.set(0, sanctuary.statueY, statue.z + .02);
+    // 猫像按高度缩放（statue.height 米），坐在石台上；头正好叠在身后壁画的金月里
+    const bb = new THREE.Box3().setFromObject(cat), k = statue.height / (bb.max.y - bb.min.y);
+    cat.scale.multiplyScalar(k); cat.position.set(-(bb.max.x + bb.min.x) / 2 * k, sanctuary.statueY - bb.min.y * k, statue.z + .02);
     parent.add(cat);
   }).catch(e => console.warn('猫像没有加载出来', e));
 
@@ -76,7 +79,7 @@ export function createHallInterior({ parent, tex, manager, camera, baseH, pool, 
 
   // 顶棚和后墙上的水光
   return {
-    ready,
+    ready, lanterns: sanctuary.lanterns, discY: sanctuary.discY,
     update(t) { water.material.uniforms.uTime.value = t; },
     // 每帧正式画之前调用：画水面的倒影。水池不在画面里、或者离得远（8 米开外水面只剩一条线）时不画；
     // 画的时候也只画水面在画面上占的那一小块（倒影的画面是左右镜像的，所以这一块的 x 要反过来），其余的像素不用算

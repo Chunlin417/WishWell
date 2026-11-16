@@ -21,44 +21,85 @@ export function createSky(haze, sunDir) {
   }));
 }
 
-// 远景：三圈"剪影"（近处的树林、中间的山坡、远处的山），越远越淡、越偏雾色；每一圈的底部都埋在雾里
-export function createBackdrop(haze) {
-  const group = new THREE.Group();
+// 远景：四圈"剪影"（最远的山、远山、近处的山坡、院外的树林），越远越淡、越偏蓝灰；层与层之间夹着一条条雾带，把山腰切断。
+// 朝着太阳的那一半，空气里的雾被照亮：山更淡、偏暖；背着太阳的一半山色更深更冷。山坡朝阳的一面亮一些，看得出山的起伏。
+// mistBands：要不要画层间的雾带（手机上可以少画）
+export function createBackdrop(haze, sunDir, { mistBands = 2 } = {}) {
+  const group = new THREE.Group(), uniforms = { uTime: { value: 0 } };
+  const sunXZ = new THREE.Vector2(sunDir.x, sunDir.z).normalize();
   const layers = [
     // 半径、高度、颜色、[山脊基准高度, 起伏, 起伏的疏密, 树冠的鼓包], 雾的浓度
-    { r: 88, h: 66, col: 0x6c8088, shape: [.5, .24, 1.4, .012], haze: .76, seed: 3.1 },
-    { r: 56, h: 42, col: 0x49603f, shape: [.56, .2, 2.4, .035], haze: .54, seed: 7.7 },
-    { r: 33, h: 28, col: 0x2d4226, shape: [.64, .12, 4.2, .075], haze: .28, seed: 12.3 },
+    { r: 96, h: 70, col: 0x8193a3, shape: [.44, .2, 1.1, .006], haze: .8, seed: 21.4 },
+    { r: 80, h: 60, col: 0x627883, shape: [.47, .23, 1.6, .012], haze: .66, seed: 3.1 },
+    { r: 56, h: 42, col: 0x485e44, shape: [.54, .2, 2.4, .035], haze: .5, seed: 7.7 },
+    { r: 33, h: 28, col: 0x2b3f25, shape: [.64, .12, 4.2, .075], haze: .26, seed: 12.3 },
   ];
+  const vert = /* glsl */`varying vec2 vUv; varying vec2 vXZ; void main(){ vUv = uv; vXZ = normalize(position.xz); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`;
   layers.forEach((L, i) => {
-    const m = new THREE.Mesh(new THREE.CylinderGeometry(L.r, L.r, L.h, 96, 1, true), new THREE.ShaderMaterial({
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(L.r, L.r, L.h, 128, 1, true), new THREE.ShaderMaterial({
       side: THREE.BackSide, transparent: true, depthWrite: false, fog: false,
-      uniforms: { uCol: { value: new THREE.Color(L.col) }, uHaze: { value: haze }, uShape: { value: new THREE.Vector4(...L.shape) }, uK: { value: new THREE.Vector2(L.haze, L.seed) } },
-      vertexShader: /* glsl */`varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`,
+      uniforms: { uCol: { value: new THREE.Color(L.col) }, uHaze: { value: haze }, uShape: { value: new THREE.Vector4(...L.shape) }, uK: { value: new THREE.Vector2(L.haze, L.seed) }, uSun: { value: sunXZ } },
+      vertexShader: vert,
       fragmentShader: /* glsl */`
-        uniform vec3 uCol, uHaze; uniform vec4 uShape; uniform vec2 uK; varying vec2 vUv;
+        uniform vec3 uCol, uHaze; uniform vec4 uShape; uniform vec2 uK, uSun; varying vec2 vUv, vXZ;
         ${NOISE_GLSL}
         void main(){
           float a = vUv.x * 6.2831853;
           vec2 q = vec2(cos(a), sin(a)) * uShape.z + uK.y;
           float ridge = uShape.x + uShape.y * (fbm2(q) - .5) * 2.;
-          // 树梢：一个个尖顶（把角度切成小格，每格一个高低不同的尖）
           // 树冠：一团团圆润的鼓包（两种大小叠在一起），不是尖顶——远看是阔叶林的轮廓
           vec2 qa = vec2(cos(a), sin(a));
           float tops = fbm2(qa * 24. + uK.y * 1.7) * .65 + vnoise(qa * 61. + uK.y) * .35;
           float body = ridge;   // 不含树梢的山脊线：雾按它算，才不会一条条竖纹
           ridge += uShape.w * tops;
-          float alpha = 1. - smoothstep(ridge - .012, ridge + .012, vUv.y);   // 边缘虚一些，像隔着雾
+          float alpha = 1. - smoothstep(ridge - .01, ridge + .01, vUv.y);   // 边缘虚一些，像隔着雾
           if (alpha < .01) discard;
-          vec3 c = uCol * (.8 + .4 * fbm2(q * 5.)) * mix(.8, 1.08, smoothstep(0., body, vUv.y));
-          float mist = smoothstep(.6, 0., vUv.y / max(body, .01));   // 山脚埋在雾里
-          c = mix(c, uHaze, clamp(uK.x + mist * .45, 0., 1.));
+          float sunward = pow(max(dot(vXZ, uSun), 0.), 2.);
+          // 山坡的朝向：山脊线往太阳那边是下坡（亮）还是上坡（暗）。用屏幕上相邻像素的差算坡度（不用再查噪声，几乎不花时间）
+          float da = dFdx(a);
+          float slope = abs(da) > 1e-5 ? dFdx(body) / da : 0.;
+          float side = dot(vec2(-vXZ.y, vXZ.x), uSun);
+          float lit = clamp(.5 - slope * side * 1.6, 0., 1.);
+          // 山体里一道道顺着坡往下的沟（深浅不一），让一块平涂的剪影有体积
+          float gully = fbm2(vec2(a * uShape.z * 9., vUv.y * 3. + uK.y));
+          vec3 c = uCol * (.78 + .34 * vnoise(q * 5.)) * (.82 + .3 * gully) * mix(.85, 1.12, lit) * mix(.8, 1.08, smoothstep(0., body, vUv.y));
+          c *= mix(vec3(.94, .98, 1.06), vec3(1.06, 1.02, .94), sunward);           // 背光偏冷，向光偏暖
+          // 山脚埋在雾里：雾的上沿不是一条直线，跟着噪声起伏
+          float foot = smoothstep(.62 + .18 * (vnoise(vec2(a * 6., uK.y)) - .5), 0., vUv.y / max(body, .01));
+          vec3 airCol = mix(uHaze * vec3(.96, 1., 1.05), uHaze * vec3(1.1, 1.04, .94), sunward);
+          c = mix(c, airCol, clamp(uK.x + sunward * .14 + foot * .5, 0., 1.));
           gl_FragColor = vec4(c, alpha);
         }`,
     }));
-    m.position.y = L.h / 2 - 3; m.renderOrder = -10 + i;
+    m.position.y = L.h / 2 - 3; m.renderOrder = -10 + i * 2;
     group.add(m);
   });
+  // 层与层之间的雾带：一圈薄薄的、上下边缘都虚掉的雾，横向被噪声撕成一团一团，极慢地漂
+  const bands = [{ r: 68, y: 9, h: 14, o: .45, seed: 2.3 }, { r: 44, y: 4.5, h: 9, o: .32, seed: 8.1 }].slice(0, mistBands);
+  bands.forEach((b, i) => {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(b.r, b.r, b.h, 96, 1, true), new THREE.ShaderMaterial({
+      side: THREE.BackSide, transparent: true, depthWrite: false, fog: false,
+      uniforms: { uHaze: { value: haze }, uSun: { value: sunXZ }, uK: { value: new THREE.Vector2(b.o, b.seed) }, uTime: uniforms.uTime },
+      vertexShader: vert,
+      fragmentShader: /* glsl */`
+        uniform vec3 uHaze; uniform vec2 uSun, uK; uniform float uTime; varying vec2 vUv, vXZ;
+        ${NOISE_GLSL}
+        void main(){
+          float a = vUv.x * 6.2831853, y = vUv.y;
+          vec2 p = vec2(a * 7. + uTime * .004 + uK.y, y * 2.2);
+          float n = fbm2(p) * .7 + fbm2(p * 2.7 + vec2(uTime * .009, 0.)) * .3;
+          float body = smoothstep(0., .45, y) * (1. - smoothstep(.35 + .3 * n, .95, y));   // 中间厚，上沿跟着噪声起伏
+          float a2 = body * smoothstep(.3, .75, n) * uK.x;
+          if (a2 < .004) discard;
+          float sunward = pow(max(dot(vXZ, uSun), 0.), 2.);
+          vec3 c = mix(uHaze * vec3(.98, 1.01, 1.04), uHaze * vec3(1.14, 1.07, .96), sunward) * (.95 + .1 * n);
+          gl_FragColor = vec4(c, a2);
+        }`,
+    }));
+    m.position.y = b.y; m.renderOrder = -7 + i * 2;   // 第一条夹在远山和近山之间，第二条夹在近山和树林之间
+    group.add(m);
+  });
+  group.userData.uniforms = uniforms;
   return group;
 }
 
@@ -91,48 +132,127 @@ export function createCanopyShade(tex, center, radius, height = 10) {
 }
 
 // 光柱：阳光穿过树冠的缝隙，在薄雾里显出一道道光。每道是一条沿着阳光方向的长片，始终把宽面转向镜头
-// beams：[[落地点 x, z, 宽, 长], …]；sunDir：指向太阳的方向
+// beams：[[落地点 x, z, 宽, 长, { dir, y, k }?], …]；sunDir：指向太阳的方向。
+// 第五项可选：dir 这道光自己的方向（比如从殿的东窗斜照进去的那一道）、y 落地点的高度、k 亮度倍数
+// 每道光柱由三片错开一点角度、宽窄不同的长片叠成：中间一片窄而亮，两边各一片宽而淡——看起来有厚度，不是一张纸
+const beamDir = (b, sunDir) => b[4]?.dir || sunDir;
 export function createShafts(beams, sunDir) {
-  const pos = [], par = [], seed = [], idx = [];
-  beams.forEach(([x, z, w, len], i) => {
-    const top = new THREE.Vector3(x, 0, z).addScaledVector(sunDir, len), b = pos.length / 3;
-    for (const [s, t] of [[-1, 0], [1, 0], [-1, 1], [1, 1]]) { pos.push(top.x, top.y, top.z); par.push(s, t, w, len); seed.push(i * 1.37 + .2); }
-    idx.push(b, b + 2, b + 1, b + 1, b + 2, b + 3);
+  const pos = [], par = [], seed = [], dir = [], idx = [];
+  beams.forEach((beam, i) => {
+    const [x, z, w, len, o = {}] = beam, d = beamDir(beam, sunDir), k = o.k ?? 1;
+    const top = new THREE.Vector3(x, o.y ?? 0, z).addScaledVector(d, len);
+    // [宽度倍数, 亮度, 绕光轴错开的角度]
+    for (const [wm, br, tw] of [[.55, .75 * k, 0], [1.25, .38 * k, .5], [1.6, .22 * k, -.6]]) {
+      const b = pos.length / 3;
+      for (const [s, t] of [[-1, 0], [1, 0], [-1, 1], [1, 1]]) { pos.push(top.x, top.y, top.z); par.push(s, t, w * wm, len); seed.push(i * 1.37 + wm * 3.1, br, tw); dir.push(d.x, d.y, d.z); }
+      idx.push(b, b + 2, b + 1, b + 1, b + 2, b + 3);
+    }
   });
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('aP', new THREE.Float32BufferAttribute(par, 4));
-  g.setAttribute('aSeed', new THREE.Float32BufferAttribute(seed, 1));
+  g.setAttribute('aSeed', new THREE.Float32BufferAttribute(seed, 3));
+  g.setAttribute('aDir', new THREE.Float32BufferAttribute(dir, 3));
   g.setIndex(idx);
-  const uniforms = { uSun: { value: sunDir }, uTime: { value: 0 }, uCol: { value: new THREE.Color(1, .9, .68).multiplyScalar(.12) } };
+  const uniforms = { uTime: { value: 0 }, uCol: { value: new THREE.Color(1, .88, .64).multiplyScalar(.11) } };
   const mesh = new THREE.Mesh(g, new THREE.ShaderMaterial({
     uniforms, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false,
     vertexShader: /* glsl */`
-      attribute vec4 aP; attribute float aSeed; uniform vec3 uSun;
-      varying vec2 vQ; varying float vSeed; varying float vDist;
+      attribute vec4 aP; attribute vec3 aSeed, aDir;
+      varying vec2 vQ; varying vec3 vSeed; varying float vDist, vFace;
       void main(){
-        vec3 p = position - uSun * aP.w * aP.y;
-        vec3 side = normalize(cross(uSun, cameraPosition - p));
+        vec3 p = position - aDir * aP.w * aP.y;
+        vec3 toCam = normalize(cameraPosition - p);
+        vec3 side = normalize(cross(aDir, toCam));
+        vec3 nrm = cross(side, aDir);
+        side = normalize(side * cos(aSeed.z) + nrm * sin(aSeed.z));   // 三片绕光轴错开一点
         p += side * aP.x * aP.z * .5 * (.75 + aP.y * .5);
         vQ = aP.xy; vSeed = aSeed;
+        vFace = abs(dot(toCam, aDir));   // 顺着光柱看过去（光从身后照来，或者正对着太阳）：光柱该更"浓"一些
         vec4 mv = viewMatrix * vec4(p, 1.); vDist = -mv.z;
         gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: /* glsl */`
-      uniform float uTime; uniform vec3 uCol; varying vec2 vQ; varying float vSeed; varying float vDist;
+      uniform float uTime; uniform vec3 uCol; varying vec2 vQ; varying vec3 vSeed; varying float vDist, vFace;
       ${NOISE_GLSL}
       void main(){
-        float a = pow(max(1. - abs(vQ.x), 0.), 1.6);                                    // 横向：中间亮、两边淡
-        a *= smoothstep(0., .18, vQ.y) * (1. - smoothstep(.8, 1., vQ.y));       // 两头淡出
-        a *= .45 + .55 * vnoise(vec2(vQ.x * 4. + vSeed * 7., vSeed));           // 一道光里还有几缕更亮的
-        a *= .75 + .25 * vnoise(vec2(vQ.x * 2. + vSeed, vQ.y * 3. - uTime * .05));   // 雾气缓缓飘过
-        a *= smoothstep(.8, 4., vDist);                                         // 走到光柱里时淡掉，不会糊在眼前
-        gl_FragColor = vec4(uCol * a, 1.);
+        float a = pow(max(1. - abs(vQ.x), 0.), 1.8);                                    // 横向：中间亮、两边淡
+        a *= smoothstep(0., .22, vQ.y) * (1. - smoothstep(.72, 1., vQ.y));      // 两头淡出（落地那头也是虚的，不是一刀切）
+        // 一道光里有几缕更亮的细光，细光的位置沿着光柱缓缓错动——像是树叶在晃，缝隙在变
+        float strands = vnoise(vec2(vQ.x * 5. + vSeed.x * 7. + sin(uTime * .21 + vSeed.x) * .35, vSeed.x));
+        a *= .3 + .7 * strands * strands * 1.6;
+        // 雾气不均匀：一团团的浓淡顺着光柱慢慢往上飘
+        a *= .55 + .45 * fbm2(vec2(vQ.x * 1.6 + vSeed.x, vQ.y * 4. - uTime * .045));
+        a *= .85 + .15 * sin(uTime * .37 + vSeed.x * 3.);                        // 整道光极慢地一明一暗（云从太阳前面飘过）
+        a *= 1. + vFace * .6;
+        a *= smoothstep(.8, 4.5, vDist);                                        // 走到光柱里时淡掉，不会糊在眼前
+        gl_FragColor = vec4(uCol * a * vSeed.y, 1.);
       }`,
   }));
   mesh.frustumCulled = false; mesh.renderOrder = 5;
   return { mesh, uniforms };
 }
+
+// 光柱里的浮尘：只有落在光里的那几粒是亮的（一闪一闪地转着），出了光就几乎看不见——这是"空气里有光"最直接的证据。
+// 尘粒的位置在光柱附近随机撒开，在着色器里缓慢地飘（往上浮一点、左右晃），飘出范围就从另一头绕回来。
+export function createDust(beams, sunDir, count = 900) {
+  const R = (s => () => (s = (s * 16807) % 2147483647) / 2147483647)(7);
+  const weights = beams.map(b => b[2] * b[3] * (b[4]?.k ?? 1)), total = weights.reduce((a, b) => a + b, 0);
+  const pos = new Float32Array(count * 3), axis = new Float32Array(count * 4), dirs = new Float32Array(count * 3), seed = new Float32Array(count);
+  const v = new THREE.Vector3(), side = new THREE.Vector3(), nrm = new THREE.Vector3();
+  for (let i = 0; i < count; i++) {
+    let r = R() * total, bi = 0; while (r > weights[bi] && bi < beams.length - 1) r -= weights[bi++];
+    const [x, z, w, len, o = {}] = beams[bi], d = beamDir(beams[bi], sunDir), y = o.y ?? 0;
+    side.crossVectors(d, UP_V).normalize(); nrm.crossVectors(side, d);
+    const t = .04 + R() * Math.min(len * .55, 4.5), a = R() * Math.PI * 2, rr = Math.sqrt(R()) * w * .9;   // 只撒在光柱下段（人眼高度附近）
+    v.set(x, y, z).addScaledVector(d, t).addScaledVector(side, Math.cos(a) * rr).addScaledVector(nrm, Math.sin(a) * rr);
+    pos.set([v.x, v.y, v.z], i * 3); axis.set([x, y, z, w * .5], i * 4); dirs.set([d.x, d.y, d.z], i * 3); seed[i] = R();
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('aAxis', new THREE.BufferAttribute(axis, 4));
+  g.setAttribute('aDir', new THREE.BufferAttribute(dirs, 3));
+  g.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1));
+  const uniforms = { uTime: { value: 0 }, uPx: { value: 600 }, uCol: { value: new THREE.Color(1, .9, .7) } };
+  const mesh = new THREE.Points(g, new THREE.ShaderMaterial({
+    uniforms, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+    vertexShader: /* glsl */`
+      attribute vec4 aAxis; attribute vec3 aDir; attribute float aSeed;
+      uniform float uTime, uPx; varying float vA;
+      void main(){
+        float s = aSeed * 43.7, t = uTime;
+        // 飘：慢慢往上浮（绕回来），左右、前后晃
+        vec3 p = position + vec3(sin(t * .13 + s) * .22 + sin(t * .37 + s * 2.1) * .06,
+                                 mod(t * .018 * (.5 + aSeed) + aSeed * 1.3, 1.3) - .65,
+                                 cos(t * .11 + s * 1.3) * .22 + cos(t * .41 + s) * .05);
+        // 到光轴的距离：越靠近光柱中心越亮，出了光柱只剩一点点
+        vec3 q = p - aAxis.xyz;
+        float along = dot(q, aDir);
+        float dAx = length(q - aDir * along);
+        float inBeam = 1. - smoothstep(aAxis.w * .35, aAxis.w * 1.1, dAx);
+        float spark = pow(.5 + .5 * sin(t * (1.2 + aSeed * 2.3) + s), 6.);   // 尘粒转到某个角度时反一下光
+        vec4 mv = viewMatrix * vec4(p, 1.);
+        float dist = -mv.z;
+        float sizeM = .0045 + .0045 * aSeed;   // 实际只有几毫米
+        float px = sizeM * uPx / max(dist, .05);
+        gl_PointSize = max(px, 1.6);
+        vA = (inBeam * (.35 + .65 * spark) + .015) * min(1., px / 1.6)        // 小于 1.6 像素时按面积减淡，不会忽大忽小地闪
+           * smoothstep(.25, .8, dist) * (1. - smoothstep(5., 11., dist));     // 太近、太远都不画
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: /* glsl */`
+      uniform vec3 uCol; varying float vA;
+      void main(){
+        if (vA < .004) discard;
+        vec2 c = gl_PointCoord - .5;
+        float a = exp(-dot(c, c) * 14.) * vA;
+        gl_FragColor = vec4(uCol * a * 1.4, 1.);
+      }`,
+  }));
+  mesh.frustumCulled = false; mesh.renderOrder = 6;
+  return { mesh, uniforms };
+}
+const UP_V = new THREE.Vector3(0, 1, 0);
 
 // 香烟：每炷香上方一缕细烟，贴着香头很细，越往上越散、越淡，缓缓扭动。
 // maxCols：最多同时画几缕（香多了只给最新的几炷画烟）；香头的位置和浓淡由 setTip(i, x, y, z, 浓度) 每帧给，浓度为 0 = 这一缕不画

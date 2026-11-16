@@ -436,6 +436,7 @@ function update(dt) {
   // 白天少加饱和度（草不再是荧光绿）；黄昏不额外加饱和度，金色才不会像涂上去的；许愿时颜色褪去一些
   grade.uniforms.saturation.value = (lerp(1.12, 1.03, sunUp * (1 - duskK)) - .14 * duskK) * (1 - .3 * dread);
   grade.uniforms.vig.value = nightF * NIGHT.vignette;
+  grade.uniforms.court.value = 0; grade.uniforms.grain.value = 0; grade.uniforms.sharp.value = 0;   // 小院专用的调色和颗粒：池边不用
   grade.uniforms.dayWarm.value = sunUp * (1 - duskK) * (1 - cloud * .6) * (1 - dread);   // 白天的暖调（夏日午后）
   grade.uniforms.night.value = 1 - smooth(clamp((el + 9) / 8));   // 月夜调色：太阳落下后才慢慢开始，黄昏保留暖色
   wu.uNightSheen.value.setRGB(.003, .007, .014).multiplyScalar(grade.uniforms.night.value * (1 - .4 * cloud));   // 阴天不再额外提亮，否则石头发白
@@ -624,11 +625,14 @@ async function goTo(name, { instant = false, withIntro = true, fresh = null } = 
   } finally { fadeEl.classList.remove('on'); switching = false; }
 }
 // 小院：固定的白天，不跟随真实时间和天气——曝光和调色都是定值
+const texelV = new THREE.Vector2();
 function renderCourt() {
   renderer.toneMappingExposure = court.exposure;
   for (const b of blurs) b.enabled = false;
-  const g = grade.uniforms;
-  g.saturation.value = 1.02; g.vig.value = .12; g.dayWarm.value = .4; g.night.value = 0;
+  const g = grade.uniforms, cg = court.grade;
+  g.saturation.value = cg.saturation; g.vig.value = cg.vig; g.dayWarm.value = cg.dayWarm; g.night.value = 0;
+  g.court.value = cg.court; g.grain.value = cg.grain; g.time.value = performance.now() / 1000;
+  g.sharp.value = cg.sharp; renderer.getDrawingBufferSize(texelV); g.texel.value = texelV.set(1 / texelV.x, 1 / texelV.y);
   court.preRender(renderer);
   composer.render();
 }
