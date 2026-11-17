@@ -81,6 +81,7 @@ export function triMat({ set, moss = null, scale = .5, color = 0xffffff, mossAmt
     tHeight: { value: set.height || null }, uJoint: { value: new THREE.Vector2(...(joint || [0, 0])) },
   };
   mat.customProgramCacheKey = () => 'court-tri-' + Object.keys(D).join('-');
+  mat.userData.tri = U;   // 运行时改 uniform 用（例如洞天里把殿内地面调湿：uMoss.w、uTri.z），不触发重新编译
   mat.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, U);
     worldVary(sh);

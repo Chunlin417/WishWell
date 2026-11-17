@@ -49,7 +49,7 @@ function createWater(w, d, size) {
 }
 
 // 水光：水面反上来的光在顶棚（和后墙的上半截）晃动的网纹。center / half：水池中心和它照到的范围（x、z 两个方向各多远）
-export function createHallInterior({ parent, tex, manager, camera, baseH, pool, statue, room, floorMat, isMobile = false }) {
+export function createHallInterior({ parent, tex, manager, camera, baseH, pool, statue, room, floorMat, isMobile = false, low = false }) {
   const { halfX, front, back, depth, drop, border } = pool, waterY = baseH - drop, w = halfX * 2, d = front - back, cz = (front + back) / 2;
   const put = (o, x, y, z, { cast = true, recv = true } = {}) => { o.position.set(x, y, z); o.castShadow = cast; o.receiveShadow = recv; parent.add(o); return o; };
   const flat = (pw, pd, m, x, y, z) => { const o = put(new THREE.Mesh(new THREE.PlaneGeometry(pw, pd), m), x, y, z, { cast: false }); o.rotation.x = -Math.PI / 2; return o; };
@@ -58,7 +58,7 @@ export function createHallInterior({ parent, tex, manager, camera, baseH, pool, 
   flat(w, d, floorMat, 0, baseH - depth, cz);
 
   // 池边的一圈卵石：下面垫一层卵石贴图（缝里不露石板），上面是一颗颗立体的石头
-  const sanctuary = createSanctuary({ parent, tex, manager, baseH, room, pool, statue });
+  const sanctuary = createSanctuary({ parent, tex, manager, baseH, room, pool, statue, low });
 
   const bronze = statueMat(); bronze.color.setRGB(.92, .88, .8);   // 铜底与铜绿在材质里分区，避免再次整体压暗金属反射
   const ready = new GLTFLoader(manager).loadAsync(BASE + 'temple_cat.glb').then(gltf => {
@@ -80,7 +80,7 @@ export function createHallInterior({ parent, tex, manager, camera, baseH, pool, 
   // 顶棚和后墙上的水光
   return {
     ready, lanterns: sanctuary.lanterns, discY: sanctuary.discY,
-    update(t) { water.material.uniforms.uTime.value = t; },
+    update(t) { water.material.uniforms.uTime.value = t; sanctuary.update(t); },
     // 每帧正式画之前调用：画水面的倒影。水池不在画面里、或者离得远（8 米开外水面只剩一条线）时不画；
     // 画的时候也只画水面在画面上占的那一小块（倒影的画面是左右镜像的，所以这一块的 x 要反过来），其余的像素不用算
     preRender(renderer, scene) {

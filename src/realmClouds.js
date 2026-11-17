@@ -18,21 +18,25 @@ export function createRealmClouds({ manager, low, center, eye, moonDir, haze, de
   const group = new THREE.Group();
   let k = 11; const r = () => (k = (k * 16807) % 2147483647) / 2147483647;
 
-  // 积云、层积云是厚云；风卷云（wisp）是云海上方一层又薄又宽的卷云：压扁、半透明、贴着地平线
-  for (const [key, share] of [['cumulus', .4], ['strato', .4], ['wisp', .2]]) {
-    const wisp = key === 'wisp', n = Math.round(count * share), cells = CLOUD_ATLAS[key];
-    const map = loader.load(T + `cloud_${key}${low ? '_1k' : ''}.webp`); map.colorSpace = THREE.SRGBColorSpace; map.anisotropy = 4;
+  // 积云、层积云是厚云；风卷云（wisp）是云海上方一层又薄又宽的卷云：压扁、半透明、贴着地平线；
+  // 卷云丝（cirrus，同一张风卷云图集）挂在地平线以上的天空里：又细又长的几缕，暗的青灰，靠月亮的那几缕镶一道金边
+  const maps = {};
+  for (const [key, share] of [['cumulus', .4], ['strato', .4], ['wisp', .2], ['cirrus', .28]]) {
+    const cirrus = key === 'cirrus', wisp = key === 'wisp' || cirrus, atlas = cirrus ? 'wisp' : key;
+    const n = Math.round(count * share), cells = CLOUD_ATLAS[atlas];
+    const map = maps[atlas] ??= loader.load(T + `cloud_${atlas}${low ? '_1k' : ''}.webp`); map.colorSpace = THREE.SRGBColorSpace; map.anisotropy = 4;
     // 每团云：方位、距离、高度、宽、高、格子、漂移速度、相位
     const items = [];
     for (let i = 0; i < n; i++) {
       const moonSide = r() < .6;                                                   // 六成在月亮那一边（后墙敞开的方向）
       const a = moonSide ? base + (r() - .5) * 2.4 : r() * Math.PI * 2;
-      const d = 22 + Math.pow(r(), 1.2) * 80;
+      const d = cirrus ? 70 + r() * 40 : 22 + Math.pow(r(), 1.2) * 80;
       const c = cells[Math.floor(r() * cells.length)];
-      const w = (wisp ? 2.3 : key === 'strato' ? 1.25 : 1) * (7 + d * .28) * (.75 + r() * .5), h = w / c[4] * (wisp ? .42 : 1);
+      const w = (cirrus ? 3.4 : wisp ? 2.3 : key === 'strato' ? 1.25 : 1) * (7 + d * .28) * (.75 + r() * .5), h = w / c[4] * (cirrus ? .2 : wisp ? .42 : 1);
       // 云顶压在地平线下面 1.5°～6°：从殿里是微微俯看一片云海，云不会挡住月亮和天空
       const top = eye.y - d * Math.tan(((wisp ? .2 : 1.5) + r() * (wisp ? 2.2 : 4.5)) * Math.PI / 180);
-      const y = top - h * (wisp ? .55 : .92);
+      let y = top - h * (wisp ? .55 : .92);
+      if (cirrus) y = eye.y + d * Math.tan((1.5 + r() * 9) * Math.PI / 180) - h * .5;   // 天上：地平线以上 1.5°～10.5°
       items.push({ a, d, y, w, h, c, speed: (r() < .8 ? 1 : -1) * (.45 + r() * .55), ph: r() * 30 });   // 米/秒：大多顺着一个方向吹（风），少数逆着，速度各不相同
     }
     items.sort((p, q) => q.d - p.d);                                                // 远的先画（透明的东西要从远到近叠）
@@ -43,7 +47,7 @@ export function createRealmClouds({ manager, low, center, eye, moonDir, haze, de
     geo.setAttribute('aCell', A(4, it => [it.c[0], it.c[1], it.c[2] - it.c[0], it.c[3] - it.c[1]]));
     const mat = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false, fog: false,
-      uniforms: { tMap: { value: map }, uAlpha: { value: wisp ? .6 : 1 }, uTime, uCenter: { value: center }, uMoon: { value: moonDir }, uMoonFlat: { value: moonFlat }, uHaze: { value: haze }, uDeep: { value: deep } },
+      uniforms: { tMap: { value: map }, uAlpha: { value: cirrus ? .42 : wisp ? .6 : 1 }, uBottom: { value: cirrus ? 0 : .32 }, uTime, uCenter: { value: center }, uMoon: { value: moonDir }, uMoonFlat: { value: moonFlat }, uHaze: { value: haze }, uDeep: { value: deep } },
       vertexShader: /* glsl */`
         attribute vec4 aPolar, aCell; attribute vec3 aSize;
         uniform float uTime; uniform vec3 uCenter, uMoon; uniform vec2 uMoonFlat;
@@ -66,10 +70,10 @@ export function createRealmClouds({ manager, low, center, eye, moonDir, haze, de
           vDist = -mv.z;
         }`,
       fragmentShader: /* glsl */`
-        uniform sampler2D tMap; uniform float uAlpha; uniform vec3 uHaze, uDeep; varying vec2 vUv, vLocal, vMoonUv; varying float vToward, vDist;
+        uniform sampler2D tMap; uniform float uAlpha, uBottom; uniform vec3 uHaze, uDeep; varying vec2 vUv, vLocal, vMoonUv; varying float vToward, vDist;
         void main(){
           vec4 t = texture2D(tMap, vUv);
-          float a = t.a * smoothstep(0., .32, vLocal.y);                               // 云底渐隐：泡在云海里
+          float a = t.a * (uBottom > 0. ? smoothstep(0., uBottom, vLocal.y) : 1.);     // 云底渐隐：泡在云海里（天上的卷云丝不用）
           if (a < .01) discard;
           float lum = dot(t.rgb, vec3(.2126, .7152, .0722));
           vec3 col = mix(uDeep * 1.2, vec3(.085, .13, .16), smoothstep(.06, .5, lum));     // 夜里的云：暗青灰，亮处是云顶（保留图上的蓬松起伏）

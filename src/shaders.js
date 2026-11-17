@@ -40,11 +40,11 @@ export const GradeShader = {
   // night：夜里的"月夜"调色——暗处褪色、偏冷蓝；被灯照亮的亮处保留原本的暖色
   // court：小院的清晨调色（0～1）；grain：胶片颗粒的强度；time：让颗粒每帧变
   uniforms: { tDiffuse: { value: null }, contrast: { value: 1.1 }, saturation: { value: 1.12 }, night: { value: 0 }, dayWarm: { value: 0 }, vig: { value: 0 },
-    court: { value: 0 }, grain: { value: 0 }, time: { value: 0 }, sharp: { value: 0 }, texel: { value: { x: 1e-3, y: 1e-3 } } },
+    court: { value: 0 }, realm: { value: 0 }, grain: { value: 0 }, time: { value: 0 }, sharp: { value: 0 }, texel: { value: { x: 1e-3, y: 1e-3 } } },
   vertexShader: /* glsl */`varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`,
   fragmentShader: /* glsl */`
     uniform sampler2D tDiffuse; uniform float contrast; uniform float saturation; uniform float night; uniform float dayWarm; uniform float vig; varying vec2 vUv;
-    uniform float court, grain, time, sharp; uniform vec2 texel;
+    uniform float court, realm, grain, time, sharp; uniform vec2 texel;
     void main(){
       vec4 c = texture2D(tDiffuse, vUv);
       if (sharp > 0.) {
@@ -84,6 +84,15 @@ export const GradeShader = {
         col = mix(col, sc * sc * (3. - 2. * sc), .22 * court);
         // 最暗处稍微抬起一点、带一点青——胶片的黑不是纯黑
         col += vec3(.006, .011, .012) * court * (1. - smoothstep(0., .18, lc));
+      }
+      if (realm > 0.) {
+        // 殿里的"洞天"（月夜云海）：冷暖分开——暗处沉成青蓝，亮处（月光、灯笼、金边）推成金黄；中间调几乎不动
+        float lr = dot(col, vec3(.2126, .7152, .0722));
+        vec3 tint = mix(vec3(.86, 1.0, 1.1), vec3(1.1, 1.0, .8), smoothstep(.06, .55, lr));
+        col *= mix(vec3(1.), tint, realm);
+        vec3 sc = clamp(col, 0., 1.);
+        col = mix(col, sc * sc * (3. - 2. * sc), .28 * realm);                               // S 曲线：暗处压实，画面不发灰
+        col += vec3(.003, .009, .013) * realm * (1. - smoothstep(0., .14, lr));              // 最暗处带一点青，不是死黑
       }
       if (vig > 0.) col *= 1. - vig * smoothstep(.3, .95, length((vUv - .5) * vec2(1.25, 1.)));   // 夜里的暗角
       if (grain > 0.) {

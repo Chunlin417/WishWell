@@ -9,33 +9,58 @@ import { finishMural, finishCloth, finishPoolStone } from './hallSurface.js';
 const TEX = `${import.meta.env.BASE_URL}textures/`;
 
 // 一幅束起来的帷幔：上沿平直地挂着，在 tie（离地的比例）处被绳子收到一侧（+x 那一边），下摆再散开一些；布面有竖向的褶
-function drapeGeo(w, h, tie = .4) {
+// fit：贴图横向正好铺满一幅（薄纱的图是一整幅设计好的花样），否则按 1:2 的织锦原图比例平铺
+function drapeGeo(w, h, tie = .4, fit = false, gk = 1) {   // gk：收束的程度（1 = 织锦那样收紧）
   const g = new THREE.PlaneGeometry(w, h, 48, 40), p = g.attributes.position, uv = g.attributes.uv;
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i), y = p.getY(i), u = x / w + .5, v = y / h + .5;
-    const gather = .72 * Math.exp(-(((v - tie) / .23) ** 2)) + (v < tie ? .46 * (tie - v) / tie : 0);
+    const gather = gk * (.72 * Math.exp(-(((v - tie) / .23) ** 2)) + (v < tie ? .46 * (tie - v) / tie : 0));
     const f = 1 - gather;
     const fold = Math.sin(u * Math.PI * 12 + v * .8) * (.045 - .025 * gather) + Math.sin(u * Math.PI * 4 + v) * .018;
     p.setXYZ(i, w / 2 + (x - w / 2) * f, y - gather * .09 * (1 - u), fold);
-    uv.setXY(i, u * (w / (h / 2)), v);   // 织锦原图是 1:2 的竖幅：按实际尺寸铺，不拉伸
+    uv.setXY(i, fit ? u : u * (w / (h / 2)), v);   // 织锦原图是 1:2 的竖幅：按实际尺寸铺，不拉伸
   }
   g.computeVertexNormals();
   return g;
 }
 
-// 漂在水面上的落叶：一小片扇形的黄叶
-function leafTexture() {
-  const c = document.createElement('canvas'); c.width = c.height = 64;
-  const g = c.getContext('2d');
-  g.translate(32, 54); g.fillStyle = '#c9a23a';
-  g.beginPath(); g.moveTo(0, 0); g.bezierCurveTo(-34, -14, -30, -48, -6, -46); g.lineTo(0, -34); g.lineTo(6, -46); g.bezierCurveTo(30, -48, 34, -14, 0, 0); g.fill();
-  g.strokeStyle = 'rgba(120,84,20,.6)'; g.lineWidth = 1.2;
-  for (let a = -1; a <= 1; a += .4) { g.beginPath(); g.moveTo(0, 0); g.lineTo(Math.sin(a) * 40, -Math.cos(a) * 40); g.stroke(); }
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+// 银杏叶：一张 4×4 的叶子图集（textures/q/ginkgo_atlas，scripts/pack_realm_assets.py 打包），每片叶子用实例属性 aCell 选一格。
+// 自己带一点点金色的自发光（按叶子本身的颜色），夜里在暗处也是金黄的，而不是一片黑影
+function leafMaterial(map) {
+  const m = new THREE.MeshStandardMaterial({ map, alphaTest: .5, roughness: .7, side: THREE.DoubleSide, emissive: 0xffffff, emissiveIntensity: .12 });
+  m.onBeforeCompile = s => {
+    s.vertexShader = s.vertexShader.replace('#include <common>', '#include <common>\nattribute vec2 aCell;')
+      .replace('#include <uv_vertex>', '#include <uv_vertex>\n#ifdef USE_MAP\n  vMapUv = vMapUv * .25 + aCell;\n#endif');
+    s.fragmentShader = s.fragmentShader.replace('#include <emissivemap_fragment>', 'totalEmissiveRadiance *= diffuseColor.rgb;');
+  };
+  return m;
+}
+// n 片叶子的实例网格（单位大小，摆放用 setMatrixAt）；格子随机
+function leafMesh(mat, n, R) {
+  const geo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), cells = new Float32Array(n * 2);
+  for (let i = 0; i < n; i++) { const c = Math.floor(R() * 16); cells.set([(c % 4) * .25, .75 - Math.floor(c / 4) * .25], i * 2); }
+  geo.setAttribute('aCell', new THREE.InstancedBufferAttribute(cells, 2));
+  const im = new THREE.InstancedMesh(geo, mat, n);
+  im.castShadow = false; im.receiveShadow = true; im.userData.noReflect = true;
+  return im;
+}
+// 地上一圈暖光（灯笼脚下）：径向渐变
+function poolOfLight() {
+  const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d');
+  const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(.35, 'rgba(255,255,255,.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
 }
 
-export function createSanctuary({ parent, tex, manager, baseH, room, pool, statue }) {
+export function createSanctuary({ parent, tex, manager, baseH, room, pool, statue, low = false }) {
   const loader = new THREE.TextureLoader(manager);
+  const Q = `${TEX}q/`, q = low ? '_1k' : '';
+  const qtex = (name, srgb = true) => { const t = loader.load(Q + name + '.webp'); if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; };
+  // 只在"洞天"里出现的东西（薄纱、飘落的叶子、灯笼脚下的光）：打上 realmOnly，平时藏着（courtyard.js 的 setRealm 切换）
+  const realmOnly = o => { o.userData.realmOnly = true; o.visible = false; return o; };
+  let seed = 91; const R = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const leafMat = leafMaterial(qtex('ginkgo_atlas' + q));
   const stone = triMat({ set: tex.paving, scale: .85, color: 0xa9afa4, roughMul: 1.2, norK: .38 });
   stone.color.multiplyScalar(1.25);
   const pedestal = triMat({ set: tex.paving, scale: .62, color: 0x858b86, roughMul: 1.1, norK: .55, blocks: true });
@@ -64,18 +89,46 @@ export function createSanctuary({ parent, tex, manager, baseH, room, pool, statu
     const s = rounded(.96 + k * .1, .15, .54, k * .05, baseH + .005, z, moss); s.rotation.y = k * .05;
     box(.8, pool.depth, .3, stone, 0, baseH - pool.depth / 2 - .05, z);   // 水下的石墩
   }
-  // 水面上漂着的几片黄叶（避开石板路）
+  // 银杏叶：水面上漂着一些（避开石板路），地上散落一些（避开水池、石台、灯笼脚）
+  const m4 = new THREE.Matrix4(), qt = new THREE.Quaternion(), eu = new THREE.Euler(), sc = new THREE.Vector3(), v3 = new THREE.Vector3();
   {
-    const n = 14, im = new THREE.InstancedMesh(new THREE.PlaneGeometry(.12, .12).rotateX(-Math.PI / 2),
-      new THREE.MeshStandardMaterial({ map: leafTexture(), alphaTest: .5, roughness: .8, side: THREE.DoubleSide }), n);
-    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), sc = new THREE.Vector3();
-    let seed = 91; const R = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const n = 16, im = leafMesh(leafMat, n, R);
     for (let i = 0; i < n; i++) {
-      const side = i % 2 ? 1 : -1, x = side * (.85 + R() * (pool.halfX - 1.1)), z = pool.back + .25 + R() * (length - .5), s = .7 + R() * .7;
-      im.setMatrixAt(i, m.compose(new THREE.Vector3(x, waterY + .006, z), q.setFromEuler(e.set(0, R() * 6.28, 0)), sc.set(s, 1, s)));
+      const side = i % 2 ? 1 : -1, x = side * (.8 + R() * (pool.halfX - 1.05)), z = pool.back + .25 + R() * (length - .5), s = .13 + R() * .08;
+      im.setMatrixAt(i, m4.compose(v3.set(x, waterY + .006, z), qt.setFromEuler(eu.set(0, R() * 6.28, 0)), sc.set(s, 1, s)));
     }
-    im.castShadow = false; im.receiveShadow = true; im.userData.noReflect = true; parent.add(im);
+    parent.add(im);
   }
+  {
+    const n = low ? 26 : 48, im = leafMesh(leafMat, n, R); let k = 0;
+    const lz = statue.z + .3;
+    for (let tries = 0; tries < 800 && k < n; tries++) {
+      const x = (R() * 2 - 1) * (room.halfX - .35), z = room.back + .3 + R() * (pool.front + .9 - room.back - .3);
+      if (Math.abs(x) < pool.halfX + .3 && z > pool.back - .3 && z < pool.front + .3) continue;      // 水池（含池沿）
+      if (Math.abs(x) < 1.75 && Math.abs(z - statue.z) < 1.2) continue;                               // 石台
+      if (Math.abs(Math.abs(x) - 2.85) < .32 && Math.abs(z - lz) < .32) continue;                      // 灯笼脚
+      if (R() > .35 + .65 * Math.exp(-(room.halfX - Math.abs(x)) * .8) && R() > .5) continue;          // 越靠墙根越多
+      const s = .17 + R() * .09;
+      im.setMatrixAt(k++, m4.compose(v3.set(x, baseH + .004 + R() * .006, z), qt.setFromEuler(eu.set((R() - .5) * .25, R() * 6.28, (R() - .5) * .25)), sc.set(s, 1, s)));
+    }
+    im.count = k; parent.add(im);
+  }
+  // 洞天里：殿里慢慢飘落的叶子（从梁下飘到地上，一路打着旋；落到底就消失，再从上面重新飘下来）
+  const falling = [], fallMesh = realmOnly(leafMesh(leafMat, low ? 7 : 14, R));
+  for (let i = 0; i < fallMesh.count; i++) falling.push({ x: (R() * 2 - 1) * (room.halfX - 1), z: room.back + 1 + R() * (pool.front - room.back), P: 11 + R() * 7, ph: R() * 40, s: .14 + R() * .06 });
+  fallMesh.frustumCulled = false; parent.add(fallMesh);
+  const topY = room.top - .4;
+  const updateFalling = t => {
+    if (!fallMesh.visible) return;
+    falling.forEach((f, i) => {
+      const u = ((t + f.ph) / f.P) % 1, y = topY - u * (topY - baseH);
+      const fade = Math.min(1, u / .06, (1 - u) / .04);
+      v3.set(f.x + Math.sin(t * .7 + f.ph) * .45 * u, y, f.z + Math.cos(t * .5 + f.ph * 1.3) * .3 * u);
+      eu.set(Math.sin(t * 1.4 + f.ph) * 1.1, t * .9 + f.ph, Math.cos(t * 1.1 + f.ph) * .9);
+      fallMesh.setMatrixAt(i, m4.compose(v3, qt.setFromEuler(eu), sc.setScalar(f.s * fade)));
+    });
+    fallMesh.instanceMatrix.needsUpdate = true;
+  };
 
   // ---------- 蒲团：门里正对着猫像的地方 ----------
   const drape = loader.load(TEX + 'hall_drape.webp');
@@ -89,6 +142,19 @@ export function createSanctuary({ parent, tex, manager, baseH, room, pool, statu
   rounded(3.0, .14, 2.0, 0, baseH + .77, statue.z, pedestal);
   box(2.86, .09, 1.86, moss, 0, baseH + .885, statue.z);
   const statueY = baseH + .93;
+  // 石台中间那一层的正面和两侧：一条云纹莲花浮雕带（textures/q/plinth_relief_*，原图只裁了浮雕那一条），法线图让侧光照出起伏
+  {
+    const map = qtex('plinth_relief_diff' + q), nor = qtex('plinth_relief_nor_gl' + q, false);
+    const relief = new THREE.MeshStandardMaterial({ map, normalMap: nor, roughness: .9, color: 0xd2cdbd });
+    const H = .48, y = baseH + .45;
+    const face = (w, u0, u1, x, z, ry) => {
+      const g = new THREE.PlaneGeometry(w, H), uv = g.attributes.uv;
+      for (let i = 0; i < uv.count; i++) uv.setX(i, u0 + uv.getX(i) * (u1 - u0));   // 侧面窄：只取浮雕带中间的一段
+      const o = put(new THREE.Mesh(g, relief), x, y, z); o.rotation.y = ry; o.castShadow = false;
+    };
+    face(2.73, 0, 1, 0, statue.z + .953, 0);
+    for (const s of [-1, 1]) face(1.83, .16, .84, s * 1.403, statue.z, s * Math.PI / 2);
+  }
 
   // 壁画：斑驳的深色墙面上一轮金箔圆月，两侧祥云，下面是层层水波。图本身带一点自发光（殿里暗，隔着窗格也看得清），
   // 同一张图当凹凸贴图用——侧光照过来，金箔的龟裂和墙皮的剥落有一点起伏，不像一张印刷的海报
@@ -137,7 +203,9 @@ export function createSanctuary({ parent, tex, manager, baseH, room, pool, statu
   }
 
   // ---------- 石灯笼：猫像两侧各一盏，灯室里透出暖光 ----------
-  const glass = new THREE.MeshStandardMaterial({ color: 0x8e8064, emissive: 0xffa94e, emissiveIntensity: .9, roughness: .85 });   // 灯室是亮的
+  // 灯室四面是镂空的莲花：莲花透出灯光（textures/q/lantern_lotus），莲花以外是暗的石面
+  const glass = new THREE.MeshStandardMaterial({ color: 0x2e261c, emissive: 0xffffff, emissiveMap: qtex('lantern_lotus'), emissiveIntensity: 1.7, roughness: .85 });
+  const lightPool = poolOfLight();
   const lanterns = [];
   for (const s of [-1, 1]) {
     const lx = s * 2.85, lz = statue.z + .3, y = baseH;
@@ -159,16 +227,39 @@ export function createSanctuary({ parent, tex, manager, baseH, room, pool, statu
     }
     lantern.position.set(lx, y, lz); lantern.scale.setScalar(.72); parent.add(lantern);
     lanterns.push(new THREE.Vector3(lx, y + 1.58 * .72, lz));
+    // 洞天里灯笼脚下一圈暖光（白天的殿里有晨光，看不出来，不放）
+    const pl = realmOnly(new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.6).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ map: lightPool, color: 0xffa048, transparent: true, opacity: .32, blending: THREE.AdditiveBlending, depthWrite: false })));
+    pl.position.set(lx, y + .012, lz); pl.userData.noReflect = true; parent.add(pl);
   }
 
   // ---------- 帷幔：两幅深红织锦挂在猫像前面那道横梁下，各自束向外侧的柱子 ----------
   const drapeMat = finishCloth(new THREE.MeshStandardMaterial({ map: drape, side: THREE.DoubleSide, roughness: 1, color: 0xb8a59b }));
   const dw = 2.05, dh = room.top - baseH - .35, dgeo = drapeGeo(dw, dh);
   for (const s of [-1, 1]) {
-    const d = put(new THREE.Mesh(dgeo, drapeMat), s * (room.curtainX - dw / 2), baseH + dh / 2 + .12, room.curtainZ + .2);
+    const d = hide(put(new THREE.Mesh(dgeo, drapeMat), s * (room.curtainX - dw / 2), baseH + dh / 2 + .12, room.curtainZ + .2));
     d.scale.x = s;   // 左边那幅是右边的镜像
-    box(.09, .07, .09, brass, s * (room.curtainX - .16), baseH + .12 + dh * .4 - .02, room.curtainZ + .24);   // 束带上的铜扣
+    hide(box(.09, .07, .09, brass, s * (room.curtainX - .16), baseH + .12 + dh * .4 - .02, room.curtainZ + .24));   // 束带上的铜扣
   }
 
-  return { statueY, discY, lanterns };
+  // ---------- 洞天里：织锦换成两幅金线云纹的薄纱（textures/q/curtain_gauze），在夜风里轻轻飘 ----------
+  // 纱底几乎透明，金线自己发一点光（泛光会让它微微溢开）；下摆比上沿飘得多
+  const gauzeU = { value: 0 };
+  const gauze = new THREE.MeshStandardMaterial({ map: qtex('curtain_gauze' + q), transparent: true, depthWrite: false, side: THREE.DoubleSide, roughness: 1, emissive: 0xffffff, emissiveIntensity: 1.3 });
+  gauze.onBeforeCompile = sh => {
+    sh.uniforms.uTime = gauzeU;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uTime;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        float sway = 1. - uv.y;
+        transformed.z += (sin(uTime * .55 + position.y * 1.3 + position.x * 1.6) * .06 + sin(uTime * 1.2 + position.x * 3.1) * .015) * sway;`);
+    sh.fragmentShader = sh.fragmentShader.replace('#include <emissivemap_fragment>', 'totalEmissiveRadiance *= diffuseColor.rgb;');
+  };
+  const gw = 2.9, ggeo = drapeGeo(gw, dh + .1, .3, true, .5);   // 薄纱只松松地拢一下，大半幅还是展开的
+  for (const s of [-1, 1]) {
+    // 挂在柱子前面（柱子就在 curtainZ 上，粗约 0.45 米）：纱是透明的，挂在柱子位置上会被柱子戳穿，透出一道道黑影
+    const g = realmOnly(put(new THREE.Mesh(ggeo, gauze), s * (room.curtainX - gw / 2), baseH + (dh + .1) / 2 + .08, room.curtainZ + .5));
+    g.scale.x = s; g.castShadow = false; g.renderOrder = 4;
+  }
+
+  return { statueY, discY, lanterns, update(t) { gauzeU.value = t; updateFalling(t); } };
 }

@@ -6,7 +6,7 @@
 //   往下看（照片的下沿以下）：一片暗的云底，用噪声图（cloud_noise.webp）给一点浓淡。
 import * as THREE from 'three';
 import { REFLECT_LAYER } from './courtyardHall.js';
-import { createMist } from './courtyardFx.js';
+import { createMist, createShafts } from './courtyardFx.js';
 import { heightFog } from './heightFog.js';
 import { createRealmClouds } from './realmClouds.js';
 
@@ -17,11 +17,20 @@ const COL = {
 };
 
 // eye：站在殿门里的眼睛位置；head：猫头的位置——月亮放在这两点连线的延长线上，从门口看，月亮正好在猫头后面
-export function createRealm({ renderer, manager, low = false, eye, head, pool, puffs, center }) {
+// 月亮不再正挡在猫头后面，而是在猫像右后方（从门口看偏右约 30°），低低地压在云海上，下沿被云吃掉一截——和效果图一样，
+// 柱子把猫和月亮框在一起。月光（投影的那盏平行光）比月亮本身抬高一些（约 16°），地上的柱影才是一条条长影，而不是贴地拉到无穷远。
+const MOON_AZ = 31, MOON_EL = 3.5, LIGHT_EL = 16;   // 31°：从门口看正好落在中间两根柱子右边那一跨里，不被柱子切开。度：月亮在门口视线右边多少、地平线上多高；月光的仰角
+export function createRealm({ renderer, manager, low = false, eye, head, pool, puffs, center, shaftBeams = [], shaftNoise = null }) {
   const scene = new THREE.Scene();
   scene.fog = heightFog(new THREE.Color(0x0c1c24), 0, 0);   // 和小院同一种雾（着色器一样，切换时不用重新编译），浓度为 0
   const loader = new THREE.TextureLoader(manager);
-  const moonDir = head.clone().sub(eye).normalize();
+  const fwd = new THREE.Vector2(head.x - eye.x, head.z - eye.z).normalize();   // 从门口看猫的水平方向
+  const dirAt = (az, el) => {
+    const a = THREE.MathUtils.degToRad(az), e = THREE.MathUtils.degToRad(el);
+    const hx = fwd.x * Math.cos(a) - fwd.y * Math.sin(a), hz = fwd.x * Math.sin(a) + fwd.y * Math.cos(a);   // 往右转 az 度（看向 -z 时右边是 +x）
+    return new THREE.Vector3(hx * Math.cos(e), Math.sin(e), hz * Math.cos(e)).normalize();
+  };
+  const moonDir = dirAt(MOON_AZ, MOON_EL), lightDir = dirAt(MOON_AZ + 6, LIGHT_EL);
   const MOON_D = 118, moonPos = eye.clone().addScaledVector(moonDir, MOON_D);
   const moonFlat = new THREE.Vector2(moonDir.x, moonDir.z).normalize();
   const uTime = { value: 0 };
@@ -41,7 +50,7 @@ export function createRealm({ renderer, manager, low = false, eye, head, pool, p
         vec3 c = mix(uHor, uZen, pow(up, .55));
         c = mix(c, vec3(.02, .045, .06), smoothstep(0., .45, -d.y));                          // 地平线以下（往下看）是深色的云底，不是天空的青色
         float m = max(dot(d, uMoon), 0.);
-        c += vec3(.55, .38, .2) * (pow(m, 10.) * .5 + pow(m, 60.) * .6);                     // 月亮周围的一圈暖光
+        c += vec3(.55, .38, .2) * (pow(m, 40.) * .22 + pow(m, 260.) * .5);                   // 月亮周围的一圈暖光：收紧，天空其余部分保持深青，不再整片发黄
         float az = pow(max(dot(normalize(d.xz), normalize(uMoon.xz)), 0.), 3.);
         c += vec3(.5, .33, .14) * exp(-abs(d.y - .01) * 30.) * az * .55;                     // 月亮那边地平线上的金线
         // 星星：天空切成小格，少数格子里一颗；离月亮近、离地平线近的不画
@@ -57,7 +66,7 @@ export function createRealm({ renderer, manager, low = false, eye, head, pool, p
 
   // ---------- 月亮：照片（透明底）+ 外面一圈柔光 ----------
   const moonMap = loader.load(T + 'moon_gold.webp'); moonMap.colorSpace = THREE.SRGBColorSpace;
-  const moonSize = 2 * MOON_D * Math.tan(THREE.MathUtils.degToRad(7.2));   // 从门口看约 14° 宽
+  const moonSize = 2 * MOON_D * Math.tan(THREE.MathUtils.degToRad(9.4));   // 贴图约 19° 宽，圆盘约 16°（圆盘占贴图的 85%）
   const moon = reflect(new THREE.Mesh(new THREE.PlaneGeometry(moonSize, moonSize), new THREE.MeshBasicMaterial({
     map: moonMap, color: new THREE.Color(2.3, 2.05, 1.7), transparent: true, depthWrite: false, fog: false,
   })));
@@ -68,8 +77,11 @@ export function createRealm({ renderer, manager, low = false, eye, head, pool, p
     gr.addColorStop(0, 'rgba(255,214,150,1)'); gr.addColorStop(.25, 'rgba(255,190,110,.45)'); gr.addColorStop(.6, 'rgba(255,170,90,.1)'); gr.addColorStop(1, 'rgba(255,160,80,0)');
     g.fillStyle = gr; g.fillRect(0, 0, 256, 256); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
   })();
-  const halo = reflect(new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffd9a0, transparent: true, opacity: .55, depthWrite: false, blending: THREE.AdditiveBlending, fog: false })));
-  halo.position.copy(moonPos).addScaledVector(moonDir, 2); halo.scale.setScalar(moonSize * 3.2); halo.renderOrder = -19; scene.add(halo);
+  // 两层光晕：里面一圈紧而亮（贴着月亮边），外面一圈大而淡（月亮周围的天被照亮一大片）
+  for (const [s, o] of [[1.45, .5], [4.2, .16]]) {
+    const halo = reflect(new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffd9a0, transparent: true, opacity: o, depthWrite: false, blending: THREE.AdditiveBlending, fog: false })));
+    halo.position.copy(moonPos).addScaledVector(moonDir, 2); halo.scale.setScalar(moonSize * s); halo.renderOrder = -19; scene.add(halo);
+  }
 
   // ---------- 云海：一圈圆筒，贴照片（cloud_sea_night）。照片管从地平线往下十几度的那一段；再往下（站在殿后往下看）
   // 照片没有了，接一片暗的云底：用噪声图（cloud_noise）给一点浓淡，和照片的下沿慢慢融在一起。
@@ -98,7 +110,8 @@ export function createRealm({ renderer, manager, low = false, eye, head, pool, p
         vec3 under = uDeep * (.55 + .9 * n) * (1. - .7 * smoothstep(-30., -56., y));   // 越往下越暗
         c = mix(under, c, smoothstep(-.12, .06, v));
         c = mix(c, uHaze, .22);
-        float a = 1. - smoothstep(.6, .76, v);        // 照片上面那截天空淡掉，露出后面的天
+        c *= mix(.5, .85, toward);                   // 夜里的云海是暗的青灰，只有朝月亮的那面亮一些（照片本身偏亮，像傍晚）
+        float a = 1. - smoothstep(.6, .76, v);       // 照片上面那截天空淡掉，露出后面的天
         gl_FragColor = vec4(c, a);
       }`,
   })));
@@ -193,28 +206,45 @@ export function createRealm({ renderer, manager, low = false, eye, head, pool, p
   // 灯的数量、种类和小院一样（两盏平行光、其中一盏投影，一盏天光）：殿里的材质换场景时不用重新编译
   const hemi = new THREE.HemisphereLight(0x3d6275, 0x0b1215, .55);
   const moonLight = new THREE.DirectionalLight(0xffcf8c, 2.6);
-  moonLight.position.copy(moonPos); moonLight.target.position.set(center.x, pool.waterY, center.z);
-  moonLight.castShadow = true; moonLight.shadow.mapSize.setScalar(low ? 512 : 1024);
-  Object.assign(moonLight.shadow.camera, { left: -9, right: 9, top: 9, bottom: -9, near: 90, far: 140 });
+  moonLight.target.position.set(center.x, pool.waterY, center.z);
+  moonLight.position.copy(moonLight.target.position).addScaledVector(lightDir, 115);
+  moonLight.castShadow = true; moonLight.shadow.mapSize.setScalar(low ? 1024 : 2048);   // 柱影要清楚：比原来细一档
+  Object.assign(moonLight.shadow.camera, { left: -9, right: 9, top: 9, bottom: -9, near: 95, far: 135 });
   moonLight.shadow.bias = -.0005; moonLight.shadow.normalBias = .03;
   const fill = new THREE.DirectionalLight(0x86a8bf, .45); fill.position.set(center.x, 12, center.z + 20);
   scene.add(hemi, moonLight, moonLight.target, fill);
   for (const l of [hemi, moonLight, fill]) l.layers.enable(REFLECT_LAYER);
 
+  // 月光穿过殿后敞开的柱间，斜斜地落在地上：几道淡金的光柱（和小院的晨光是同一种做法，courtyardFx.js）
+  const shafts = shaftBeams.length ? createShafts(shaftBeams.map(([x, z, w, len, o = {}]) => [x, z, w, len, { ...o, dir: lightDir }]), lightDir, shaftNoise) : null;
+  if (shafts) { shafts.uniforms.uCol.value.setRGB(1, .8, .5).multiplyScalar(.09); scene.add(shafts.mesh); }
+
   // 殿门外：回头看，门洞是敞开的——门外是台阶和夜里的云海（整座殿浮在云上），不再放一块发亮的方框
 
-  // 环境光贴图：用这里的天空生成（青铜、水面的反光是夜里的颜色）
+  // 环境光贴图：先用这里的天空生成一张（贴图还没下载完时用）；第一次进洞天时（captureEnv）再把整个洞天——月亮、光晕、云海、
+  // 厚云——在殿中间拍一圈，换成真正的环境贴图：青铜猫像、湿石板上反出来的就是那轮金月和月下的云
+  const pm = new THREE.PMREMGenerator(renderer);
   {
     const env = new THREE.Scene(); env.add(new THREE.Mesh(sky.geometry, sky.material));
-    const pm = new THREE.PMREMGenerator(renderer);
-    scene.environment = pm.fromScene(env, .02, .1, 200).texture; scene.environmentIntensity = .7; pm.dispose();
+    scene.environment = pm.fromScene(env, .02, .1, 200).texture; scene.environmentIntensity = .7;
   }
+  let envRT = null;
+  const captureEnv = () => {
+    if (envRT) return;
+    const vis = [];
+    scene.traverse(o => { if (o.isPoints || o === mist.group || o === shafts?.mesh) { vis.push([o, o.visible]); o.visible = false; } });   // 飘着的光点、殿里的薄雾、光柱不拍进去
+    const prev = scene.environment;
+    envRT = pm.fromScene(scene, .015, .5, 145, { size: 256, position: new THREE.Vector3(center.x, eye.y, center.z) });
+    scene.environment = envRT.texture; scene.environmentIntensity = .85; prev?.dispose();
+    for (const [o, v] of vis) o.visible = v;
+  };
 
   return {
-    scene, moonDir, moonLight,
+    scene, moonDir, moonLight, captureEnv,
     setWishCount(n) { wishU.uCount.value = Math.max(6, Math.min(MAXW, n)); },
     update(t, camera, renderer) {
       uTime.value = t; mist.update(t); placeBanks(t); clouds.update(t);
+      if (shafts) shafts.uniforms.uTime.value = t;
       const h = renderer.getDrawingBufferSize(_v2).y;
       wishU.uPx.value = h / (2 * Math.tan(camera.fov * Math.PI / 360));
     },

@@ -202,8 +202,10 @@ const hideInRefr = [...pool.above, ...foxes.objects, sky.mesh, water.mesh, rain.
 const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
 const renderPass = new RenderPass(scene, camera);   // 切换场景时换掉它的 scene / camera（见下面"场景切换"）
 composer.addPass(renderPass);
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), .28, .5, 1.6);
+const BLOOM_DEF = { strength: .28, radius: .5, threshold: 1.6 };   // 池边和小院；殿里的洞天用自己的一组（court.grade.bloom）
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), BLOOM_DEF.strength, BLOOM_DEF.radius, BLOOM_DEF.threshold);
 composer.addPass(bloom);
+const setBloom = b => { bloom.strength = b.strength; bloom.radius = b.radius; bloom.threshold = b.threshold; };
 // 许愿时的背景虚化（两遍可分离高斯模糊：横一遍、竖一遍），强度由 wish.focus 控制；不虚化时整段跳过
 const BlurShader = {
   uniforms: { tDiffuse: { value: null }, uDir: { value: new THREE.Vector2() }, uAmt: { value: 0 }, uDim: { value: 1 } },
@@ -631,7 +633,8 @@ function renderCourt() {
   for (const b of blurs) b.enabled = false;
   const g = grade.uniforms, cg = court.grade;
   g.saturation.value = cg.saturation; g.vig.value = cg.vig; g.dayWarm.value = cg.dayWarm; g.night.value = 0;
-  g.court.value = cg.court; g.grain.value = cg.grain; g.time.value = performance.now() / 1000;
+  g.court.value = cg.court; g.realm.value = cg.realm ?? 0; g.grain.value = cg.grain; g.time.value = performance.now() / 1000;
+  setBloom(cg.bloom ?? BLOOM_DEF);
   g.sharp.value = cg.sharp; renderer.getDrawingBufferSize(texelV); g.texel.value = texelV.set(1 / texelV.x, 1 / texelV.y);
   court.preRender(renderer);
   composer.render();
@@ -639,6 +642,7 @@ function renderCourt() {
 function frame(dt) {
   if (active === 'courtyard') { court.update(dt); renderCourt(); }
   else {
+    setBloom(BLOOM_DEF); grade.uniforms.realm.value = 0;
     update(dt); render();
   }
 }

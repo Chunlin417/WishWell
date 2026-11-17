@@ -242,7 +242,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
 
   // ---------- 小殿：前墙和两侧墙上是镂空的花格窗，殿门的上半截也是镂空的；里面是水池、苔石和青铜猫像（courtyardHall.js）----------
   let hall = null, hallGrp = null;
-  const doorHinges = [], hallLights = {}, realmHide = [];
+  const doorHinges = [], hallLights = {}, realmHide = [], realmOnly = [];
   {
     const W = 11.8, H = 4.9, D = L.hallDepth, front = L.hallFront, fz = HALL_ACCESS.doorZ, bz = fz - D / 2, top = baseH + H, pz = front - .45;
     const P = L.pool, pMid = (P.front + P.back) / 2, pLen = P.front - P.back, back = fz - D - .8, platformHalf = HALL_ACCESS.porchHalfX;
@@ -259,6 +259,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     }
     // 殿里的地面：干的青石板，墙根和石缝里有一点苔
     const hallFloor = triMat({ set: tex.hallPaving, moss: tex.moss, scale: .55, color: 0xb8b3a3, mossAmt: .08, mossAt: .95, wet: .02, norK: .48, paving: { yard: [-ix, ix, iz0, iz1], tree: [0, 99, .1] } });
+    hallLights.floor = hallFloor;   // setRealm 要改它的湿度
     const floorAt = (x0, x1, z0, z1) => { add(new THREE.PlaneGeometry(x1 - x0, z1 - z0), hallFloor, (x0 + x1) / 2, baseH + .004, (z0 + z1) / 2, { cast: false }).rotation.x = -Math.PI / 2; };
     floorAt(-ix, ix, P.front, iz1); floorAt(-ix, ix, iz0, P.back); floorAt(-ix, -P.halfX, P.back, P.front); floorAt(P.halfX, ix, P.back, P.front);
 
@@ -390,10 +391,10 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
       parent = grp;
     }
     // 殿里：水池、卵石、苔石、猫像、水面的倒影和水光
-    hall = createHallInterior({ parent: grp, tex, manager, camera, baseH, pool: P, statue: L.statue, room: { halfX: ix, front: iz1, back: iz0, top: ceil, curtainX: 5.45, curtainZ: rowZ[1] }, floorMat: hallFloor, isMobile });
+    hall = createHallInterior({ parent: grp, tex, manager, camera, baseH, pool: P, statue: L.statue, room: { halfX: ix, front: iz1, back: iz0, top: ceil, curtainX: 5.45, curtainZ: rowZ[1] }, floorMat: hallFloor, isMobile, low });
     for (const p of hall.lanterns) { const l = new THREE.PointLight(0xffb45e, 2.6, 5.5, 1.6); l.position.copy(p); grp.add(l); }   // 殿里两盏石灯点着：暖黄的光从格子里透出来
     grp.traverse(o => { if (!o.userData.noReflect) o.layers.enable(REFLECT_LAYER); });   // 整座殿都画进水面的倒影里
-    grp.traverse(o => { if (o.userData.realmHide) realmHide.push(o); });                   // 壁画（hallSanctuary.js 里打了标记）
+    grp.traverse(o => { if (o.userData.realmHide) realmHide.push(o); if (o.userData.realmOnly) realmOnly.push(o); });   // 壁画、织锦帷幔 / 薄纱、飘叶（hallSanctuary.js 里打了标记）
     hallGrp = grp;
     parent = scene;
   }
@@ -520,11 +521,15 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     scene.add(grassCards.mesh);
   }).catch(e => console.warn('石缝小草没有生成：', e));
 
-  // ---------- 殿里的"洞天"（hallRealm.js）：月亮放在从门口看过去猫头的正后方 ----------
+  // ---------- 殿里的"洞天"（hallRealm.js）：月亮在从门口看过去猫像的右后方，低低压在云海上 ----------
   const realmEye = new THREE.Vector3(0, baseH + EYE, HALL_ACCESS.doorZ - .6);
   const realmHead = new THREE.Vector3(0, baseH + .93 + L.statue.height * .86, L.statue.z);
   const realm = createRealm({ renderer, manager, low, eye: realmEye, head: realmHead, center: new THREE.Vector3(0, 0, (L.pool.front + L.pool.back) / 2),
-    pool: { halfX: L.pool.halfX, front: L.pool.front, back: L.pool.back, waterY: baseH - L.pool.drop }, puffs: { map: tex.fogPuffs, cells: ATLAS.fog_puffs } });
+    pool: { halfX: L.pool.halfX, front: L.pool.front, back: L.pool.back, waterY: baseH - L.pool.drop }, puffs: { map: tex.fogPuffs, cells: ATLAS.fog_puffs },
+    // 月光光柱落地的地方 [x, z, 宽, 长, { y }]：两侧的石板地上、水池边
+    // 光柱只在殿里（长 4～5 米）：伸到殿外的话，衬着天空看就成了一道划痕
+    shaftBeams: [[-4.3, -9.6, 1.3, 4.6, { y: baseH, k: .9 }], [-.9, -9.0, 1.1, 4.2, { y: baseH, k: .6 }], [3.2, -10.4, 1.2, 3.6, { y: baseH, k: .8 }]],
+    shaftNoise: tex.shaftNoise });
   let inRealm = false, doorAmt = 0, veilBusy = false, lastDoorZ = 0;
   let myIncenseT = [];   // 自己点的香的点燃时间（毫秒）：有一炷还在烧，跨过门槛就进洞天
   const INCENSE_BURN_MS = 30 * 60e3;
@@ -534,13 +539,21 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
   document.body.appendChild(veil);
   function setRealm(on) {
     inRealm = on;
+    if (on) realm.captureEnv();   // 第一次进来：先把空的洞天（月亮、云海）拍成环境贴图，再把殿挪进来
     (on ? realm.scene : scene).add(hallGrp);
+    // 洞天里殿内的地面是湿的：一片片水迹、低洼处的小水洼（triMat 的 wet），石板整体也光滑一些——反着月光和灯笼
+    const fu = hallLights.floor.userData.tri; fu.uMoss.value.w = on ? .4 : .02; fu.uTri.value.z = on ? .85 : 1;   // 再湿就会把月光整块反成一片白
     for (const o of realmHide) o.visible = !on;
+    for (const o of realmOnly) o.visible = on;
     // 殿里的灯：洞天里没有晨光照进窗；门口的暖光和猫像的面光收一些，让月光当主角
     hallLights.windowSun.intensity = on ? 0 : 46;
     hallLights.glow.intensity = on ? 2 : 9;
     hallLights.statueKey.intensity = on ? 4 : 13;
-    if (on) realm.setWishCount(plaqueList.length + 6);
+    if (on) {
+      realm.setWishCount(plaqueList.length + 6);
+      // 白幕正亮着：把视线轻轻转到猫和月亮之间（月亮在右前方），抬一点头——一揭幕就是柱子框着猫和月亮的那一眼
+      player.yaw = camera.aspect < 1 ? -.1 : -.2; player.pitch = .05;   // 竖屏视野窄：少转一点，猫不被挤到边上，月亮露在右边
+    }
     shadowFrames = 3;
   }
   function crossTo(on) {
@@ -778,7 +791,9 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
   }
 
   const DAY_GRADE = { saturation: 1, vig: .16, dayWarm: .28, court: 1, grain: 0, sharp: low ? .25 : .35 };
-  const REALM_GRADE = { saturation: 1.04, vig: .3, dayWarm: 0, court: 1, grain: 0, sharp: low ? .25 : .35 };   // 洞天：暗角重一些，不加白天的暖调
+  // 洞天：自己的调色（暗处青、亮处金，见 GradeShader 的 realm），暗角重一些；泛光门槛放低，月亮、灯笼、云边的金光往外溢
+  const REALM_GRADE = { saturation: 1.06, vig: .4, dayWarm: 0, court: 0, realm: 1, grain: 0, sharp: low ? .25 : .35,
+    bloom: { strength: low ? .36 : .55, radius: .6, threshold: low ? .95 : .85 } };   // 手机屏小、贴图糊一档：泛光收一些，月亮不糊成一团
   return {
     scene, camera, player, layout: L, ready, plaques,
     // list：[{ id, name, date, mine }]；freshId：刚挂上的那块（进院时会有落下来挂好的动画，镜头也会慢慢转向它）
