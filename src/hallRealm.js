@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { REFLECT_LAYER } from './courtyardHall.js';
 import { createMist } from './courtyardFx.js';
 import { heightFog } from './heightFog.js';
+import { createRealmClouds } from './realmClouds.js';
 
 const T = `${import.meta.env.BASE_URL}textures/q/`;
 const COL = {
@@ -87,7 +88,7 @@ export function createRealm({ renderer, manager, low = false, eye, head, pool, p
       uniform sampler2D tMap, tN; uniform vec2 uMoon; uniform vec3 uHaze, uDeep; uniform float uTime; uniform vec4 uY; varying vec2 vUv; varying vec2 vXZ;
       void main(){
         float y = mix(uY.x, uY.y, vUv.y), v = (y - uY.z) / (uY.w - uY.z);
-        float u = vUv.x * 6. + uTime * .0008;   // 偶数张：镜像平铺绕一圈才首尾相接
+        float u = vUv.x * 6. + uTime * .0035;   // 偶数张：镜像平铺绕一圈才首尾相接
         vec3 c = texture2D(tMap, vec2(u, max(v, .002))).rgb;
         float toward = pow(max(dot(vXZ, uMoon), 0.), 2.);
         float l = dot(c, vec3(.2126, .7152, .0722));
@@ -105,6 +106,10 @@ export function createRealm({ renderer, manager, low = false, eye, head, pool, p
   // 圆筒底下的盖子：站在殿里往正下方看（视线穿过圆筒的下沿）时，看到的是深色的云底，不是空的
   const floorDisc = reflect(new THREE.Mesh(new THREE.CircleGeometry(R + 4, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: new THREE.Color(.006, .014, .02), fog: false })));
   floorDisc.position.set(center.x, yLo + .5, center.z); floorDisc.renderOrder = -19.5; scene.add(floorDisc);   // 要在天空之后画，不然天空（半径只有 140）把它盖住
+
+  // ---------- 一团团立体的厚云（realmClouds.js）：浮在照片前面，近大远小，人走动时有视差 ----------
+  const clouds = createRealmClouds({ manager, low, center, eye, moonDir, haze: COL.haze, deep: COL.deep, layer: REFLECT_LAYER });
+  scene.add(clouds.group);
 
   // ---------- 云海上的雾带：一团团半透明的雾（雾团图集）浮在照片的云顶上，离得近的大、远的小，极慢地横着漂，浓淡一呼一吸——
   // 照片本身是不动的，这一层让云海有厚度、有远近，看上去在流动。朝着月亮的那几团边上带一点暖金色，背着月亮的偏冷青
@@ -126,7 +131,7 @@ export function createRealm({ renderer, manager, low = false, eye, head, pool, p
       const o = .36 + r() * .24 - d * .0012;
       const sp = reflect(new THREE.Sprite(new THREE.SpriteMaterial({ map: m, color: col, opacity: o, transparent: true, depthWrite: false, fog: false })));
       sp.renderOrder = -15; scene.add(sp);
-      bankList.push({ sp, a, d, y, w, h, o, speed: (r() < .5 ? -1 : 1) * (.08 + r() * .1), ph: r() * 20 });
+      bankList.push({ sp, a, d, y, w, h, o, speed: (r() < .8 ? 1 : -1) * (.3 + r() * .4), ph: r() * 20 });
     }
   }
   const placeBanks = t => {
@@ -209,7 +214,7 @@ export function createRealm({ renderer, manager, low = false, eye, head, pool, p
     scene, moonDir, moonLight,
     setWishCount(n) { wishU.uCount.value = Math.max(6, Math.min(MAXW, n)); },
     update(t, camera, renderer) {
-      uTime.value = t; mist.update(t); placeBanks(t);
+      uTime.value = t; mist.update(t); placeBanks(t); clouds.update(t);
       const h = renderer.getDrawingBufferSize(_v2).y;
       wishU.uPx.value = h / (2 * Math.tan(camera.fov * Math.PI / 360));
     },

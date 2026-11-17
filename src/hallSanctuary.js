@@ -123,21 +123,16 @@ export function createSanctuary({ parent, tex, manager, baseH, room, pool, statu
     const t = top + .035;
     const censer = put(new THREE.Mesh(new THREE.LatheGeometry([[0, 0], [.1, 0], [.15, .05], [.16, .12], [.13, .17], [.15, .19]].map(p => new THREE.Vector2(...p)), 20), brass), 0, t, .05, g);
     censer.castShadow = false;
-    put(new THREE.Mesh(new THREE.CylinderGeometry(.17, .14, .02, 20), clay), -.82, t + .01, .03, g);
-    const orange = new THREE.MeshStandardMaterial({ color: 0xc8742a, roughness: .7 }), ball = new THREE.SphereGeometry(.058, 12, 9);
-    for (const [x, y, z] of [[-.07, 0, -.04], [.07, 0, -.04], [0, 0, .08], [0, .09, .01]]) put(new THREE.Mesh(ball, orange), -.82 + x, t + .075 + y, .03 + z, g).castShadow = false;
-    put(new THREE.Mesh(new THREE.LatheGeometry([[0, 0], [.07, 0], [.11, .1], [.1, .2], [.045, .29], [.055, .34]].map(p => new THREE.Vector2(...p)), 18), clay), .82, t, .02, g);
+    // 供桌：中间一只香炉，左右各一只一样的陶瓶（插着枯枝，左边是右边的镜像）；不放水果和蜡烛
+    const vaseGeo = new THREE.LatheGeometry([[0, 0], [.07, 0], [.11, .1], [.1, .2], [.045, .29], [.055, .34]].map(p => new THREE.Vector2(...p)), 18);
     const twig = new THREE.MeshStandardMaterial({ color: 0x3c2e22, roughness: 1 }), bud = new THREE.MeshStandardMaterial({ color: 0xe8dcc0, roughness: .8 });
-    for (const [lean, len, turn] of [[.18, .62, 0], [-.3, .5, 2.2], [.42, .44, 4.1]]) {
-      const b = new THREE.Mesh(new THREE.CylinderGeometry(.004, .008, len, 5).translate(0, len / 2, 0), twig);
-      b.position.set(.82, t + .32, .02); b.rotation.set(lean * Math.cos(turn), 0, lean * Math.sin(turn) + lean * .6); g.add(b);
-      for (let k = 0; k < 4; k++) { const d = new THREE.Mesh(new THREE.SphereGeometry(.014, 6, 5), bud); d.position.set((k % 2 ? .012 : -.012), len * (.4 + k * .17), 0); b.add(d); }
-    }
-    const wax = new THREE.MeshStandardMaterial({ color: 0xd9c9a6, roughness: .6 }), flame = new THREE.MeshBasicMaterial({ color: new THREE.Color(3.4, 1.9, .6) });
-    for (const s of [-1, 1]) {
-      put(new THREE.Mesh(new THREE.CylinderGeometry(.045, .06, .03, 12), brass), s * .42, t + .015, .08, g).castShadow = false;
-      put(new THREE.Mesh(new THREE.CylinderGeometry(.02, .022, .2, 10), wax), s * .42, t + .13, .08, g).castShadow = false;
-      const f = put(new THREE.Mesh(new THREE.SphereGeometry(.016, 8, 6), flame), s * .42, t + .255, .08, g); f.scale.y = 1.9; f.castShadow = f.receiveShadow = false;
+    for (const sx of [-1, 1]) {
+      put(new THREE.Mesh(vaseGeo, clay), sx * .82, t, .02, g);
+      for (const [lean, len, turn] of [[.18, .62, 0], [-.3, .5, 2.2], [.42, .44, 4.1]]) {
+        const b = new THREE.Mesh(new THREE.CylinderGeometry(.004, .008, len, 5).translate(0, len / 2, 0), twig);
+        b.position.set(sx * .82, t + .32, .02); b.rotation.set(lean * Math.cos(turn), 0, sx * (lean * Math.sin(turn) + lean * .6)); g.add(b);
+        for (let k = 0; k < 4; k++) { const d = new THREE.Mesh(new THREE.SphereGeometry(.014, 6, 5), bud); d.position.set((k % 2 ? .012 : -.012), len * (.4 + k * .17), 0); b.add(d); }
+      }
     }
   }
 
