@@ -18,8 +18,9 @@ export function createRealmClouds({ manager, low, center, eye, moonDir, haze, de
   const group = new THREE.Group();
   let k = 11; const r = () => (k = (k * 16807) % 2147483647) / 2147483647;
 
-  for (const [key, share] of [['cumulus', .5], ['strato', .5]]) {
-    const n = Math.round(count * share), cells = CLOUD_ATLAS[key];
+  // 积云、层积云是厚云；风卷云（wisp）是云海上方一层又薄又宽的卷云：压扁、半透明、贴着地平线
+  for (const [key, share] of [['cumulus', .4], ['strato', .4], ['wisp', .2]]) {
+    const wisp = key === 'wisp', n = Math.round(count * share), cells = CLOUD_ATLAS[key];
     const map = loader.load(T + `cloud_${key}${low ? '_1k' : ''}.webp`); map.colorSpace = THREE.SRGBColorSpace; map.anisotropy = 4;
     // 每团云：方位、距离、高度、宽、高、格子、漂移速度、相位
     const items = [];
@@ -28,10 +29,10 @@ export function createRealmClouds({ manager, low, center, eye, moonDir, haze, de
       const a = moonSide ? base + (r() - .5) * 2.4 : r() * Math.PI * 2;
       const d = 22 + Math.pow(r(), 1.2) * 80;
       const c = cells[Math.floor(r() * cells.length)];
-      const w = (key === 'strato' ? 1.25 : 1) * (7 + d * .28) * (.75 + r() * .5), h = w / c[4];
+      const w = (wisp ? 2.3 : key === 'strato' ? 1.25 : 1) * (7 + d * .28) * (.75 + r() * .5), h = w / c[4] * (wisp ? .42 : 1);
       // 云顶压在地平线下面 1.5°～6°：从殿里是微微俯看一片云海，云不会挡住月亮和天空
-      const top = eye.y - d * Math.tan((1.5 + r() * 4.5) * Math.PI / 180);
-      const y = top - h * .92;
+      const top = eye.y - d * Math.tan(((wisp ? .2 : 1.5) + r() * (wisp ? 2.2 : 4.5)) * Math.PI / 180);
+      const y = top - h * (wisp ? .55 : .92);
       items.push({ a, d, y, w, h, c, speed: (r() < .8 ? 1 : -1) * (.45 + r() * .55), ph: r() * 30 });   // 米/秒：大多顺着一个方向吹（风），少数逆着，速度各不相同
     }
     items.sort((p, q) => q.d - p.d);                                                // 远的先画（透明的东西要从远到近叠）
@@ -42,7 +43,7 @@ export function createRealmClouds({ manager, low, center, eye, moonDir, haze, de
     geo.setAttribute('aCell', A(4, it => [it.c[0], it.c[1], it.c[2] - it.c[0], it.c[3] - it.c[1]]));
     const mat = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false, fog: false,
-      uniforms: { tMap: { value: map }, uTime, uCenter: { value: center }, uMoon: { value: moonDir }, uMoonFlat: { value: moonFlat }, uHaze: { value: haze }, uDeep: { value: deep } },
+      uniforms: { tMap: { value: map }, uAlpha: { value: wisp ? .6 : 1 }, uTime, uCenter: { value: center }, uMoon: { value: moonDir }, uMoonFlat: { value: moonFlat }, uHaze: { value: haze }, uDeep: { value: deep } },
       vertexShader: /* glsl */`
         attribute vec4 aPolar, aCell; attribute vec3 aSize;
         uniform float uTime; uniform vec3 uCenter, uMoon; uniform vec2 uMoonFlat;
@@ -65,7 +66,7 @@ export function createRealmClouds({ manager, low, center, eye, moonDir, haze, de
           vDist = -mv.z;
         }`,
       fragmentShader: /* glsl */`
-        uniform sampler2D tMap; uniform vec3 uHaze, uDeep; varying vec2 vUv, vLocal, vMoonUv; varying float vToward, vDist;
+        uniform sampler2D tMap; uniform float uAlpha; uniform vec3 uHaze, uDeep; varying vec2 vUv, vLocal, vMoonUv; varying float vToward, vDist;
         void main(){
           vec4 t = texture2D(tMap, vUv);
           float a = t.a * smoothstep(0., .32, vLocal.y);                               // 云底渐隐：泡在云海里
@@ -79,7 +80,7 @@ export function createRealmClouds({ manager, low, center, eye, moonDir, haze, de
           col += vec3(.9, .62, .3) * vToward * .05 * smoothstep(.3, .8, lum);         // 朝月亮一侧的云整体暖一点点
           float hz = smoothstep(25., 110., vDist);
           col = mix(col, uHaze, hz * .6);
-          gl_FragColor = vec4(col, a * (1. - .35 * hz));
+          gl_FragColor = vec4(col, a * uAlpha * (1. - .35 * hz));
         }`,
     });
     const mesh = new THREE.InstancedMesh(geo, mat, n);
