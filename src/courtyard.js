@@ -33,7 +33,7 @@ const L = {
   gateHalf: 1.2,       // 院门半宽
   hallFront: HALL_ACCESS.front,
   stepsZ: HALL_ACCESS.front + HALL_ACCESS.steps * HALL_ACCESS.stepDepth,
-  doorOpen: .88,       // 半掩的门扇框住中轴，露出蒲团、踏石和猫像；仍从殿外观看。
+  doorOpen: 0,         // 殿门关着：隔着门上、窗上的格子看里面暖亮的灯、金月和猫像
   hallDepth: 8,        // 殿的进深（米）：只能隔着窗看，太深了里面只是一片黑，猫像也小成一个点
   pool: { halfX: 3.6, front: -8.25, back: -11.3, depth: .22, drop: .09, border: .24 },   // 浅池向供桌延伸，保留入口蒲团平台
   statue: { z: -13.15, height: 1.65 },   // 主体后退并收小，让金月和周边空间露出来
@@ -333,10 +333,10 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     //   - 门里一盏很弱的暖光：木构的轮廓和水池隐约可见；
     //   - 一束晨光从东窗的花格斜照进来，落在水池和石板路上（投影，花格的影子铺在地上）；
     //   - 猫像头顶一片柔光（面光源，不投影），让它从暗处浮出来；两盏石灯笼各一点暖光（见下面 hall 建好之后）。
-    const glow = new THREE.PointLight(0xffdcb0, 3.4, 9, 1.6);
-    glow.position.set(0, baseH + 2.5, fz - 2.2); grp.add(glow);
+    const glow = new THREE.PointLight(0xffd6a6, 9, 12, 1.4);   // 门关着：里面要亮一些，隔着格子才看得清
+    glow.position.set(0, baseH + 1.5, fz - 3.6); grp.add(glow);   // 放低、往里：照亮蒲团、水池和供桌，不在门后的顶棚上打出一块亮斑
     RectAreaLightUniformsLib.init();
-    const statueKey = new THREE.RectAreaLight(0xffe2b4, 7.5, 2.4, 1.3);
+    const statueKey = new THREE.RectAreaLight(0xffe2b4, 13, 2.4, 1.3);
     statueKey.position.set(0, ceil - .35, L.statue.z + 2.5);
     statueKey.lookAt(0, baseH + 2.1, L.statue.z); grp.add(statueKey);
     const windowSun = new THREE.SpotLight(0xffdfaa, 46, 18, .5, .8, 2);
@@ -368,19 +368,18 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
       const hinge = new THREE.Group(); hinge.position.set(s * 1.297, baseH, fz); hinge.rotation.y = s * -L.doorOpen; grp.add(hinge); parent = hinge;
       const lw = 1.292, lh = 3.3, cx = -s * lw / 2;
       for (const e of [-1, 1]) box(.065, lh, .055, mat.woodRed, cx + e * (lw / 2 - .0325), lh / 2, 0);
-      for (const y of [.05, .78, lh - .05]) box(lw - .13, .09, .055, mat.woodRed, cx, y, 0);
-      box(lw - .13, .64, .035, mat.woodRed, cx, .415, 0);
-      lattice(lw - .13, lh - .925, cx, (lh + .725) / 2, 0, 0, hinge, .38, .02);
-      // 兽面门环：门板靠中缝的一侧，一个鼓起的兽面衔着铜环
-      const rx = -s * (lw - .26), ry = .62;
-      slot('door_ring', rx, ry - .14, .028);
-      // 门钉：下半截门板上三排、每排四颗
-      for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++) slot('door_stud', cx + (c - 1.5) * .26, .19 + r * .2 - .025, .018);
+      // 下半截是一块高高的木板（竖着的几条拼缝），上半截是细密的方格窗棂
+      for (const y of [.05, 1.3, lh - .05]) box(lw - .13, .09, .055, mat.woodRed, cx, y, 0);
+      box(lw - .13, 1.16, .035, mat.woodRed, cx, .675, 0);
+      for (let k = 1; k < 4; k++) box(.012, 1.12, .041, mat.woodDark, cx + (k / 4 - .5) * (lw - .13), .675, 0);
+      lattice(lw - .13, lh - 1.44, cx, (lh + 1.25) / 2, 0, 0, hinge, .2, .022);
+      // 兽面门环：紧挨着两扇门的中缝，在木板的上沿
+      slot('door_ring', -s * (lw - .11), 1.0, .028);
       parent = grp;
     }
     // 殿里：水池、卵石、苔石、猫像、水面的倒影和水光
     hall = createHallInterior({ parent: grp, tex, manager, camera, baseH, pool: P, statue: L.statue, room: { halfX: ix, front: iz1, back: iz0, top: ceil, curtainX: 5.45, curtainZ: rowZ[1] }, floorMat: hallFloor, isMobile });
-    for (const p of hall.lanterns) { const l = new THREE.PointLight(0xffb45e, .8, 3.5, 1.7); l.position.copy(p); grp.add(l); }   // 清晨石灯仅保留微弱暖光
+    for (const p of hall.lanterns) { const l = new THREE.PointLight(0xffb45e, 2.6, 5.5, 1.6); l.position.copy(p); grp.add(l); }   // 殿里两盏石灯点着：暖黄的光从格子里透出来
     grp.traverse(o => { if (!o.userData.noReflect) o.layers.enable(REFLECT_LAYER); });   // 整座殿都画进水面的倒影里
     parent = scene;
   }
@@ -531,7 +530,19 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
   scene.add(shafts.mesh, smoke.mesh, mist.group);
   let fxT = 0;
   const bufSize = new THREE.Vector2();
-  const lampMat = new THREE.MeshStandardMaterial({ color: 0x5e5243, emissive: 0xffb25e, emissiveIntensity: .12, roughness: .9 });   // 石灯的灯室：清晨里只透一点暖光
+  // 石灯点着：灯室是一层透光的纸——下面靠近火苗的地方亮，往上、往边上暗下去，纸上有细细的纤维
+  const lampMat = new THREE.MeshStandardMaterial({ color: 0x3a3128, emissive: 0xffa04a, emissiveIntensity: .8, roughness: .9 });
+  lampMat.customProgramCacheKey = () => 'court-lamp-paper';
+  lampMat.onBeforeCompile = sh => {
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vLp;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvLp = transformed;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vLp;').replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+      {
+        float yk = smoothstep(1.33, 1.03, vLp.y);                                    // 模型坐标：灯室在 1.03～1.31 米、半宽 0.18 米
+        float side = 1. - smoothstep(.05, .18, min(abs(vLp.x), abs(vLp.z)));          // 每一面的中间亮、两边暗
+        float fibre = .85 + .15 * fract(sin(dot(floor(vLp.xy * 260. + vLp.z * 190.), vec2(12.9898, 78.233))) * 43758.5);
+        totalEmissiveRadiance *= (.2 + .95 * yk) * (.3 + .7 * side) * fibre;
+      }`);
+  };
   const chiwenMat = triMat({ set: tex.rock, moss: tex.moss, scale: 1.4, color: 0x9a9ea0, mossAmt: .3, mossAt: .75 });              // 鸱吻：灰陶，略带苔
   const propsReady = loadProps(manager).then(models => placeProps(scene, models, slots, {
     chiwen: { default: chiwenMat }, dougong: { default: mat.woodDark }, stone_railing: { default: mat.stoneClean },

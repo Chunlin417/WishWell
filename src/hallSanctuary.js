@@ -140,7 +140,7 @@ export function createSanctuary({ parent, tex, manager, baseH, room, pool, statu
   }
 
   // ---------- 石灯笼：猫像两侧各一盏，灯室里透出暖光 ----------
-  const glass = new THREE.MeshStandardMaterial({ color: 0x8e8064, emissive: 0xffa94e, emissiveIntensity: .12, roughness: .85 });
+  const glass = new THREE.MeshStandardMaterial({ color: 0x8e8064, emissive: 0xffa94e, emissiveIntensity: .9, roughness: .85 });   // 灯室是亮的
   const lanterns = [];
   for (const s of [-1, 1]) {
     const lx = s * 2.85, lz = statue.z + .3, y = baseH;
