@@ -96,16 +96,18 @@ export function createSanctuary({ parent, tex, manager, baseH, room, pool, statu
   muralMap.colorSpace = THREE.SRGBColorSpace; muralMap.anisotropy = 8;
   const plaster = finishMural(new THREE.MeshStandardMaterial({ map: muralMap, bumpMap: muralMap, bumpScale: .012, emissive: 0xffffff, emissiveMap: muralMap, emissiveIntensity: .025, roughness: .92, metalness: .035 }));
   const panelW = 6.4, panelH = 3.2, py = statueY + statue.height * .88 - panelH * .14, pz = room.back + .16;
+  // 壁画和后墙一起，在"洞天"里会被藏起来（后墙敞开成云海，见 hallRealm.js）：都打上 realmHide
+  const hide = o => { o.userData.realmHide = true; return o; };
   const panel = new THREE.Mesh(new THREE.PlaneGeometry(panelW, panelH), plaster);
-  put(panel, 0, py, pz + .058); panel.castShadow = false;
-  box(panelW, panelH, .1, dark, 0, py, pz);
+  hide(put(panel, 0, py, pz + .058)); panel.castShadow = false;
+  hide(box(panelW, panelH, .1, dark, 0, py, pz));
   for (const s of [-1, 1]) {
-    box(panelW + .08, .04, .08, dark, 0, py + s * (panelH / 2 + .02), pz + .02);
-    box(.04, panelH, .08, dark, s * (panelW / 2 + .02), py, pz + .02);
+    hide(box(panelW + .08, .04, .08, dark, 0, py + s * (panelH / 2 + .02), pz + .02));
+    hide(box(.04, panelH, .08, dark, s * (panelW / 2 + .02), py, pz + .02));
   }
   // 金月的位置（图上量出来的）：圆心比壁画中心高 0.14 个画高，半径约 0.96 米。外圈压一道细铜边，侧光下会亮起一线
   const discY = py + panelH * .14, discR = .955;
-  const rim = put(new THREE.Mesh(new THREE.TorusGeometry(discR, .006, 7, 96), brass), -.02, discY, pz + .066); rim.castShadow = false;
+  const rim = hide(put(new THREE.Mesh(new THREE.TorusGeometry(discR, .006, 7, 96), brass), -.02, discY, pz + .066)); rim.castShadow = false;
 
   // ---------- 供桌：猫像前面一张深色的木桌，桌上一只小香炉、一盘橘子、一只插着枯枝的陶瓶、一对蜡烛 ----------
   {

@@ -16,7 +16,8 @@ import { createIncense } from './courtyardIncense.js';
 import { createBurner } from './courtyardBurner.js';
 import { createPlantCards, createHangCards, createDecals } from './courtyardPlants.js';
 import { ATLAS } from './qualityAtlases.js';
-import { loadProps, placeProps, createSign } from './courtyardProps.js';
+import { loadProps, placeProps } from './courtyardProps.js';
+import { createRealm } from './hallRealm.js';
 import { HALL_ACCESS, constrainHallMove } from './courtyardMovement.js';
 
 const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
@@ -33,7 +34,7 @@ const L = {
   gateHalf: 1.2,       // 院门半宽
   hallFront: HALL_ACCESS.front,
   stepsZ: HALL_ACCESS.front + HALL_ACCESS.steps * HALL_ACCESS.stepDepth,
-  doorOpen: 0,         // 殿门关着：隔着门上、窗上的格子看里面暖亮的灯、金月和猫像
+  doorOpen: 0,         // 殿门走近会自己打开；没点香，进去是平常的殿；点了香，进去就是另一个天地（hallRealm.js）
   hallDepth: 8,        // 殿的进深（米）：只能隔着窗看，太深了里面只是一片黑，猫像也小成一个点
   pool: { halfX: 3.6, front: -8.25, back: -11.3, depth: .22, drop: .09, border: .24 },   // 浅池向供桌延伸，保留入口蒲团平台
   statue: { z: -13.15, height: 1.65 },   // 主体后退并收小，让金月和周边空间露出来
@@ -52,8 +53,6 @@ const L = {
     [-6, 10, 3.5, 3.4], [6.5, 10.5, 3.9, 3.6], [-11.5, 8, 4.5, 3.6], [11.5, 8.5, 4.5, 3.6], [0, 14, 5.5, 4],
   ],
 };
-// 匾额和楹联上的字（改这里就行）：匾额从右往左读；楹联上联挂在右边
-const SIGN = { plaque: '寄愿堂', couplet: ['古木垂牌承宿愿', '清炉引篆寄初心'] };
 const PAVE_SCALE = 1 / 3.2, PAVE_JOINT = [.33, .4];   // 青石板贴图的尺寸（每米重复几次）和石缝的高度阈值（和 triMat 的 joint 一致）
 const EYE = 1.62, BODY_R = .35, WALK = 1.6;   // 眼睛高度、人的半径、步行速度（米/秒，比一般游戏慢一些）
 const FOV = 52, FOV_PORTRAIT = 68;            // 视野角（竖直方向）：横屏、竖屏
@@ -159,16 +158,21 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     bark: triMat({ set: tex.bark, moss: tex.moss, scale: .42, color: 0xf2e8dc, mossAmt: .7, mossAt: .64, mossScale: .55, grime: .5, norK: 1.3 }),
     wood: triMat({ set: tex.wood, scale: .55, color: 0xcabba8, weather: .7, weatherY: baseH }),
     woodRed: triMat({ set: tex.lacquer, scale: .8, color: 0xffffff, weather: .25, weatherY: baseH }),   // 檐柱、门扇、窗框：剥落的旧红漆（露出底下的木头）
+    // 殿门：整洁的深褐红木（用原来那套旧木材，只带一点水渍和磨损），比檐柱、窗框干净——参考图里门是最新的一件
+    doorWood: triMat({ set: tex.wood, scale: .75, color: 0xffc9b0, weather: .15, weatherY: baseH, norK: .7 }),
     woodDark: triMat({ set: tex.wood, scale: .55, color: 0x8a7c70, weather: .4, weatherY: baseH }),
     hallWood: triMat({ set: tex.wood, scale: .7, color: 0xc2bdb0, weather: .68, weatherY: baseH, wood: true, norK: .48 }),
     hallBeam: triMat({ set: tex.wood, scale: .49, color: 0x9c978b, weather: .55, weatherY: baseH, wood: true, norK: .42 }),
     gateWood: triMat({ set: tex.wood, scale: .55, color: 0xc8b8a6, weather: .8, weatherY: 0 }),
     roof: roofMat(tex.roof), tileEnd: M(0x4a5052, .75), bronze: bronzeMat(),
+    brass: new THREE.MeshStandardMaterial({ color: 0xb48a3a, metalness: .9, roughness: .34 }),   // 门环：磨亮的黄铜
     ash: M(0xb8b2a3, 1), stick: M(0x7a4630),
     ember: new THREE.MeshBasicMaterial({ color: new THREE.Color(5, 1.4, .35) }),
   };
   mat.stone.color.setScalar(.95); mat.stoneClean.color.setScalar(1.02);
   // 旧木材的素材偏暗（平均亮度只有 0.15 左右）：殿的正面又在屋檐的阴影里，提亮一些才看得出木纹和色差
+  mat.doorWood.color.multiplyScalar(3.3); mat.doorPanel = mat.doorWood.clone(); mat.doorPanel.color.multiplyScalar(.68);   // 嵌板里面比线脚暗一档，看得出凹进去
+  mat.doorPanel.customProgramCacheKey = mat.doorWood.customProgramCacheKey; mat.doorPanel.onBeforeCompile = mat.doorWood.onBeforeCompile; mat.doorPanel.defines = mat.doorWood.defines;   // 门在廊下的阴影里，木头本身要亮得多才看得出木色
   mat.wood.color.multiplyScalar(1.7); mat.woodDark.color.multiplyScalar(1.35); mat.gateWood.color.multiplyScalar(1.6);
   mat.hallWood.color.multiplyScalar(1.85); mat.hallBeam.color.multiplyScalar(1.65);
   const colliders = [];   // 圆形的障碍：{ x, z, r }
@@ -179,7 +183,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
   const box = (w, h, d, m, x, y, z, o) => add(new THREE.BoxGeometry(w, h, d), m, x, y, z, o);
   // 小模型（鸱吻、斗拱、石栏、石灯、门环、门钉，见 courtyardProps.js）：先留一个空组，模型下载完再换成实例
   const slots = [];
-  const slot = (type, x, y, z, ry = 0, sc = 1, par = parent) => { const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = ry; g.scale.setScalar(sc); par.add(g); slots.push({ type, obj: g }); return g; };
+  const slot = (type, x, y, z, ry = 0, sc = 1, par = parent, attach = false) => { const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = ry; g.scale.setScalar(sc); par.add(g); slots.push({ type, obj: g, attach }); return g; };
   // 一批同样的小方块（椽子、瓦当之类）：实例化，只画一次
   const batch = (geo, m, list) => {
     const im = new THREE.InstancedMesh(geo, m, list.length), mx = new THREE.Matrix4(), one = new THREE.Vector3(1, 1, 1);
@@ -237,7 +241,8 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
   }
 
   // ---------- 小殿：前墙和两侧墙上是镂空的花格窗，殿门的上半截也是镂空的；里面是水池、苔石和青铜猫像（courtyardHall.js）----------
-  let hall = null;
+  let hall = null, hallGrp = null;
+  const doorHinges = [], hallLights = {}, realmHide = [];
   {
     const W = 11.8, H = 4.9, D = L.hallDepth, front = L.hallFront, fz = HALL_ACCESS.doorZ, bz = fz - D / 2, top = baseH + H, pz = front - .45;
     const P = L.pool, pMid = (P.front + P.back) / 2, pLen = P.front - P.back, back = fz - D - .8, platformHalf = HALL_ACCESS.porchHalfX;
@@ -274,7 +279,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     // 墙：后墙是整面；正面留出门洞和左右两扇窗；两侧各三扇大窗（清晨日光从东窗照进来）
     const winF = [baseH + 1.1, baseH + 3.65], winS = [baseH + 1, baseH + 3.6], sideZ = [fz - 6.6, fz - 4.0, fz - 1.4];
     const rowZ = [fz - 2.6, fz - 5.3];   // 殿里两排立柱和大梁的位置；后面那一排的梁下挂帷幔
-    box(W, H, .2, mat.wood, 0, baseH + H / 2, fz - D + .1);
+    realmHide.push(box(W, H, .2, mat.wood, 0, baseH + H / 2, fz - D + .1));   // 后墙：进了"洞天"就敞开成云海
     wall(true, -W / 2, W / 2, fz, [[-4.9, -2, ...winF], [-1.3, 1.3, baseH, top - .08], [2, 4.9, ...winF]]);
     for (const s of [-1, 1]) {
       windowAt(true, s * 3.45, fz, 2.9, ...winF);
@@ -302,7 +307,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
       box(.22, ceil - baseH, .18, mat.woodDark, s * 2.6, (ceil + baseH) / 2, iz0 + .06);
       box(.2, .18, iz1 - iz0, mat.woodDark, s * 2.6, ceil - .09, (iz0 + iz1) / 2, { cast: false });
     }
-    box(ix * 2, .18, .14, mat.woodDark, 0, baseH + 3.4, iz0 + .05, { cast: false });
+    realmHide.push(box(ix * 2, .18, .14, mat.woodDark, 0, baseH + 3.4, iz0 + .05, { cast: false }));
     for (const [z, t] of [[fz - D * .2, .25], [fz - D * .5, .32], [fz - D * .8, .25]]) box(ix * 2, t, t * .85, mat.woodDark, 0, ceil - .14 - t / 2, z, { cast: false });
     // Rear wall kept clear for the moon relief.
 
@@ -314,7 +319,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     });
     const boards = [], boardW = .245, boardCount = Math.floor(ix * 2 / boardW);
     for (let i = 0; i < boardCount; i++) boards.push([new THREE.Vector3((i - (boardCount - 1) / 2) * boardW, (baseH + ceil) / 2, iz0 + .016)]);
-    const panels = batch(new THREE.BoxGeometry(boardW - .012, ceil - baseH - .05, .032), mat.hallWood, boards);
+    const panels = batch(new THREE.BoxGeometry(boardW - .012, ceil - baseH - .05, .032), mat.hallWood, boards); realmHide.push(panels);
     const tint = new THREE.Color();
     for (let i = 0; i < boards.length; i++) panels.setColorAt(i, tint.setScalar(.87 + .13 * Math.sin(i * 7.13) ** 2));
     const ceilingBoards = [];
@@ -348,6 +353,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     windowSun.shadow.camera.near = .2; windowSun.shadow.camera.far = 18;
     windowSun.shadow.bias = -.0002; windowSun.shadow.normalBias = .015;
     grp.add(windowSun, windowSun.target);
+    Object.assign(hallLights, { glow, statueKey, windowSun });
     // 檐柱（旧红漆）、柱础、柱头上的斗拱（简化成两层木块）、额枋
     for (const x of [-4.95, -1.65, 1.65, 4.95]) {
       colliders.push({ x, z: pz, r: .22 });
@@ -365,37 +371,38 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     batch(new THREE.BoxGeometry(.075, .075, 1.4), mat.woodDark, rafter);
     // 两扇门（朝里开，开多少见 L.doorOpen）：下半截是木板，上半截是镂空的窗棂
     for (const s of [-1, 1]) {
-      const hinge = new THREE.Group(); hinge.position.set(s * 1.297, baseH, fz); hinge.rotation.y = s * -L.doorOpen; grp.add(hinge); parent = hinge;
+      const hinge = new THREE.Group(); hinge.position.set(s * 1.297, baseH, fz); hinge.rotation.y = s * -L.doorOpen; grp.add(hinge); parent = hinge; doorHinges.push({ hinge, s });
       const lw = 1.292, lh = 3.3, cx = -s * lw / 2;
-      for (const e of [-1, 1]) box(.065, lh, .055, mat.woodRed, cx + e * (lw / 2 - .0325), lh / 2, 0);
-      // 下半截是一块高高的木板（竖着的几条拼缝），上半截是细密的方格窗棂
-      for (const y of [.05, 1.3, lh - .05]) box(lw - .13, .09, .055, mat.woodRed, cx, y, 0);
-      box(lw - .13, 1.16, .035, mat.woodRed, cx, .675, 0);
-      for (let k = 1; k < 4; k++) box(.012, 1.12, .041, mat.woodDark, cx + (k / 4 - .5) * (lw - .13), .675, 0);
+      for (const e of [-1, 1]) box(.065, lh, .055, mat.doorWood, cx + e * (lw / 2 - .0325), lh / 2, 0);
+      // 下半截：一块嵌板（四周是凸起的线脚，里面的板略低一些），上半截是方格窗棂
+      for (const y of [.05, 1.3, lh - .05]) box(lw - .13, .09, .055, mat.doorWood, cx, y, 0);
+      box(lw - .13, 1.16, .03, mat.doorWood, cx, .675, 0);
+      const pw = lw - .3, ph = 1.0, py = .675;
+      box(pw, ph, .04, mat.doorPanel, cx, py, -.004);                                   // 嵌板的底：略暗，像凹进去
+      for (const e of [-1, 1]) {
+        box(.05, ph + .05, .06, mat.doorWood, cx + e * (pw / 2 + .0), py, 0);            // 左右线脚
+        box(pw + .05, .05, .06, mat.doorWood, cx, py + e * (ph / 2), 0);                 // 上下线脚
+      }
+      box(pw - .04, .035, .055, mat.doorWood, cx, py, .002);                            // 嵌板中间一道横档
       lattice(lw - .13, lh - 1.44, cx, (lh + 1.25) / 2, 0, 0, hinge, .2, .022);
-      // 兽面门环：紧挨着两扇门的中缝，在木板的上沿
-      slot('door_ring', -s * (lw - .11), 1.0, .028);
+      // 兽面门环：紧挨着两扇门的中缝，在嵌板上沿
+      slot('door_ring', -s * (lw - .22), .6, .05, 0, 1.3, hinge, true);   // 跟着门扇一起转
       parent = grp;
     }
     // 殿里：水池、卵石、苔石、猫像、水面的倒影和水光
     hall = createHallInterior({ parent: grp, tex, manager, camera, baseH, pool: P, statue: L.statue, room: { halfX: ix, front: iz1, back: iz0, top: ceil, curtainX: 5.45, curtainZ: rowZ[1] }, floorMat: hallFloor, isMobile });
     for (const p of hall.lanterns) { const l = new THREE.PointLight(0xffb45e, 2.6, 5.5, 1.6); l.position.copy(p); grp.add(l); }   // 殿里两盏石灯点着：暖黄的光从格子里透出来
     grp.traverse(o => { if (!o.userData.noReflect) o.layers.enable(REFLECT_LAYER); });   // 整座殿都画进水面的倒影里
+    grp.traverse(o => { if (o.userData.realmHide) realmHide.push(o); });                   // 壁画（hallSanctuary.js 里打了标记）
+    hallGrp = grp;
     parent = scene;
   }
 
-  // ---------- 殿前：台基边上的石栏（台阶两侧）、甬道两侧一对石灯；檐下的匾额、中间两根檐柱上的楹联 ----------
+  // ---------- 殿前：台基边上的石栏（台阶两侧）、甬道两侧一对石灯 ----------
   {
     const A = HALL_ACCESS, half = A.stairWidth / 2, seg = 1.4, n = Math.round((A.porchHalfX - half) / seg);
     for (const s of [-1, 1]) for (let i = 0; i < n; i++) slot('stone_railing', s * (half + seg * (i + .5)), baseH, A.front - .14);
     for (const s of [-1, 1]) { slot('lantern_outdoor', s * 2.25, 0, L.stepsZ + 1.7, 0, .9); colliders.push({ x: s * 2.25, z: L.stepsZ + 1.7, r: .38 }); }
-    const top = baseH + 4.9, pz = A.front - .45;
-    const plaque = createSign(manager, 'sign_plaque_blank.webp', SIGN.plaque, { w: 1.75, h: 1.75 * 352 / 1024 });
-    plaque.position.set(0, top - 1.12, pz + .06); plaque.rotation.x = .1; scene.add(plaque);
-    SIGN.couplet.forEach((t, i) => {   // 上联在右（面对殿门的右手边），下联在左
-      const b = createSign(manager, 'sign_couplet_blank.webp', t, { vertical: true, w: .3, h: 1.5 });
-      b.position.set((i ? -1 : 1) * 1.65, baseH + 2.45, pz + .2); scene.add(b);
-    });
   }
 
   // ---------- 古树：Tripo 模型（重塑成矮而宽的伞状，精简到 5.5 万面）+ 疏朗的阔叶 + 横枝下稀疏的木牌 ----------
@@ -513,6 +520,50 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     scene.add(grassCards.mesh);
   }).catch(e => console.warn('石缝小草没有生成：', e));
 
+  // ---------- 殿里的"洞天"（hallRealm.js）：月亮放在从门口看过去猫头的正后方 ----------
+  const realmEye = new THREE.Vector3(0, baseH + EYE, HALL_ACCESS.doorZ - .6);
+  const realmHead = new THREE.Vector3(0, baseH + .93 + L.statue.height * .86, L.statue.z);
+  const realm = createRealm({ renderer, manager, low, eye: realmEye, head: realmHead, center: new THREE.Vector3(0, 0, (L.pool.front + L.pool.back) / 2),
+    pool: { halfX: L.pool.halfX, front: L.pool.front, back: L.pool.back, waterY: baseH - L.pool.drop }, puffs: { map: tex.fogPuffs, cells: ATLAS.fog_puffs } });
+  let inRealm = false, doorAmt = 0, veilBusy = false, lastDoorZ = 0;
+  let myIncenseT = [];   // 自己点的香的点燃时间（毫秒）：有一炷还在烧，跨过门槛就进洞天
+  const INCENSE_BURN_MS = 30 * 60e3;
+  // 进门、出门时那一下白光：一层暖白的幕，先亮起来，换完场景再慢慢退掉
+  const veil = document.createElement('div');
+  veil.style.cssText = 'position:fixed;inset:0;background:#fff4e0;opacity:0;pointer-events:none;z-index:4;transition:opacity .4s ease-in';
+  document.body.appendChild(veil);
+  function setRealm(on) {
+    inRealm = on;
+    (on ? realm.scene : scene).add(hallGrp);
+    for (const o of realmHide) o.visible = !on;
+    // 殿里的灯：洞天里没有晨光照进窗；门口的暖光和猫像的面光收一些，让月光当主角
+    hallLights.windowSun.intensity = on ? 0 : 46;
+    hallLights.glow.intensity = on ? 2 : 9;
+    hallLights.statueKey.intensity = on ? 4 : 13;
+    if (on) realm.setWishCount(plaqueList.length + 6);
+    shadowFrames = 3;
+  }
+  function crossTo(on) {
+    if (veilBusy) return;
+    veilBusy = true;
+    veil.style.transition = 'opacity .38s ease-in'; veil.style.opacity = '1';
+    setTimeout(() => {
+      setRealm(on);
+      veil.style.transition = 'opacity 1.4s ease-out'; veil.style.opacity = '0';
+      setTimeout(() => { veilBusy = false; }, 500);
+    }, 400);
+  }
+  // 殿里能站的地方：门洞（门扇折到两边墙上）、水池前面一条、两侧；不能下水池，不能走到猫像后面
+  const ROW_Z = [HALL_ACCESS.doorZ - 2.6], IN_X = 5.7 - .45;
+  const insideOK = (x, z) => {
+    if (Math.abs(x) > IN_X || z < -11.7) return false;
+    if (z > HALL_ACCESS.doorZ - .45 && Math.abs(x) > 1.0) return false;
+    if (Math.abs(x) < L.pool.halfX + .12 && z < L.pool.front + .2 && z > L.pool.back - .25 && Math.abs(x) > .5) return false;   // 水池里不能下去；中间那条石板路（宽约 1 米）可以走
+    if (Math.abs(x) < 1.25 && z < -11.1) return false;                                                                          // 石板路走到头就是供桌，到不了猫像那边
+    for (const cz of ROW_Z) if (Math.hypot(Math.abs(x) - 4.35, z - cz) < .45) return false;
+    return true;
+  };
+
   // ---------- 气氛：几道光柱、香烟、晨雾 ----------
   // 殿里还有一道：清晨的光从东窗的花格斜照进去，落在水池前的石板上（和殿里那盏 windowSun 聚光灯同一个方向）
   const hallBeam = [-1.6, HALL_ACCESS.doorZ - 3.4, 1.1, 8.2, { dir: new THREE.Vector3(8.9, 4.1, -.6).normalize(), y: baseH, k: .7 }];
@@ -546,7 +597,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
   const chiwenMat = triMat({ set: tex.rock, moss: tex.moss, scale: 1.4, color: 0x9a9ea0, mossAmt: .3, mossAt: .75 });              // 鸱吻：灰陶，略带苔
   const propsReady = loadProps(manager).then(models => placeProps(scene, models, slots, {
     chiwen: { default: chiwenMat }, dougong: { default: mat.woodDark }, stone_railing: { default: mat.stoneClean },
-    lantern_outdoor: { default: mat.stone, lamp_glass: lampMat }, door_ring: { default: mat.bronze }, door_stud: { default: mat.bronze },
+    lantern_outdoor: { default: mat.stone, lamp_glass: lampMat }, door_ring: { default: mat.brass }, door_stud: { default: mat.bronze },
   }, { layer: REFLECT_LAYER })).catch(e => console.warn('小模型没有加载：', e));
   ready = Promise.all([texReady, treeReady, hall.ready, grassReady, propsReady]).then(() => {});
 
@@ -571,7 +622,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
       const dx = p.x - c.x, dz = p.z - c.z, d = Math.hypot(dx, dz), min = c.r + BODY_R;
       if (d < min) { const k = d > 1e-4 ? min / d : 1; p.x = c.x + (d > 1e-4 ? dx * k : min); p.z = c.z + dz * k; }
     }
-    constrainHallMove(p, previousPos);
+    constrainHallMove(p, previousPos, HALL_ACCESS, { open: doorAmt > .8, inside: insideOK });
   }
 
   // ---------- 输入 ----------
@@ -651,8 +702,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     btnT = .4;   // 能不能点香不用每帧问
     const c = canLight();
     lightBtn.hidden = false;
-    lightBtn.classList.toggle('on', nearBurner && active && c.ok);
-    lightBtn.classList.toggle('dim', !c.ok);
+    lightBtn.classList.toggle('on', nearBurner && active && c.ok);   // 只在香炉旁边、而且现在能点香时才出现；点过香（还在烧）就消失
   }
 
   let hintT = 0;
@@ -690,6 +740,20 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
       const d = Math.hypot(p.x - px, p.z - pz);
       walked += d; bobK += (clamp(d / Math.max(dt, 1e-4) / WALK) - bobK) * Math.min(1, dt * 6);
     }
+    // 殿门：走到廊下门前就慢慢打开（门扇折到两边的墙上），走开了再关上；人在殿里时不关。
+    // 进殿：没点香，里面就是平常的殿（清晨、壁画、猫像）；点了香（自己的那一炷还在烧，30 分钟），跨过门槛就进"洞天"（月夜云海）。
+    // 洞天一旦进了，就一直是洞天，直到走出门槛，香烧完也不会把人赶出来
+    {
+      const A = HALL_ACCESS, nowT = now();
+      const near = inRealm || p.z < A.doorZ + .5 || (p.z < A.front + .9 && Math.abs(p.x) < 2.4);
+      const k = doorAmt; doorAmt = clamp(doorAmt + (near ? dt / 2.2 : -dt / 2));
+      if (k !== doorAmt) { const e = smooth(doorAmt) * 2.9; for (const { hinge, s } of doorHinges) hinge.rotation.y = s * -e; if (doorAmt === 0 || doorAmt === 1) shadowFrames = Math.max(shadowFrames, 2); }
+      // 跨过门槛（上一帧还在门槛外、这一帧过去了）：有香就进洞天；回到门槛外：洞天退出（中间留一点距离，不会在门槛上来回闪）
+      const unlocked = myIncenseT.some(t => nowT - t < INCENSE_BURN_MS);
+      if (!inRealm && unlocked && doorAmt > .8 && lastDoorZ >= A.doorZ - .3 && p.z < A.doorZ - .3) crossTo(true);
+      else if (inRealm && p.z > A.doorZ - .02) crossTo(false);
+      lastDoorZ = p.z;
+    }
     // 走出院门：回到池边
     if (!exiting && p.z > south + .55) { exiting = true; onExit(); }
     // 走路时镜头轻微起伏（一步约 0.75 米）
@@ -699,7 +763,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     // 靠近殿门时轻收视角，保留走动时的广视野；入口查看主体更接近设计稿。
     const hallView = (1 - THREE.MathUtils.smoothstep(p.z, HALL_ACCESS.doorZ + .6, HALL_ACCESS.front + 1.8))
       * (1 - THREE.MathUtils.smoothstep(Math.abs(p.x), .9, 2.4));
-    const targetFov = camera.aspect < 1 ? FOV_PORTRAIT : THREE.MathUtils.lerp(FOV, 44, hallView);
+    const targetFov = camera.aspect < 1 ? FOV_PORTRAIT : inRealm ? 56 : THREE.MathUtils.lerp(FOV, 44, hallView);   // 洞天里视野放开：看得到整轮月亮和两边的柱子
     if (Math.abs(camera.fov - targetFov) > .01) {
       camera.fov = THREE.MathUtils.lerp(camera.fov, targetFov, 1 - Math.exp(-dt * 5));
       camera.updateProjectionMatrix();
@@ -710,8 +774,11 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     dust.uniforms.uTime.value = fxT; backdrop.userData.uniforms.uTime.value = fxT;
     dust.uniforms.uPx.value = renderer.getDrawingBufferSize(bufSize).y / (2 * Math.tan(camera.fov * Math.PI / 360));   // 1 米远处 1 米有多少像素
     burner.update(fxT, incense.update(now(), smoke)); updateLightBtn(dt);
+    if (inRealm) realm.update(fxT, camera, renderer);
   }
 
+  const DAY_GRADE = { saturation: 1, vig: .16, dayWarm: .28, court: 1, grain: 0, sharp: low ? .25 : .35 };
+  const REALM_GRADE = { saturation: 1.04, vig: .3, dayWarm: 0, court: 1, grain: 0, sharp: low ? .25 : .35 };   // 洞天：暗角重一些，不加白天的暖调
   return {
     scene, camera, player, layout: L, ready, plaques,
     // list：[{ id, name, date, mine }]；freshId：刚挂上的那块（进院时会有落下来挂好的动画，镜头也会慢慢转向它）
@@ -720,14 +787,15 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
       if (sig === plaqueSig) return;   // 没变化（定时刷新的时候最常见）：不重画，木牌也不会跳
       plaqueSig = sig; plaqueList = [...demo, ...list.map(p => ({ ...p, fresh: p.id === freshId }))]; applyPlaques();
     },
-    exposure: .98,
+    get activeScene() { return inRealm ? realm.scene : scene; },
+    get exposure() { return inRealm ? 1.05 : .98; },
     // 全画面调色（main.js 的 GradeShader）：小院的"清晨"——亮处偏暖、暗处偏青绿，绿色收一点饱和，轻微的 S 曲线和暗角；
     // 不加胶片颗粒（画面会发糊），反而轻轻锐化一下，让石缝、木纹、叶子边缘清楚
-    grade: { saturation: 1, vig: .16, dayWarm: .28, court: 1, grain: 0, sharp: low ? .25 : .35 },
+    get grade() { return inRealm ? REALM_GRADE : DAY_GRADE; },
     update,
     // 阴影是静态的：进院后画几帧就够（渲染器的阴影不是每帧自动更新）
     // 阴影画好之后，每帧先画殿里水面的倒影（阴影还没画的那几帧不画：倒影只画殿这一层，会把阴影贴图画成只有殿的影子）
-    preRender(renderer) { if (shadowFrames > 0) { shadowFrames--; renderer.shadowMap.needsUpdate = true; } else hall.preRender(renderer, scene); },
+    preRender(renderer) { if (shadowFrames > 0) { shadowFrames--; renderer.shadowMap.needsUpdate = true; } else hall.preRender(renderer, inRealm ? realm.scene : scene); },
     resize(aspect) { camera.aspect = aspect; camera.fov = aspect < 1 ? FOV_PORTRAIT : FOV; camera.updateProjectionMatrix(); },
     // intro = false：直接站在院门里（调试、截图用）
     enter({ withIntro = true } = {}) {
@@ -739,11 +807,13 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
         const fp = plaques.freshPosition();   // 刚挂上的牌：镜头一边往前走一边慢慢转过去看它
         if (fp) { const dx = fp.x - L.stop.x, dz = fp.z - L.stop.z; intro.yaw1 = Math.atan2(-dx, -dz); intro.pitch1 = Math.min(.5, Math.atan2(fp.y - EYE, Math.hypot(dx, dz))); }
       }
+      if (inRealm) setRealm(false);
+      doorAmt = 0; for (const { hinge } of doorHinges) hinge.rotation.y = 0;
       active = true; exiting = false; shadowFrames = 4; keys.clear();
       canvas.style.cursor = ''; showHint();
     },
     // 炉里现在燃着的香：[{ id, slot, t（点燃的时间，毫秒）, mine }]
-    setIncense(list) { incense.set([...demoIncense, ...list]); },
-    leave() { active = false; nearBurner = false; lightBtn?.classList.remove('on'); keys.clear(); if (locked()) document.exitPointerLock(); stick.id = look.id = null; stick.x = stick.y = 0; stickEl?.classList.remove('on'); hideHint(); },
+    setIncense(list) { incense.set([...demoIncense, ...list]); myIncenseT = list.filter(i => i.mine).map(i => i.t); },
+    leave() { if (inRealm) setRealm(false); active = false; nearBurner = false; lightBtn?.classList.remove('on'); keys.clear(); if (locked()) document.exitPointerLock(); stick.id = look.id = null; stick.x = stick.y = 0; stickEl?.classList.remove('on'); hideHint(); },
   };
 }

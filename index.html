@@ -61,8 +61,11 @@
     background: rgba(40, 22, 12, .6); color: #f8e8bf; font: 17px/1 STKaiti, KaiTi, 'Kaiti SC', serif; letter-spacing: 6px; cursor: pointer; backdrop-filter: blur(6px);
     opacity: 0; pointer-events: none; transition: opacity .5s, transform .5s; }
   #lightBtn.on { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
-  #lightBtn.dim { opacity: .55; }
   #lightBtn[hidden] { display: none; }
+  /* 许愿池：鼠标移到石狐上时，光标旁边的一个小字标签 */
+  #foxTip { position: fixed; z-index: 6; padding: 5px 14px; border-radius: 999px; background: rgba(20, 12, 8, .55); border: 1px solid rgba(243, 220, 156, .35); color: #f8e8bf;
+    font: 15px/1 STKaiti, KaiTi, 'Kaiti SC', serif; letter-spacing: 4px; backdrop-filter: blur(6px); opacity: 0; pointer-events: none; transition: opacity .25s; white-space: nowrap; transform: translate(14px, 16px); }
+  #foxTip.on { opacity: 1; }
   @keyframes wishIn { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
   #wishInput { width: min(300px, 58vw); box-sizing: border-box; padding: 9px 12px; border-radius: 9px;
     border: 1px solid rgba(243, 220, 156, .55); background: rgba(0, 0, 0, .35); color: #f8e8bf; caret-color: #f6e2a8; outline: none;
@@ -87,6 +90,7 @@
 <button id="gear" title="调试面板" hidden>⚙</button>
 <div id="wishHint" hidden>名字写下后无法更改</div>
 <div id="toast"></div>
+<div id="foxTip"></div>
 <button id="lightBtn" hidden></button>
 <div id="wishPanel" hidden><input id="wishInput" maxlength="30" enterkeyhint="done" autocomplete="off" autocorrect="off" spellcheck="false"><button id="wishOk" disabled aria-label="确认" title="确认"><span class="ico" aria-hidden="true"></span></button></div>
 <div id="panel" hidden>

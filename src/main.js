@@ -16,7 +16,7 @@ import { Ripples, createWater } from './water.js';
 import { Rain, Snow, Fireflies, FallingLeaves } from './fx.js';
 import { createWish, DRAGON_ENABLED } from './wish.js';
 import { createWishAudio } from './audio.js';
-import { getName, setName, canWish, addPlaque, listPlaques, hasWished, rememberWish, NAME_MAX, nowMs, listIncense, canLightIncense, lightIncense, initStore, refreshStore, onStoreChange } from './courtStore.js';
+import { getName, setName, canWish, addPlaque, listPlaques, rememberWish, NAME_MAX, nowMs, listIncense, canLightIncense, lightIncense, initStore, refreshStore, onStoreChange } from './courtStore.js';
 // 开关：false = 许愿功能关闭（点左边的石狐没有反应，也不会出现手形光标）
 const WISH_ENABLED = true;
 
@@ -582,7 +582,6 @@ function saveSettledWish(name) {
 async function enterFromFox() {
   if (entering || switching || wish.overlay) return;
   if (wish.mode === 'ritual' && wish.ritualTime < 3.2) { showToast('待木牌沉入水中，再轻触石狐'); return; }
-  if (!hasWished()) { showToast('先向左侧石狐许愿，再由这里入院'); return; }
   entering = true;
   try {
     sfx.unlock();
@@ -627,6 +626,7 @@ async function goTo(name, { instant = false, withIntro = true, fresh = null } = 
 // 小院：固定的白天，不跟随真实时间和天气——曝光和调色都是定值
 const texelV = new THREE.Vector2();
 function renderCourt() {
+  renderPass.scene = court.activeScene;   // 小院，或者殿里的"洞天"（hallRealm.js）
   renderer.toneMappingExposure = court.exposure;
   for (const b of blurs) b.enabled = false;
   const g = grade.uniforms, cg = court.grade;
@@ -678,13 +678,18 @@ canvas.addEventListener('pointerdown', e => {
     ripples.add(hit.point.x, hit.point.z, .22, .5);
   }
 });
+const foxTip = document.getElementById('foxTip');
 canvas.addEventListener('pointermove', e => {
-  if (active !== 'pool') return;
+  if (active !== 'pool') { foxTip.classList.remove('on'); return; }
   setRay(e);
   // 鼠标移到能点的石狐上时，换成手形光标
   if (e.pointerType === 'mouse') {
-    const over = (f => f && (f.point.clone().project(camera).x < 0 ? WISH_ENABLED && !wish.busy : !wish.overlay && hasWished()))(foxes.pick(raycaster)) ? 'pointer' : '';
+    const f = foxes.pick(raycaster), left = f && f.point.clone().project(camera).x < 0;
+    const over = f && (left ? WISH_ENABLED && !wish.busy : !wish.overlay) ? 'pointer' : '';
     canvas.style.cursor = over;
+    // 光标旁边的小标签：左边的石狐"祈愿"，右边的石狐"焚香"（右边的石狐带你入院，香炉在院里）
+    if (f && !wish.overlay && !switching) { foxTip.textContent = left ? '祈愿' : '焚香'; foxTip.style.left = e.clientX + 'px'; foxTip.style.top = e.clientY + 'px'; foxTip.classList.add('on'); }
+    else foxTip.classList.remove('on');
   }
 });
 addEventListener('pointermove', e => { if (e.pointerType === 'mouse') parallax.set(e.clientX / innerWidth - .5, e.clientY / innerHeight - .5); });

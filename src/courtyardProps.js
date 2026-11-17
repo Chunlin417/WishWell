@@ -29,7 +29,17 @@ export function placeProps(scene, models, slots, mats, { layer = null } = {}) {
   scene.updateMatrixWorld(true);
   const out = [];
   for (const type of PROP_TYPES) {
-    const list = slots.filter(s => s.type === type);
+    // attach：这一个要跟着它的组一起动（比如门扇上的门环，门会打开）——不合成实例，直接挂在组上
+    for (const s of slots.filter(s => s.type === type && s.attach)) {
+      for (const [name, geo] of Object.entries(models[type] || {})) {
+        const m = mats[type]?.[name] || mats[type]?.default;
+        if (!m) continue;
+        const mesh = new THREE.Mesh(geo, m); mesh.castShadow = mesh.receiveShadow = true;
+        if (layer !== null) mesh.layers.enable(layer);
+        s.obj.add(mesh); out.push(mesh);
+      }
+    }
+    const list = slots.filter(s => s.type === type && !s.attach);
     if (!list.length || !models[type]) continue;
     for (const [name, geo] of Object.entries(models[type])) {
       const m = mats[type]?.[name] || mats[type]?.default;
