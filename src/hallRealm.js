@@ -19,7 +19,8 @@ const COL = {
 // eye：站在殿门里的眼睛位置；head：猫头的位置——月亮放在这两点连线的延长线上，从门口看，月亮正好在猫头后面
 // 月亮不再正挡在猫头后面，而是在猫像右后方（从门口看偏右约 30°），低低地压在云海上，下沿被云吃掉一截——和效果图一样，
 // 投影取月盘上半部，与月盘同方位，低角度的光仍能掠过池沿。
-const MOON_AZ = 31, MOON_EL = 3.5, LIGHT_EL = 8;
+export const MOON_AZ = 31;   // 从门口看猫，月亮往右偏多少度（courtyard.js 的窗格月光也按这个方向斜）
+const MOON_EL = 3.5, LIGHT_EL = 8;
 
 // 用雾片自身的 UV 羽化四边，贴图图集的裁切和 mipmap 都不会留下矩形轮廓。
 function softenMistEdges(shader) {

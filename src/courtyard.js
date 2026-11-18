@@ -17,7 +17,7 @@ import { createBurner } from './courtyardBurner.js';
 import { createPlantCards, createHangCards, createDecals } from './courtyardPlants.js';
 import { ATLAS } from './qualityAtlases.js';
 import { loadProps, placeProps } from './courtyardProps.js';
-import { createRealm } from './hallRealm.js';
+import { createRealm, MOON_AZ } from './hallRealm.js';
 import { HALL_ACCESS, constrainHallMove } from './courtyardMovement.js';
 
 const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
@@ -330,6 +330,47 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
       wall(false, fz - D, fz, s * (W / 2 - .1), sideZ.map(z => [z - 1.05, z + 1.05, ...winS]));
       for (const z of sideZ) windowAt(false, z, s * (W / 2 - .1), 2.1, ...winS);
       box(.12, 3.3, .28, mat.woodRed, s * 1.36, baseH + 1.65, fz);
+    }
+    // 洞天：月亮在右后方，右侧（东）墙的花格窗透进月光——
+    //   窗里一层淡淡的月色薄雾（窗外的天不再是一块平平的深蓝，窗棂衬在亮一点的雾前面才有前后）；
+    //   地上两块窗格形的月光（真实的月光只有 8° 高，从窗里进来直接打到对面墙上，地上什么都没有：这里按约 34° 斜着铺，
+    //   方向还是月亮的方向）。前面那扇窗的光会伸到殿门外，不铺。都打 realmOnly，平时藏着。
+    {
+      const glowCanvas = document.createElement('canvas'); glowCanvas.width = 64; glowCanvas.height = 128;
+      const gg = glowCanvas.getContext('2d'), gr = gg.createLinearGradient(0, 128, 0, 0);
+      gr.addColorStop(0, 'rgba(255,214,150,.9)'); gr.addColorStop(.35, 'rgba(190,190,190,.45)'); gr.addColorStop(1, 'rgba(120,150,180,.12)');
+      gg.fillStyle = gr; gg.fillRect(0, 0, 64, 128);
+      const glowTex = new THREE.CanvasTexture(glowCanvas); glowTex.colorSpace = THREE.SRGBColorSpace;
+      const glowMat = new THREE.MeshBasicMaterial({ map: glowTex, color: 0xffe2b8, transparent: true, opacity: .2, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: THREE.DoubleSide });
+      // 窗格月光：亮的方格、暗的窗棂，四边羽化（贴图的 u 沿窗宽，v 沿窗高）
+      const cols = 7, rows = 6, cw = 512, chh = 440, lc = document.createElement('canvas'); lc.width = cw; lc.height = chh;
+      const lg = lc.getContext('2d');
+      lg.filter = 'blur(6px)'; lg.fillStyle = '#fff';
+      const bar = 7, inset = 22;
+      for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
+        const x0 = inset + (cw - 2 * inset) * i / cols + bar, y0 = inset + (chh - 2 * inset) * j / rows + bar;
+        lg.globalAlpha = .75 + .25 * Math.sin(i * 2.3 + j * 1.7) ** 2;
+        lg.fillRect(x0, y0, (cw - 2 * inset) / cols - 2 * bar, (chh - 2 * inset) / rows - 2 * bar);
+      }
+      const latticeLight = new THREE.CanvasTexture(lc); latticeLight.colorSpace = THREE.SRGBColorSpace;
+      const lightMat = new THREE.MeshBasicMaterial({ map: latticeLight, color: 0xffd7a0, transparent: true, opacity: .3, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+      const az = THREE.MathUtils.degToRad(MOON_AZ), tx = -Math.sin(az), tz = Math.cos(az);   // 月光在地上前进的方向：往左、往门口
+      const wx = W / 2 - .1, ww = 2.1, hLo = 1, hHi = 2, reach = 1.5;   // 窗里亮的一截（离地）；reach：离地每高 1 米，光在地上往里走多远（约 34°）
+      const realmOnlyMesh = o => { o.userData.realmOnly = true; o.userData.noReflect = true; o.visible = false; grp.add(o); return o; };
+      sideZ.forEach((z, i) => {
+        const haze = realmOnlyMesh(new THREE.Mesh(new THREE.PlaneGeometry(2.1, winS[1] - winS[0]), glowMat));
+        haze.position.set(wx + .3, (winS[0] + winS[1]) / 2, z); haze.rotation.y = -Math.PI / 2; haze.renderOrder = 1;
+        if (i === sideZ.length - 1) return;   // 最前面那扇：光会铺到门外
+        const pts = [], uv = [];
+        for (const [u, v] of [[0, 1], [1, 1], [0, 0], [1, 0]]) {
+          const h = (hLo + (hHi - hLo) * v) * reach;
+          pts.push(wx + tx * h, baseH + .014, z - ww / 2 + ww * u + tz * h); uv.push(u, v);
+        }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+        geo.setIndex([0, 2, 1, 2, 3, 1]); geo.computeVertexNormals();
+        realmOnlyMesh(new THREE.Mesh(geo, lightMat)).renderOrder = 1;
+      });
     }
     box(2.84, .12, .28, mat.woodRed, 0, baseH + 3.36, fz);
     lattice(2.6, top - .08 - (baseH + 3.42), 0, (top - .08 + baseH + 3.42) / 2, fz, 0, parent, .23);
