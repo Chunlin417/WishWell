@@ -387,11 +387,12 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     const statueKey = new THREE.RectAreaLight();
     grp.add(statueKey);
     function lightStatue(moonlit) {
-      statueKey.color.setHex(moonlit ? 0xffe2b4 : 0xffecd0);
-      statueKey.intensity = moonlit ? 4 : 12;
-      statueKey.width = moonlit ? 2.4 : 3.0;
-      statueKey.height = moonlit ? 1.3 : 1.8;
-      if (moonlit) statueKey.position.set(0, ceil - .35, L.statue.z + 2.5);
+      // 洞天：灯笼那一侧斜前上方一大片暖光——金属反得出来的高光正好落在猫脸和胸前，从门口看得见
+      statueKey.color.setHex(moonlit ? 0xffd49a : 0xffecd0);
+      statueKey.intensity = moonlit ? 9 : 12;
+      statueKey.width = moonlit ? 3.2 : 3.0;
+      statueKey.height = moonlit ? 1.8 : 1.8;
+      if (moonlit) statueKey.position.set(-1.1, ceil - .5, L.statue.z + 3.4);
       else statueKey.position.set(2.15, baseH + 3.0, L.statue.z + 2.3);
       statueKey.lookAt(0, baseH + 2.1, L.statue.z);
     }
@@ -622,6 +623,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     hallLights.windowSun.intensity = on ? 0 : 46;
     hallLights.glow.intensity = on ? 2 : 9;
     hallLights.lightStatue(on);
+    hall.statueRim.value = on ? 1 : 0;
     if (on) realm.setWishCount(plaqueList.length + 6);
     shadowFrames = 3;
   }

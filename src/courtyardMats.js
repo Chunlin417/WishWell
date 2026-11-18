@@ -265,9 +265,26 @@ export function bronzeMat() {
 // 模型的顶点色里烘了凹处的暗部
 export function statueMat() {
   const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: .48, metalness: .88, vertexColors: true, envMapIntensity: .85 });
-  mat.customProgramCacheKey = () => 'court-statue-aged-v2';
+  mat.customProgramCacheKey = () => 'court-statue-aged-v3';
+  // uRim（0～1）：洞天里打开。金属在夜里只反得出暗天，整尊猫成了剪影——给轮廓一圈月色的暖边，
+  // 被摸亮的纹饰再多亮一点，从门口看过去猫是画面的主角
+  const uRim = { value: 0 };
+  mat.userData.uRim = uRim;
   mat.onBeforeCompile = sh => {
     worldVary(sh);
+    sh.uniforms.uRim = uRim;
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <opaque_fragment>', /* glsl */`
+        if (uRim > 0.) {
+          float facing = clamp(dot(normal, normalize(vViewPosition)), 0., 1.);
+          float rim = pow(1. - facing, 2.6), rel = clamp(vRelief, 0., 1.);
+          vec3 warm = vec3(1., .7, .36);
+          // 量都很小：再大就成了发光的金猫（洞天有泛光，亮边会被放大），看不出是青铜
+          outgoingLight += warm * uRim * (rim * (.066 + .09 * (1. - gPat)) + rel * (.015 + .03 * facing));
+          outgoingLight += diffuseColor.rgb * uRim * .105;   // 暗部托一点底：铜色和铜绿分得出来
+        }
+        #include <opaque_fragment>`)
+      .replace('#include <common>', '#include <common>\nuniform float uRim;');
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\nattribute float _relief; varying float vRelief;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRelief = _relief;');
