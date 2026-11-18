@@ -245,7 +245,10 @@ export function createSanctuary({ parent, tex, manager, baseH, room, pool, statu
   // ---------- 洞天里：织锦换成两幅金线云纹的薄纱（textures/q/curtain_gauze），在夜风里轻轻飘 ----------
   // 纱底几乎透明，金线自己发一点光（泛光会让它微微溢开）；下摆比上沿飘得多
   const gauzeU = { value: 0 };
-  const gauze = new THREE.MeshStandardMaterial({ map: qtex('curtain_gauze' + q), transparent: true, depthWrite: false, side: THREE.DoubleSide, roughness: 1, emissive: 0xffffff, emissiveIntensity: 1.3 });
+  const gauze = new THREE.MeshStandardMaterial({
+    map: qtex('curtain_gauze' + q), transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    roughness: .76, metalness: .14, emissive: 0xffe8ce, emissiveIntensity: .16,
+  });
   gauze.onBeforeCompile = sh => {
     sh.uniforms.uTime = gauzeU;
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uTime;')
@@ -261,5 +264,5 @@ export function createSanctuary({ parent, tex, manager, baseH, room, pool, statu
     g.scale.x = s; g.castShadow = false; g.renderOrder = 4;
   }
 
-  return { statueY, discY, lanterns, update(t) { gauzeU.value = t; updateFalling(t); } };
+  return { statueY, muralMoon: rim, lanterns, update(t) { gauzeU.value = t; updateFalling(t); } };
 }

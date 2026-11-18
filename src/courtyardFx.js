@@ -283,7 +283,10 @@ export function createSmoke(maxCols = 24, height = 2.8) {
         vec4 tip = uTip[int(aP.w + .5)];
         vec3 toCam = cameraPosition - tip.xyz;
         vec3 side = normalize(vec3(toCam.z, 0., -toCam.x));
-        vec3 p = tip.xyz + side * aP.x * uSize.x * .5 + vec3(0., aP.y * uSize.y, 0.);
+        // 香头附近直升，上段被同一股微风带向院墙；每炷的消散高度略有不同。
+        float drift = aP.y * aP.y;
+        float rise = .82 + .18 * sin(aP.z);
+        vec3 p = tip.xyz + side * aP.x * uSize.x * .5 + vec3(-.54 * drift, aP.y * uSize.y * rise, -.17 * drift);
         vP = aP.xyz; vAct = tip.w;
         gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.);
       }`,
@@ -301,8 +304,10 @@ export function createSmoke(maxCols = 24, height = 2.8) {
         float h = vP.y, x = vP.x;
         float t = uTime * .55;   // 缓缓上升
         float a = wisp(x, h, vP.z, t) + .4 * wisp(x, h, vP.z + 13., t * 1.15) * smoothstep(.05, .3, h);
-        a *= smoothstep(0., .015, h) * (1. - smoothstep(.45, 1., h)) * vAct;
-        gl_FragColor = vec4(vec3(.8, .88, .96) * 1.15, clamp(a * .22, 0., 1.));
+        float eddy = vnoise(vec2(h * 7. - t * .6, vP.z));
+        a *= smoothstep(0., .015, h) * (1. - smoothstep(.36, 1., h)) * vAct;
+        a *= mix(1., .4 + .6 * eddy, smoothstep(.18, .65, h));
+        gl_FragColor = vec4(vec3(.80, .85, .87), clamp(a * .19, 0., 1.));
       }`,
   }));
   mesh.frustumCulled = false; mesh.renderOrder = 6;

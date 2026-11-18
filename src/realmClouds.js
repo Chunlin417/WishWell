@@ -73,9 +73,11 @@ export function createRealmClouds({ manager, low, center, eye, moonDir, haze, de
         uniform sampler2D tMap; uniform float uAlpha, uBottom; uniform vec3 uHaze, uDeep; varying vec2 vUv, vLocal, vMoonUv; varying float vToward, vDist;
         void main(){
           vec4 t = texture2D(tMap, vUv);
-          float a = t.a * (uBottom > 0. ? smoothstep(0., uBottom, vLocal.y) : 1.);     // 云底渐隐：泡在云海里（天上的卷云丝不用）
-          if (a < .01) discard;
           float lum = dot(t.rgb, vec3(.2126, .7152, .0722));
+          // 较厚的亮云团伸得更低，阴面从较高处开始融进远云。
+          float fadeHeight = uBottom * mix(1.8, 1.1, smoothstep(.04, .55, lum));
+          float a = t.a * (uBottom > 0. ? smoothstep(0., fadeHeight, vLocal.y) : 1.);
+          if (a < .004) discard;
           vec3 col = mix(uDeep * 1.2, vec3(.085, .13, .16), smoothstep(.06, .5, lum));     // 夜里的云：暗青灰，亮处是云顶（保留图上的蓬松起伏）
           // 逆光的金边：往月亮那边，透明度掉下去的地方。取三个距离的平均，边是一圈渐变的光晕，不是描边
           float aOut = (texture2D(tMap, vUv + vMoonUv * .35).a + texture2D(tMap, vUv + vMoonUv * .7).a + texture2D(tMap, vUv + vMoonUv).a) / 3.;

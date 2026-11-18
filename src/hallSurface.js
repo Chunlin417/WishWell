@@ -2,13 +2,16 @@
 import { NOISE_GLSL } from './shaders.js';
 
 export function finishMural(material) {
-  material.customProgramCacheKey = () => 'hall-mural-aged-v1';
+  material.customProgramCacheKey = () => 'hall-mural-aged-v2';
   material.onBeforeCompile = shader => {
     shader.fragmentShader = shader.fragmentShader.replace('#include <common>', `#include <common>\n${NOISE_GLSL}`)
       .replace('#include <map_fragment>', `#include <map_fragment>
         vec2 wallUV = vMapUv;
         float pigment = dot(diffuseColor.rgb, vec3(.2126,.7152,.0722));
         diffuseColor.rgb = mix(vec3(pigment), diffuseColor.rgb, .72);
+        // Roll off the brightest ochre and gold while keeping the dark glaze and cracks.
+        float gilt = smoothstep(.03,.30,diffuseColor.r - diffuseColor.b);
+        diffuseColor.rgb /= 1. + 2.1 * gilt * max(pigment - .13, 0.);
         float wear = smoothstep(.54,.78,fbm2(wallUV*31.));
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.095,.085,.063), wear*.26);
         float edgeDist = min(min(wallUV.x,1.-wallUV.x),min(wallUV.y,1.-wallUV.y));

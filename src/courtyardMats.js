@@ -70,6 +70,7 @@ export function triMat({ set, moss = null, scale = .5, color = 0xffffff, mossAmt
   if (set.nor) D.HAS_NOR = ''; if (set.rough) D.HAS_ROUGH = ''; if (moss) D.HAS_MOSS = ''; if (paving) D.PAVING = ''; if (blocks) D.BLOCKS = ''; if (weather) D.WEATHER = '';
   if (wood) D.WOOD = '';
   if (joint && set.height) D.HAS_HEIGHT = '';
+  if (paving?.footpath) D.FOOTPATH = '';
   mat.defines = { ...(mat.defines || {}), ...D };
   const U = {
     tDiff: { value: set.diff }, tNor: { value: set.nor || null }, tRough: { value: set.rough || null },
@@ -146,6 +147,16 @@ export function triMat({ set, moss = null, scale = .5, color = 0xffffff, mossAmt
               tint = mix(.72, 1.08, slabId) * mix(.7, 1., smoothstep(0., .1, edge));   // 每块石板深浅略不同；靠近石缝的一圈暗一些（磨圆的棱）
             #endif
             float wn = fbm2(vWp.xz * .27 + 3.);
+            #ifdef FOOTPATH
+              // 人常走的中间先干，墙根和树下留住潮气；石缝里的苔仍能长出来。
+              float trodden = 1. - smoothstep(.5, 2.2, abs(vWp.x - .35 + (slabId - .5) * 1.4));
+              mossBias -= trodden * (1. - gap) * .25;
+              float shelter = 1. - smoothstep(.2, 2.8, min(edgeD, treeD));
+              wn += shelter * .10 - trodden * .09;
+              #ifdef HAS_HEIGHT
+                wn += (.5 - hh) * .13;
+              #endif
+            #endif
             gPuddle = smoothstep(.6, .66, wn + (slabId - .5) * .06) * inYard * (1. - gap) * uMoss.w;   // 低洼处一小滩积水
             gWet = max(smoothstep(.4, .6, wn) * .75, gPuddle) * uMoss.w * inYard;                      // 周围一片还没干的水迹
           #endif

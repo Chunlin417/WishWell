@@ -18,8 +18,22 @@ const COL = {
 
 // eye：站在殿门里的眼睛位置；head：猫头的位置——月亮放在这两点连线的延长线上，从门口看，月亮正好在猫头后面
 // 月亮不再正挡在猫头后面，而是在猫像右后方（从门口看偏右约 30°），低低地压在云海上，下沿被云吃掉一截——和效果图一样，
-// 柱子把猫和月亮框在一起。月光（投影的那盏平行光）比月亮本身抬高一些（约 16°），地上的柱影才是一条条长影，而不是贴地拉到无穷远。
-const MOON_AZ = 31, MOON_EL = 3.5, LIGHT_EL = 16;   // 31°：从门口看正好落在中间两根柱子右边那一跨里，不被柱子切开。度：月亮在门口视线右边多少、地平线上多高；月光的仰角
+// 投影取月盘上半部，与月盘同方位，低角度的光仍能掠过池沿。
+const MOON_AZ = 31, MOON_EL = 3.5, LIGHT_EL = 8;
+
+// 用雾片自身的 UV 羽化四边，贴图图集的裁切和 mipmap 都不会留下矩形轮廓。
+function softenMistEdges(shader) {
+  shader.vertexShader = 'varying vec2 vMistUv;\n' + shader.vertexShader.replace(
+    '#include <uv_vertex>', '#include <uv_vertex>\nvMistUv = uv;'
+  );
+  shader.fragmentShader = 'varying vec2 vMistUv;\n' + shader.fragmentShader.replace(
+    '#include <map_fragment>', `#include <map_fragment>
+      vec2 edge = min(vMistUv, 1. - vMistUv);
+      vec2 fade = smoothstep(vec2(0.), vec2(.24, .32), edge);
+      diffuseColor.a *= fade.x * fade.y;`
+  );
+}
+
 export function createRealm({ renderer, manager, low = false, eye, head, pool, puffs, center, shaftBeams = [], shaftNoise = null }) {
   const scene = new THREE.Scene();
   scene.fog = heightFog(new THREE.Color(0x0c1c24), 0, 0);   // 和小院同一种雾（着色器一样，切换时不用重新编译），浓度为 0
@@ -30,7 +44,7 @@ export function createRealm({ renderer, manager, low = false, eye, head, pool, p
     const hx = fwd.x * Math.cos(a) - fwd.y * Math.sin(a), hz = fwd.x * Math.sin(a) + fwd.y * Math.cos(a);   // 往右转 az 度（看向 -z 时右边是 +x）
     return new THREE.Vector3(hx * Math.cos(e), Math.sin(e), hz * Math.cos(e)).normalize();
   };
-  const moonDir = dirAt(MOON_AZ, MOON_EL), lightDir = dirAt(MOON_AZ + 6, LIGHT_EL);
+  const moonDir = dirAt(MOON_AZ, MOON_EL), lightDir = dirAt(MOON_AZ, LIGHT_EL);
   const MOON_D = 118, moonPos = eye.clone().addScaledVector(moonDir, MOON_D);
   const moonFlat = new THREE.Vector2(moonDir.x, moonDir.z).normalize();
   const uTime = { value: 0 };
@@ -106,12 +120,13 @@ export function createRealm({ renderer, manager, low = false, eye, head, pool, p
         float l = dot(c, vec3(.2126, .7152, .0722));
         c = mix(vec3(l) * vec3(.62, .9, 1.05) * .85, c * 1.15, toward);   // 背着月亮：冷的青灰
         // 照片下沿再往下：暗的云底，有一点浓淡，慢慢融进照片
-        float n = texture2D(tN, vec2(u * .9, y * .012) + vec2(uTime * .0005, 0.)).r;
-        vec3 under = uDeep * (.55 + .9 * n) * (1. - .7 * smoothstep(-30., -56., y));   // 越往下越暗
-        c = mix(under, c, smoothstep(-.12, .06, v));
+        float n = texture2D(tN, vec2(u, y * .012) + vec2(uTime * .0005, 0.)).r;
+        vec3 under = uDeep * (.55 + .9 * n) * mix(.3, 1., smoothstep(-56., -30., y));
+        float bank = v + (n - .5) * .12;
+        c = mix(under, c, smoothstep(-.16, .14, bank));
         c = mix(c, uHaze, .22);
         c *= mix(.5, .85, toward);                   // 夜里的云海是暗的青灰，只有朝月亮的那面亮一些（照片本身偏亮，像傍晚）
-        float a = 1. - smoothstep(.6, .76, v);       // 照片上面那截天空淡掉，露出后面的天
+        float a = 1. - smoothstep(.53, .85, bank);
         gl_FragColor = vec4(c, a);
       }`,
   })));
@@ -143,6 +158,7 @@ export function createRealm({ renderer, manager, low = false, eye, head, pool, p
       const col = cold.clone().lerp(warm, toward * .55);
       const o = .36 + r() * .24 - d * .0012;
       const sp = reflect(new THREE.Sprite(new THREE.SpriteMaterial({ map: m, color: col, opacity: o, transparent: true, depthWrite: false, fog: false })));
+      sp.material.onBeforeCompile = softenMistEdges;
       sp.renderOrder = -15; scene.add(sp);
       bankList.push({ sp, a, d, y, w, h, o, speed: (r() < .8 ? 1 : -1) * (.3 + r() * .4), ph: r() * 20 });
     }
@@ -165,7 +181,10 @@ export function createRealm({ renderer, manager, low = false, eye, head, pool, p
     [0, fy - .1, -7.6, 3, .5, .12],
     [-3.5, pool.waterY - .2, -16.2, 9, 2.2, .35], [4, pool.waterY - .4, -16.8, 10, 2.4, .35], [0, pool.waterY - .8, -18, 14, 3, .4],
   ], puffs);
-  mist.group.traverse(o => o.isSprite && o.layers.enable(REFLECT_LAYER));
+  mist.group.children.forEach(sprite => {
+    sprite.material.onBeforeCompile = softenMistEdges;
+    sprite.layers.enable(REFLECT_LAYER);
+  });
   scene.add(mist.group);
 
   // ---------- 池面上缓缓升起的暖光点：别人挂在树上的愿。数量跟着木牌的多少走，始终稀疏 ----------

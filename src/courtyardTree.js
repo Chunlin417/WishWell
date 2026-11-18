@@ -23,10 +23,11 @@ export const LEAF_CELLS = [[[0.0376, 0.5615, 0.3359, 0.9199], 0.832], [[0.3301, 
 // 叶片的材质 + 往场景里撒叶片卡的工具。古树、院外的树林、墙头垂下来的枝叶都用它。map：阔叶图集
 export function createLeafKit(sunDir, map) {
   const uniforms = { uTime: { value: 0 }, uSun: { value: sunDir }, uSunCol: { value: new THREE.Color(1, .9, .5) } };
-  const mat = new THREE.MeshStandardMaterial({ map, alphaTest: .4, side: THREE.DoubleSide, roughness: .7 });
-  mat.customProgramCacheKey = () => 'court-leaf';
-  mat.onBeforeCompile = sh => {
-    Object.assign(sh.uniforms, uniforms);
+  const mat = new THREE.MeshStandardMaterial({ map, alphaTest: .4, side: THREE.DoubleSide, roughness: .84 });
+  // 投影与可见叶片共用图集格子和枝梢形变。
+  const depth = new THREE.MeshDepthMaterial({ map, alphaTest: .4 });
+  function leafVertices(sh) {
+    sh.uniforms.uTime = uniforms.uTime;
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\nattribute vec4 aCell; uniform float uTime;')
       .replace('#include <uv_vertex>', '#include <uv_vertex>\nvMapUv = vMapUv * aCell.zw + aCell.xy;')
@@ -37,6 +38,12 @@ export function createLeafKit(sunDir, map) {
           transformed.y += (sin(uTime * 1.3 + ph) * .04 + sin(uTime * 2.9 + ph * 2.) * .015) * k;
           transformed.x += cos(uTime * 1.0 + ph * 1.3) * .03 * k;
         }`);
+  }
+  depth.onBeforeCompile = leafVertices;
+  mat.customProgramCacheKey = () => 'court-leaf';
+  mat.onBeforeCompile = sh => {
+    leafVertices(sh);
+    Object.assign(sh.uniforms, uniforms);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', '#include <common>\nuniform vec3 uSun; uniform vec3 uSunCol;')
       .replace('#include <opaque_fragment>', /* glsl */`
@@ -61,7 +68,8 @@ export function createLeafKit(sunDir, map) {
       cell.set([u0, v0, u1 - u0, v1 - v0], i * 4);
       mesh.setColorAt(i, col.setHSL(...c.tint));
     });
-    mesh.castShadow = cast; mesh.receiveShadow = false; mesh.frustumCulled = false;
+    mesh.castShadow = cast; mesh.receiveShadow = cast; mesh.frustumCulled = false;
+    if (cast) mesh.customDepthMaterial = depth;
     return mesh;
   }
   return { uniforms, material: mat, add, update(t) { uniforms.uTime.value = t; } };
@@ -87,20 +95,38 @@ export async function loadTree({ manager, barkMat, kit, pos, S = 6.6, yaw = 0, l
     const [x, y, z, nx, ny, nz] = meta.leaves[i], p = toWorld(x, y, z);
     p.add(v.set(nx, Math.max(ny, 0) + .5, nz).multiplyScalar(.12 + r() * .22)).add(v.set((r() - .5) * .3, r() * .3, (r() - .5) * .3));
     const dx = p.x - pos.x, dz = p.z - pos.z;
-    cards.push({ p, yaw: Math.atan2(-dx, -dz) + (r() - .5) * 2.2, pitch: (r() - .35) * .7, roll: (r() - .5) * .7, s: .5 + r() * .45, tint: [.2 + (r() - .5) * .05, .32 + r() * .14, .78 + r() * .32] });
+    const exposure = THREE.MathUtils.smoothstep(p.y - .6 + .18 * dx, 1.6, 4.1);
+    cards.push({ p, yaw: Math.atan2(-dx, -dz) + (r() - .5) * 2.2, pitch: (r() - .35) * .7, roll: (r() - .5) * .7, s: .5 + r() * .45,
+      tint: [.26 - .065 * exposure + (r() - .5) * .035, .17 + r() * .10, .53 + .27 * exposure + r() * .14] });
   }
   const leaves = kit.add(cards);
   const trunk = { x: pos.x, z: pos.z, r: meta.trunkR * S };
   return { group, leaves, slots, trunk };
 }
 
-// 院外的树林：每棵树的树冠是一团叶片卡（外层密、里面也有，远看是一团透着空隙的枝叶），下面一截细树干。
+// 院外的树林：枝杈从树干探入疏密不一的叶丛。
 // 把院墙后面的天空和地图边界挡住；离得远，罩在晨雾里
 // trees：[[x, z, 树冠中心高度, 树冠半径], …]
-export function createGrove(kit, trees, { perTree = 200, seed = 5 } = {}) {
+export function createGrove(kit, trees, { perTree = 200, seed = 5, barkMap = null } = {}) {
   const r = rng(seed), cards = [], group = new THREE.Group();
-  const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(.06, .11, 1, 7), new THREE.MeshStandardMaterial({ color: 0x6a6356, roughness: 1 }), trees.length);
+  const wood = new THREE.CylinderGeometry(.14, 1, 1, 6, 4, true);
+  const vertices = wood.attributes.position;
+  const bend = t => Math.sin(t * Math.PI) * (1.2 - 1.7 * t);
+  for (let i = 0; i < vertices.count; i++) {
+    vertices.setX(i, vertices.getX(i) + bend(vertices.getY(i) + .5));
+  }
+  wood.computeVertexNormals();
+  const limbs = new THREE.InstancedMesh(wood, new THREE.MeshStandardMaterial({ map: barkMap, color: 0xa59e8c, roughness: 1 }), trees.length * 5);
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3();
+  const axis = new THREE.Vector3(), mid = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+  let limbIndex = 0;
+  function limb(start, end, radius) {
+    axis.subVectors(end, start);
+    sc.set(radius, axis.length(), radius);
+    q.setFromUnitVectors(up, axis.normalize());
+    mid.addVectors(start, end).multiplyScalar(.5);
+    limbs.setMatrixAt(limbIndex++, m.compose(mid, q, sc));
+  }
   trees.forEach(([x, z, h, rad], i) => {
     for (let k = 0; k < perTree; k++) {
       const a = r() * 6.283, el = (r() - .5) * 2.2, d = rad * Math.pow(r(), .45);   // 越靠外越密
@@ -108,10 +134,18 @@ export function createGrove(kit, trees, { perTree = 200, seed = 5 } = {}) {
       const inner = 1 - d / rad;   // 树冠里面的叶子照不到光：压暗
       cards.push({ p, yaw: Math.atan2(-Math.cos(a), -Math.sin(a)) + (r() - .5) * 2.6, pitch: (r() - .4) * 1.2, roll: (r() - .5) * 1., s: 1.0 + r() * .7, tint: [.2 + (r() - .5) * .06, .26 + r() * .14, (.34 + r() * .26) * (1 - .5 * inner)] });
     }
-    const th = Math.max(1, h - rad * .5);
-    trunks.setMatrixAt(i, m.compose(new THREE.Vector3(x, th / 2, z), q, sc.set(1 + rad * .2, th, 1 + rad * .2)));
+    const turn = i * 2.4, base = new THREE.Vector3(x, 0, z);
+    const crown = new THREE.Vector3(x + .13 * rad * Math.cos(turn), h + .13 * rad, z + .13 * rad * Math.sin(turn));
+    limb(base, crown, .065 * rad);
+    const trunkMatrix = m.clone();
+    for (let j = 0; j < 4; j++) {
+      const a = turn + j * 2.4;
+      const t = .46 + j * .095;
+      const fork = new THREE.Vector3(bend(t), t - .5, 0).applyMatrix4(trunkMatrix);
+      const tip = new THREE.Vector3(x + Math.cos(a) * rad * .71, h + (.02 + j * .07) * rad, z + Math.sin(a) * rad * .71);
+      limb(fork, tip, (.031 - j * .003) * rad);
+    }
   });
-  trunks.castShadow = false;
-  group.add(kit.add(cards, { cast: false }), trunks);
+  group.add(kit.add(cards, { cast: false }), limbs);
   return group;
 }

@@ -79,7 +79,7 @@ export function createHallInterior({ parent, tex, manager, camera, baseH, pool, 
 
   // 顶棚和后墙上的水光
   return {
-    ready, lanterns: sanctuary.lanterns, discY: sanctuary.discY,
+    ready, lanterns: sanctuary.lanterns, muralMoon: sanctuary.muralMoon,
     update(t) { water.material.uniforms.uTime.value = t; sanctuary.update(t); },
     // 每帧正式画之前调用：画水面的倒影。水池不在画面里、或者离得远（8 米开外水面只剩一条线）时不画；
     // 画的时候也只画水面在画面上占的那一小块（倒影的画面是左右镜像的，所以这一块的 x 要反过来），其余的像素不用算
