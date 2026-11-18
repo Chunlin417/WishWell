@@ -16,7 +16,7 @@ import { Ripples, createWater } from './water.js';
 import { Rain, Snow, Fireflies, FallingLeaves } from './fx.js';
 import { createWish, DRAGON_ENABLED } from './wish.js';
 import { createWishAudio } from './audio.js';
-import { getName, setName, canWish, addPlaque, listPlaques, rememberWish, NAME_MAX, nowMs, listIncense, canLightIncense, lightIncense, initStore, refreshStore, onStoreChange } from './courtStore.js';
+import { getName, setName, canWish, addPlaque, listPlaques, rememberWish, hasWished, NAME_MAX, nowMs, listIncense, canLightIncense, lightIncense, initStore, refreshStore, onStoreChange } from './courtStore.js';
 // 开关：false = 许愿功能关闭（点左边的石狐没有反应，也不会出现手形光标）
 const WISH_ENABLED = true;
 
@@ -604,7 +604,7 @@ async function goTo(name, { instant = false, withIntro = true, fresh = null } = 
     if (name === 'courtyard') {
       wish.finish();   // 木牌还在水里下沉的话，让它就此结束
       if (!court) court = (await import('./courtyard.js')).createCourtyard({
-        renderer, canvas, isMobile, onExit: () => goTo('pool'), now: nowMs, canLight: () => canLightIncense(),
+        renderer, canvas, isMobile, onExit: () => goTo('pool'), now: nowMs, canLight: () => canLightIncense(), hasWished,
         onLight: async () => {   // 点香：半个钟头一炷、一个人同时只能点一炷、炉里最多 100 炷（规则在 courtStore.js / 服务器上）
           const r = await lightIncense();
           if (r.ok) court.setIncense(listIncense()); else showToast(r.text);

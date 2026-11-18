@@ -104,7 +104,8 @@ function wallGeo(len, h, t, seed, alongX) {
 }
 
 // onLight：点香（返回 { ok, text? }）；canLight：现在能不能点香（返回 { ok, text? }）；now：当前时间（毫秒，以后是服务器时间）
-export function createCourtyard({ renderer, canvas, isMobile = false, onExit = () => {}, onLight = () => ({ ok: false }), canLight = () => ({ ok: false }), now = () => Date.now() }) {
+// hasWished：这个人许过愿没有（courtStore.js）——许过愿、自己的香又还在烧，进殿才是洞天
+export function createCourtyard({ renderer, canvas, isMobile = false, onExit = () => {}, onLight = () => ({ ok: false }), canLight = () => ({ ok: false }), now = () => Date.now(), hasWished = () => false }) {
   // 画质：手机（或网址带 ?q=low）用低档——浮尘少一些、远山的雾带少画一条、胶片颗粒淡一些；?q=high 强制高档
   const qParam = new URLSearchParams(location.search).get('q');
   const low = qParam === 'low' || (isMobile && qParam !== 'high');
@@ -879,15 +880,15 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
       walked += d; bobK += (clamp(d / Math.max(dt, 1e-4) / WALK) - bobK) * Math.min(1, dt * 6);
     }
     // 殿门：走到廊下门前就慢慢打开（门扇折到两边的墙上），走开了再关上；人在殿里时不关。
-    // 进殿：没点香，里面就是平常的殿（清晨、壁画、猫像）；点了香（自己的那一炷还在烧，30 分钟），跨过门槛就进"洞天"（月夜云海）。
+    // 进殿：许过愿、而且点了香（自己的那一炷还在烧，30 分钟），跨过门槛就进"洞天"（月夜云海）；缺一样，里面就是平常的殿（清晨、壁画、猫像）。
     // 洞天一旦进了，就一直是洞天，直到走出门槛，香烧完也不会把人赶出来
     {
       const A = HALL_ACCESS, nowT = now();
       const near = inRealm || p.z < A.doorZ + .5 || (p.z < A.front + .9 && Math.abs(p.x) < 2.4);
       const k = doorAmt; doorAmt = clamp(doorAmt + (near ? dt / 2.2 : -dt / 2));
       if (k !== doorAmt) { const e = smooth(doorAmt) * 2.9; for (const { hinge, s } of doorHinges) hinge.rotation.y = s * -e; if (doorAmt === 0 || doorAmt === 1) shadowFrames = Math.max(shadowFrames, 2); }
-      // 跨过门槛（上一帧还在门槛外、这一帧过去了）：有香就进洞天；回到门槛外：洞天退出（中间留一点距离，不会在门槛上来回闪）
-      const unlocked = myIncenseT.some(t => nowT - t < INCENSE_BURN_MS);
+      // 跨过门槛（上一帧还在门槛外、这一帧过去了）：许过愿又有香，就进洞天；回到门槛外：洞天退出（中间留一点距离，不会在门槛上来回闪）
+      const unlocked = myIncenseT.some(t => nowT - t < INCENSE_BURN_MS) && hasWished();   // 自己点的香还在烧，而且许过愿（先看香：hasWished 要读本机存储）
       if (!inRealm && unlocked && doorAmt > .8 && lastDoorZ >= A.doorZ - .3 && p.z < A.doorZ - .3) crossTo(true);
       else if (inRealm && p.z > A.doorZ - .02) crossTo(false);
       lastDoorZ = p.z;
