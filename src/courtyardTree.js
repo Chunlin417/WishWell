@@ -104,6 +104,19 @@ export async function loadTree({ manager, barkMat, kit, pos, S = 6.6, yaw = 0, l
   return { group, leaves, slots, trunk };
 }
 
+// 墙外的一圈矮灌丛：只有叶片、没有树干，压在墙头后面，挡住树林的光树干、把墙顶的轮廓衬软
+// list：[[x, z, 中心高度, 横向半径], …]
+export function createShrubs(kit, list, { per = 60, seed = 9 } = {}) {
+  const r = rng(seed), cards = [];
+  for (const [x, z, h, rad] of list) for (let k = 0; k < per; k++) {
+    const a = r() * 6.283, d = rad * Math.pow(r(), .5), inner = 1 - d / rad;
+    const p = new THREE.Vector3(x + Math.cos(a) * d, Math.max(.15, h + (r() - .45) * rad * .9 * (1 - .3 * inner)), z + Math.sin(a) * d);
+    cards.push({ p, yaw: Math.atan2(-Math.cos(a), -Math.sin(a)) + (r() - .5) * 2.4, pitch: (r() - .45) * 1.1, roll: (r() - .5) * .9, s: .75 + r() * .5,
+      tint: [.22 + (r() - .5) * .05, .28 + r() * .12, (.3 + r() * .22) * (1 - .45 * inner)] });
+  }
+  return kit.add(cards, { cast: false });
+}
+
 // 院外的树林：枝杈从树干探入疏密不一的叶丛。
 // 把院墙后面的天空和地图边界挡住；离得远，罩在晨雾里
 // trees：[[x, z, 树冠中心高度, 树冠半径], …]
@@ -133,6 +146,12 @@ export function createGrove(kit, trees, { perTree = 200, seed = 5, barkMap = nul
       const p = new THREE.Vector3(x + Math.cos(a) * Math.cos(el) * d, h + Math.sin(el) * d * .8, z + Math.sin(a) * Math.cos(el) * d);
       const inner = 1 - d / rad;   // 树冠里面的叶子照不到光：压暗
       cards.push({ p, yaw: Math.atan2(-Math.cos(a), -Math.sin(a)) + (r() - .5) * 2.6, pitch: (r() - .4) * 1.2, roll: (r() - .5) * 1., s: 1.0 + r() * .7, tint: [.2 + (r() - .5) * .06, .26 + r() * .14, (.34 + r() * .26) * (1 - .5 * inner)] });
+    }
+    // 树冠下半截靠里的一圈暗叶：外壳的叶子都在外面，里面空着，从院里看过去只剩光秃秃的 Y 字形枝杈
+    for (let k = 0; k < perTree * .22; k++) {
+      const a = r() * 6.283, d = rad * (.25 + r() * .45), y = h - rad * (.15 + r() * .55);
+      cards.push({ p: new THREE.Vector3(x + Math.cos(a) * d, y, z + Math.sin(a) * d), yaw: r() * 6.283, pitch: (r() - .4) * 1.2, roll: (r() - .5), s: .9 + r() * .6,
+        tint: [.2 + (r() - .5) * .05, .24 + r() * .1, .2 + r() * .1] });
     }
     const turn = i * 2.4, base = new THREE.Vector3(x, 0, z);
     const crown = new THREE.Vector3(x + .13 * rad * Math.cos(turn), h + .13 * rad, z + .13 * rad * Math.sin(turn));

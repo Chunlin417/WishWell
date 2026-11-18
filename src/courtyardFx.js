@@ -316,23 +316,29 @@ export function createSmoke(maxCols = 24, height = 2.8) {
 
 // 薄雾：院墙外、殿后低低地浮着几团雾（始终朝向镜头的柔边片）。
 // puffs：{ map, cells } 雾团图集（每团形状不同、里面有浓淡）；没有就用一个柔边圆
-export function createMist(haze, spots, puffs = null) {
-  let map = puffs?.map;
-  if (!map) {
-    const c = document.createElement('canvas'); c.width = c.height = 128;
-    const g = c.getContext('2d'), grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-    grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(.5, 'rgba(255,255,255,.45)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
-    g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
-    map = new THREE.CanvasTexture(c);
-  }
+// spots：[[x, y, z, 宽, 高, 不透明度, soft?], …]；soft：不用图集里的雾团，用四边淡到 0 的径向渐变——
+// 院子里离人很近的薄雾要这样，图集里裁出来的一格在近处会露出直直的边，看着像一块半透明的玻璃
+// face：[x, z]——给了就把远处的雾团（非 soft）做成立着的面片、固定朝向这一点（院子中间），不用 Sprite。
+// Sprite 永远平行于屏幕：二十多米宽的雾带斜着看时，一头会甩进院墙里，在墙前露出一块方方的半透明片
+export function createMist(haze, spots, puffs = null, { face = null } = {}) {
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d'), grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(.5, 'rgba(255,255,255,.45)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+  const softMap = new THREE.CanvasTexture(c), map = puffs?.map || softMap;
   const group = new THREE.Group(), list = [];
-  spots.forEach(([x, y, z, w, h, o], i) => {
-    let m = map;
-    if (puffs) {   // 每团雾取图集里的一格（贴图对象各自一份，图像数据共用）
+  spots.forEach(([x, y, z, w, h, o, soft], i) => {
+    let m = soft ? softMap : map;
+    if (puffs && !soft) {   // 每团雾取图集里的一格（贴图对象各自一份，图像数据共用）
       const c = puffs.cells[i % puffs.cells.length]; m = map.clone();
       m.offset.set(c[0], c[1]); m.repeat.set(c[2] - c[0], c[3] - c[1]); m.needsUpdate = true;
     }
-    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: m, color: haze, opacity: o * (puffs ? 1.25 : 1), depthWrite: false, fog: false, transparent: true }));
+    const props = { map: m, color: haze, opacity: o * (puffs ? 1.25 : 1), depthWrite: false, fog: false, transparent: true };
+    let s;
+    if (face && !soft) {
+      s = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ ...props, side: THREE.DoubleSide }));
+      s.rotation.y = Math.atan2(face[0] - x, face[1] - z);
+    } else s = new THREE.Sprite(new THREE.SpriteMaterial(props));
     s.position.set(x, y, z); s.scale.set(w, h, 1); s.renderOrder = 2;
     group.add(s); list.push({ s, x, ph: i * 1.9 });
   });

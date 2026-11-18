@@ -10,7 +10,7 @@ import { loadCourtTextures, triMat, bronzeMat, roofMat, roofGeo } from './courty
 import { createHallInterior, REFLECT_LAYER } from './courtyardHall.js';
 import { createSky, createBackdrop, createCanopyShade, createShafts, createDust, createSmoke, createMist } from './courtyardFx.js';
 import { installHeightFog, heightFog } from './heightFog.js';
-import { loadTree, createLeafKit, createGrove } from './courtyardTree.js';
+import { loadTree, createLeafKit, createGrove, createShrubs } from './courtyardTree.js';
 import { createPlaques } from './courtyardPlaques.js';
 import { createIncense } from './courtyardIncense.js';
 import { createBurner } from './courtyardBurner.js';
@@ -80,14 +80,21 @@ function rockGeo(r, seed, flat = .68) {
   return g;
 }
 // 一段院墙：不是整齐的方块——墙顶高低起伏，墙面略有凹凸。len 沿墙的长度，alongX：这段墙沿 x 还是沿 z
+// 墙顶的起伏（相对 wallH）：a 是沿墙的局部坐标（墙中点为 0）。两头 1 米内收平，转角处两面墙的墙顶对得上
+function wallProfile(len, seed) {
+  const wave = a => Math.sin(a * 1.1 + seed) * .5 + Math.sin(a * 2.7 + seed * 1.7) * .3 + Math.sin(a * 6.1 + seed * .3) * .2;
+  return a => (wave(a) * .1 + Math.max(0, wave(a * .37 + 4.) - .55) * -.26) * smooth((len / 2 - Math.abs(a)) / 1.1);
+}
 function wallGeo(len, h, t, seed, alongX) {
   const segs = Math.max(4, Math.round(len / .35));
   const g = new THREE.BoxGeometry(alongX ? len : t, h, alongX ? t : len, alongX ? segs : 2, 4, alongX ? 2 : segs), p = g.attributes.position;
   const wave = a => Math.sin(a * 1.1 + seed) * .5 + Math.sin(a * 2.7 + seed * 1.7) * .3 + Math.sin(a * 6.1 + seed * .3) * .2;
+  const prof = wallProfile(len, seed);
+  g.userData.top = a => h + prof(a);
   for (let i = 0; i < p.count; i++) {
     let x = p.getX(i), y = p.getY(i) + h / 2, z = p.getZ(i);
     const a = alongX ? x : z, yf = y / h;
-    y += (wave(a) * .2 + Math.max(0, wave(a * .37 + 4.) - .55) * -.5) * yf * yf;        // 墙顶起伏，偶尔塌下去一小段
+    y += prof(a) * yf * yf;        // 墙顶起伏，偶尔塌下去一小段
     const bulge = wave(a * 1.9 + y * 2.3) * .045 * (alongX ? Math.sign(z) : Math.sign(x));   // 墙面凹凸
     if (alongX) z += bulge; else x += bulge;
     p.setXYZ(i, x, y, z);
@@ -170,6 +177,7 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     ember: new THREE.MeshBasicMaterial({ color: new THREE.Color(5, 1.4, .35) }),
   };
   mat.stone.color.setScalar(.95); mat.stoneClean.color.setScalar(1.02);
+  mat.wall.color.setRGB(.9, .97, .9);   // 墙石的素材偏粉：压一点红，和地上的青石板、青苔是一个色系
   // 旧木材的素材偏暗（平均亮度只有 0.15 左右）：殿的正面又在屋檐的阴影里，提亮一些才看得出木纹和色差
   mat.doorWood.color.multiplyScalar(3.3); mat.doorPanel = mat.doorWood.clone(); mat.doorPanel.color.multiplyScalar(.68);   // 嵌板里面比线脚暗一档，看得出凹进去
   mat.doorPanel.customProgramCacheKey = mat.doorWood.customProgramCacheKey; mat.doorPanel.onBeforeCompile = mat.doorWood.onBeforeCompile; mat.doorPanel.defines = mat.doorWood.defines;   // 门在廊下的阴影里，木头本身要亮得多才看得出木色
@@ -219,11 +227,45 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
 
   // ---------- 院墙：砌石的矮墙，墙顶高低起伏；东、西、北三面是整面，南面中间留出院门 ----------
   const zLen = south - north, zMid = (south + north) / 2, wx = halfX + wallT / 2;
-  add(wallGeo(zLen + wallT * 2, wallH, wallT, 1.3, false), mat.wall, -wx, 0, zMid);
-  add(wallGeo(zLen + wallT * 2, wallH, wallT, 4.1, false), mat.wall, wx, 0, zMid);
-  add(wallGeo(halfX * 2, wallH, wallT, 7.7, true), mat.wall, 0, 0, north - wallT / 2);
+  const walls = [];   // 每段墙：长度、种子、方向、中心，墙顶高度函数（压顶石、墙头植物都贴着它）
+  const wall = (len, seed, alongX, cx, cz) => {
+    const g = wallGeo(len, wallH, wallT, seed, alongX); add(g, mat.wall, cx, 0, cz);
+    walls.push({ len, seed, alongX, cx, cz, top: g.userData.top });
+  };
+  wall(zLen + wallT * 2, 1.3, false, -wx, zMid);
+  wall(zLen + wallT * 2, 4.1, false, wx, zMid);
+  wall(halfX * 2, 7.7, true, 0, north - wallT / 2);
   const pierW = .7, sideW = halfX - gateHalf - pierW;
-  for (const s of [-1, 1]) add(wallGeo(sideW, wallH, wallT, 2.2 + s, true), mat.wall, s * (gateHalf + pierW + sideW / 2), 0, south + wallT / 2);
+  for (const s of [-1, 1]) wall(sideW, 2.2 + s, true, s * (gateHalf + pierW + sideW / 2), south + wallT / 2);
+  const wallTopAt = (side, z) => walls[side < 0 ? 0 : 1].top(z - zMid);   // 东西两面墙在 z 处的墙顶高度
+  // 压顶石：墙顶压一排扁平的条石，顺着墙顶的起伏一块接一块（塌下去的那几段不压，只散落一两块），墙的轮廓收得干净
+  {
+    const R = rng(23), list = [], q = new THREE.Quaternion(), e = new THREE.Euler();
+    for (const w of walls) {
+      let a = -w.len / 2 + .05;
+      while (a < w.len / 2 - .1) {
+        const sl = Math.min(.55 + R() * .35, w.len / 2 - a), c = a + sl / 2, y = Math.max(w.top(c - sl / 2), w.top(c), w.top(c + sl / 2));
+        a += sl + .01;
+        const slope = Math.atan2(w.top(c + sl / 2) - w.top(c - sl / 2), sl), th = .1 + R() * .03, wd = wallT + .08 + R() * .04;
+        const side = (R() - .5) * .04;
+        if (w.alongX) e.set((R() - .5) * .03, (R() - .5) * .04, slope);
+        else e.set(-slope, (R() - .5) * .04, (R() - .5) * .03);
+        q.setFromEuler(e);
+        const p = w.alongX ? new THREE.Vector3(w.cx + c, y + th / 2 - .05, w.cz + side) : new THREE.Vector3(w.cx + side, y + th / 2 - .05, w.cz + c);
+        const s = w.alongX ? new THREE.Vector3(sl + .02, th, wd) : new THREE.Vector3(wd, th, sl + .02);
+        list.push([p, q.clone(), s]);
+      }
+    }
+    // 四个墙角：方石墩，比墙高一截，顶上一块大一圈的盖石（墙角不再是两段墙硬碰硬的折线）
+    for (const sx of [-1, 1]) for (const z of [south + wallT / 2, north - wallT / 2]) {
+      const ph = wallH + .22;
+      box(wallT + .22, ph, wallT + .22, mat.wall, sx * wx, ph / 2, z);
+      list.push([new THREE.Vector3(sx * wx, ph + .05, z), new THREE.Quaternion().setFromAxisAngle(UP, (R() - .5) * .08), new THREE.Vector3(wallT + .36, .11, wallT + .36)]);
+    }
+    const im = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), mat.wall, list.length), mx = new THREE.Matrix4();
+    list.forEach(([p, qq, s], i) => im.setMatrixAt(i, mx.compose(p, qq, s)));
+    im.castShadow = im.receiveShadow = true; scene.add(im);
+  }
 
   // ---------- 院门：两个石砌的门垛，上面一道木梁、一座小瓦顶；两扇木门朝院里敞开，贴在墙上 ----------
   {
@@ -437,6 +479,15 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
   });
   // 院外的树林：挡住院墙后面的天空和地图的边界
   scene.add(createGrove(kit, L.grove, { perTree: isMobile ? 110 : 220, barkMap: tex.bark.diff }));
+  // 墙外贴着墙的一圈灌丛：东西两面每隔三米左右一丛，院门两边各两丛
+  {
+    const R = rng(77), list = [];
+    for (const s of [-1, 1]) for (let z = south - 1; z > north + 1; z -= 2.6 + R() * 1.2) list.push([s * (halfX + wallT + .9 + R() * .6), z, 1.75 + R() * .5, 1.05 + R() * .45]);
+    for (const s of [-1, 1]) for (const x of [3.2, 6]) list.push([s * (x + R() * .5), south + wallT + 1 + R() * .5, 1.7 + R() * .4, 1.1 + R() * .4]);
+    // 院门外：路两边的灌丛和远一点的一片，从门洞看出去不再是空荡荡的草地
+    for (const [x, z, h, r] of [[-2.1, 8.9, .75, 1.3], [2.3, 9.4, .85, 1.4], [-1, 12.3, 1.05, 1.8], [1.7, 13.1, 1.15, 1.9], [-3.4, 11.2, 1.25, 1.7], [3.6, 11.8, 1.2, 1.7], [.3, 15.6, 1.3, 2.2]]) list.push([x, z, h, r]);
+    scene.add(createShrubs(kit, list, { per: isMobile ? 34 : 64 }));
+  }
 
   // ---------- 香炉：一块低矮的天然石头上立着三足青铜鼎（courtyardBurner.js）；炉里的香在 courtyardIncense.js ----------
   let burnerGrp = null, burnerAshY = 0, burner = null;   // 香炉的组和炉灰的高度：炉里的香（courtyardIncense.js）插在这里
@@ -484,13 +535,19 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
     }
     for (let i = 0; i < 12; i++) {
       const s = i % 2 ? 1 : -1, z = L.stepsZ + R() * (south - L.stepsZ - .5);
-      wallTop.push({ x: s * (halfX + wallT / 2), y: wallH - .12, z, h: .22 + R() * .18, cell: cell('vines_atlas', 4 + Math.floor(R() * 4)), yaw: R() * 6.28, tint: [.78, .82, .76] });
+      wallTop.push({ x: s * (halfX + wallT / 2), y: wallTopAt(s, z) - .02, z, h: .22 + R() * .18, cell: cell('vines_atlas', 4 + Math.floor(R() * 4)), yaw: R() * 6.28, tint: [.78, .82, .76] });
     }
     // 墙头垂下来的藤和苔（vines_atlas 第一行、第四行）：贴着院墙的内面往下挂
     for (let i = 0; i < 11; i++) {
       const s = i % 2 ? 1 : -1, z = L.stepsZ + .5 + R() * (south - L.stepsZ - 1.5);
       const moss = R() < .35, h = moss ? .35 + R() * .25 : .6 + R() * .45;
-      hangs.push({ x: s * (halfX - .015), y: wallH + .02 - R() * .08, z, h, nx: -s, nz: 0, cell: cell('vines_atlas', moss ? 12 + Math.floor(R() * 4) : Math.floor(R() * 4)), tint: [.8, .84, .78] });
+      hangs.push({ x: s * (halfX - .05), y: wallTopAt(s, z) + .03 - R() * .06, z, h, nx: -s, nz: 0, cell: cell('vines_atlas', moss ? 12 + Math.floor(R() * 4) : Math.floor(R() * 4)), tint: [.8, .84, .78] });
+    }
+    // 南墙（院门两边）的内面也挂几缕：这面墙背着太阳，光秃秃的一片青黑，挂点藤和苔就柔和了
+    for (let i = 0; i < 6; i++) {
+      const s = i % 2 ? 1 : -1, w = walls[s < 0 ? 3 : 4], x = w.cx + (R() - .5) * (sideW - .6);
+      const moss = R() < .4, h = moss ? .3 + R() * .25 : .55 + R() * .4;
+      hangs.push({ x, y: w.top(x - w.cx) + .03 - R() * .06, z: south - .05, h, nx: 0, nz: -1, cell: cell('vines_atlas', moss ? 12 + Math.floor(R() * 4) : Math.floor(R() * 4)), tint: [.8, .84, .78] });
     }
     // 地上的落叶：树冠下面多（往树干越近越密），墙根、台阶边零星几片
     for (let i = 0; i < 90; i++) {
@@ -614,8 +671,8 @@ export function createCourtyard({ renderer, canvas, isMobile = false, onExit = (
   const mist = createMist(haze, [
     [-10, 1.2, -17, 22, 5, .5], [9, 1.5, -18, 24, 6, .5], [0, 1, -19, 26, 5, .45], [-16, 1.5, 2, 20, 5, .42], [16, 1.2, -2, 20, 5, .42],
     [0, 1, 16, 24, 4, .38], [-9, 1, 13, 18, 4, .32], [10, 1.2, 12, 18, 4, .32],
-    [0, .5, -4.6, 11, 1.5, .13], [-4.5, .5, 1.5, 8, 1.2, .08],   // 院子里贴着地面的两缕薄雾
-  ], { map: tex.fogPuffs, cells: ATLAS.fog_puffs });
+    [0, .5, -4.6, 11, 1.5, .1, true], [-4.5, .5, 1.5, 8, 1.2, .07, true],   // 院子里贴着地面的两缕薄雾（软边，近看不露直边）
+  ], { map: tex.fogPuffs, cells: ATLAS.fog_puffs }, { face: [0, -4] });
   scene.add(shafts.mesh, smoke.mesh, mist.group);
   let fxT = 0;
   const bufSize = new THREE.Vector2();
