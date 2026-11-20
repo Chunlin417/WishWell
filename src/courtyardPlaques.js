@@ -3,29 +3,44 @@
 // 木牌有新有旧：新的是浅色原木，旧的颜色深、有水渍和青苔。稀疏地挂在横枝下面，大部分枝条空着。
 // 全部用实例化网格画：木牌、正面、背面、绳、铃、穗各一个 InstancedMesh
 import * as THREE from 'three';
+import { bellGeometry, bronzeTexture, BELL_HEIGHT, tasselGeometry, tasselTexture } from './plaqueBell.js';
 
 const PW = .085, PH = .34, PT = .016;          // 木牌的宽、高、厚（米）
+const BELL_R = .011;                            // 铃身半径（米）
 const CELL_W = 96, CELL_H = 288, COLS = 16;     // 图集里每个面的格子大小（像素）、每行几格
 const rng = seed => () => (seed = (seed * 16807) % 2147483647) / 2147483647;
 const KAI = '"STKaiti", "KaiTi", "Kaiti SC", "楷体", "Songti SC", serif';
-const NEW_WOOD = [205, 178, 132], OLD_WOOD = [118, 97, 70];   // 新木牌、旧木牌的底色
+const NEW_WOOD = [205, 160, 110], OLD_WOOD = [96, 60, 38];   // 新木牌、旧木牌侧面的底色（和两张牌面照片的边缘一致）
+// 牌面照片（scripts/pack_plaque_faces.py）：新牌是浅色原木，旧牌是深色、有水渍的老木头；新旧之间按 age 混合。照片没下载好时退回程序画的木纹
+const loadImg = name => { const im = new Image(); im.src = `${import.meta.env.BASE_URL}textures/${name}`; return im; };
+const FACE_NEW = loadImg('plaque_face_new.webp'), FACE_OLD = loadImg('plaque_face_old.webp');
+const facesReady = () => [FACE_NEW, FACE_OLD].every(im => im.complete && im.naturalWidth > 0);
 const woodRGB = age => NEW_WOOD.map((v, i) => Math.round(v + (OLD_WOOD[i] - v) * age));
 
 // 在图集的格子里画一个面。kind：'front'（名字）、'back'（日期）、'blank'（没有字）；age：0 新 ～ 1 旧
 function drawFace(g, x, y, kind, text, seed, age) {
   const r = rng(seed * 977 + 13), [cr, cg, cb] = woodRGB(age);
   g.save(); g.beginPath(); g.rect(x, y, CELL_W, CELL_H); g.clip(); g.translate(x, y);
-  // 木色底 + 竖向的木纹
-  g.fillStyle = `rgb(${cr},${cg},${cb})`; g.fillRect(0, 0, CELL_W, CELL_H);
-  for (let i = 0; i < 34; i++) {
-    const px = r() * CELL_W; g.strokeStyle = r() < .6 ? `rgba(60,38,20,${.05 + r() * .12})` : `rgba(240,218,180,${.05 + r() * .1})`;
-    g.lineWidth = .6 + r() * 1.6; g.beginPath(); g.moveTo(px, 0); g.lineTo(px + (r() - .5) * 6, CELL_H); g.stroke();
+  if (facesReady()) {
+    // 照片：底下先铺一层深色（穿孔和圆角是透明的，透出来像孔里的暗处），新旧两张按 age 叠起来；随机左右翻转，让每块牌的木纹不一样
+    g.fillStyle = '#2a1a0c'; g.fillRect(0, 0, CELL_W, CELL_H);
+    const flip = r() < .5; if (flip) { g.translate(CELL_W, 0); g.scale(-1, 1); }
+    const k = age * age * (3 - 2 * age);
+    if (k < 1) g.drawImage(FACE_NEW, 0, 0, CELL_W, CELL_H);
+    if (k > 0) { g.globalAlpha = k; g.drawImage(FACE_OLD, 0, 0, CELL_W, CELL_H); g.globalAlpha = 1; }
+    if (flip) { g.scale(-1, 1); g.translate(-CELL_W, 0); }
+  } else {
+    // 木色底 + 竖向的木纹
+    g.fillStyle = `rgb(${cr},${cg},${cb})`; g.fillRect(0, 0, CELL_W, CELL_H);
+    for (let i = 0; i < 34; i++) {
+      const px = r() * CELL_W; g.strokeStyle = r() < .6 ? `rgba(60,38,20,${.05 + r() * .12})` : `rgba(240,218,180,${.05 + r() * .1})`;
+      g.lineWidth = .6 + r() * 1.6; g.beginPath(); g.moveTo(px, 0); g.lineTo(px + (r() - .5) * 6, CELL_H); g.stroke();
+    }
+    const eg = g.createLinearGradient(0, 0, CELL_W, 0); eg.addColorStop(0, 'rgba(40,25,12,.26)'); eg.addColorStop(.12, 'rgba(40,25,12,0)'); eg.addColorStop(.88, 'rgba(40,25,12,0)'); eg.addColorStop(1, 'rgba(40,25,12,.26)');
+    g.fillStyle = eg; g.fillRect(0, 0, CELL_W, CELL_H);
   }
-  // 四周压深一圈（边缘磨损、受潮）
-  const eg = g.createLinearGradient(0, 0, CELL_W, 0); eg.addColorStop(0, 'rgba(40,25,12,.26)'); eg.addColorStop(.12, 'rgba(40,25,12,0)'); eg.addColorStop(.88, 'rgba(40,25,12,0)'); eg.addColorStop(1, 'rgba(40,25,12,.26)');
-  g.fillStyle = eg; g.fillRect(0, 0, CELL_W, CELL_H);
-  // 旧牌：几块水渍，下半截泛青苔
-  for (let i = 0; i < Math.round(age * 7); i++) {
+  // 旧牌：再添几块水渍，下半截泛青苔
+  for (let i = 0; i < Math.round(age * 4); i++) {
     const sx = r() * CELL_W, sy = r() * CELL_H, sr = 14 + r() * 34, sg = g.createRadialGradient(sx, sy, 0, sx, sy, sr);
     sg.addColorStop(0, `rgba(35,26,16,${.18 + r() * .16})`); sg.addColorStop(1, 'rgba(35,26,16,0)'); g.fillStyle = sg; g.fillRect(sx - sr, sy - sr, sr * 2, sr * 2);
   }
@@ -33,7 +48,7 @@ function drawFace(g, x, y, kind, text, seed, age) {
   g.textAlign = 'center'; g.textBaseline = 'middle';
   if (kind === 'front' && text) {
     const chars = [...text].slice(0, 6), size = Math.min(58, (CELL_H - 56) / chars.length), top = (CELL_H - size * chars.length) / 2;
-    g.font = `bold ${size}px ${KAI}`; g.fillStyle = 'rgba(30,16,8,.9)';
+    g.font = `bold ${size}px ${KAI}`; g.fillStyle = 'rgba(30,16,8,.9)'; g.globalCompositeOperation = 'multiply';   // 墨和木头相乘：木纹透过墨色
     chars.forEach((ch, i) => g.fillText(ch, CELL_W / 2 + (r() - .5) * 2, top + size * (i + .5)));
   } else if (kind === 'back' && text) {
     // 日期横着写、转了 90 度：沿着木牌的长边读；像是用刀刻上去的，颜色比木头深一点点
@@ -49,6 +64,10 @@ export function createPlaques({ scene, capacity = 96, total = 11 }) {
   // ---- 图集：每块牌占两格（正面、背面）----
   const rows = Math.ceil(capacity * 2 / COLS), atlas = document.createElement('canvas'); atlas.width = COLS * CELL_W; atlas.height = rows * CELL_H;
   const ag = atlas.getContext('2d'), tex = new THREE.CanvasTexture(atlas); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+  // 图集上画了哪些面（照片下载好之后按同样的参数重画一遍，不用重新排挂点）
+  let faceDraws = [];
+  const paintAtlas = () => { ag.clearRect(0, 0, atlas.width, atlas.height); for (const d of faceDraws) drawFace(ag, ...d); tex.needsUpdate = true; };
+  for (const im of [FACE_NEW, FACE_OLD]) if (!(im.complete && im.naturalWidth)) im.addEventListener('load', () => { if (facesReady() && faceDraws.length) paintAtlas(); }, { once: true });
   const cellUV = i => [(i % COLS) * CELL_W / atlas.width, 1 - (Math.floor(i / COLS) + 1) * CELL_H / atlas.height, CELL_W / atlas.width, CELL_H / atlas.height];
 
   // ---- 材质 ----
@@ -59,7 +78,8 @@ export function createPlaques({ scene, capacity = 96, total = 11 }) {
   };
   const woodMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: .9 });   // 颜色由每块牌的实例颜色决定（新旧不同）
   const redMat = new THREE.MeshStandardMaterial({ color: 0x8f231d, roughness: .75 });
-  const bellMat = new THREE.MeshStandardMaterial({ color: 0xa8843e, roughness: .4, metalness: .85 });
+  const bellMat = new THREE.MeshStandardMaterial({ map: bronzeTexture(), roughness: .5, metalness: .55 });
+  const tasselMat = new THREE.MeshStandardMaterial({ map: tasselTexture(), roughness: .6, alphaTest: .25, side: THREE.DoubleSide });
 
   // ---- 网格（原点都在绳的上端）----
   const faceGeo = (back) => { const g = new THREE.PlaneGeometry(PW, PH); if (back) g.rotateY(Math.PI); g.translate(0, 0, back ? -PT / 2 - .0008 : PT / 2 + .0008); return g; };
@@ -67,14 +87,14 @@ export function createPlaques({ scene, capacity = 96, total = 11 }) {
     cord: new THREE.BoxGeometry(.006, 1, .006).translate(0, -.5, 0),
     body: new THREE.BoxGeometry(PW, PH, PT),
     front: faceGeo(false), back: faceGeo(true),
-    bell: new THREE.SphereGeometry(.019, 12, 8),
-    tassel: new THREE.ConeGeometry(.012, .09, 8).rotateX(Math.PI).translate(0, -.045, 0),
+    bell: bellGeometry(BELL_R),          // 原点在吊环顶端
+    tassel: tasselGeometry(.032, .08),   // 原点在顶端
   };
-  const mats = { cord: redMat, body: woodMat, front: faceMat, back: faceMat, bell: bellMat, tassel: redMat };
+  const mats = { cord: redMat, body: woodMat, front: faceMat, back: faceMat, bell: bellMat, tassel: tasselMat };
   const meshes = {};
   for (const k of Object.keys(geos)) {
     const m = new THREE.InstancedMesh(geos[k], mats[k], capacity);
-    m.count = 0; m.frustumCulled = false; m.castShadow = k === 'body' || k === 'tassel'; m.receiveShadow = true; root.add(m); meshes[k] = m;
+    m.count = 0; m.frustumCulled = false; m.castShadow = k === 'body'; m.receiveShadow = true; root.add(m); meshes[k] = m;
     if (k === 'front' || k === 'back') { m.geometry.setAttribute('aCell', new THREE.InstancedBufferAttribute(new Float32Array(capacity * 4), 4)); }
   }
 
@@ -109,7 +129,7 @@ export function createPlaques({ scene, capacity = 96, total = 11 }) {
     const usedNow = new Set(all.map(o => o.slot)); let bn = 0;
     for (const i of blankSlots) if (!usedNow.has(i) && all.length < n) all.push({ blank: true, slot: i, n: bn++ });
     for (let i = 0; i < slots.length && all.length < n; i++) if (!usedNow.has(i) && !all.some(o => o.slot === i)) all.push({ blank: true, slot: i, n: bn++ });
-    ag.clearRect(0, 0, atlas.width, atlas.height);
+    faceDraws = [];
     all.slice(0, capacity).forEach((o, i) => {
       const s = slots[o.slot], r = rng(o.slot * 31 + 7);
       const center = 2.1 + r() * .55;   // 木牌中心的高度：2.1～2.65 米为主，枝条高的地方绳子长一点，但不超过 0.8 米
@@ -117,7 +137,7 @@ export function createPlaques({ scene, capacity = 96, total = 11 }) {
       const age = o.blank ? .45 + r() * .55 : r() * .35;   // 没字的是旧牌；有名字的是新近挂上的
       items.push({ p: s, len, yaw: r() * 6.283, phase: r() * 6.283, amp: .05 / (.7 + len), mine: !!o.mine, fresh: !!o.fresh, t0: Infinity });
       const fx = (i * 2 % COLS) * CELL_W, fy = Math.floor(i * 2 / COLS) * CELL_H, bx = ((i * 2 + 1) % COLS) * CELL_W, by = Math.floor((i * 2 + 1) / COLS) * CELL_H;
-      drawFace(ag, fx, fy, o.blank ? 'blank' : 'front', o.name, o.slot, age); drawFace(ag, bx, by, o.blank ? 'blank' : 'back', o.date, o.slot + 5, age);
+      faceDraws.push([fx, fy, o.blank ? 'blank' : 'front', o.name, o.slot, age], [bx, by, o.blank ? 'blank' : 'back', o.date, o.slot + 5, age]);
       meshes.front.geometry.attributes.aCell.set(cellUV(i * 2), i * 4); meshes.back.geometry.attributes.aCell.set(cellUV(i * 2 + 1), i * 4);
       meshes.body.setColorAt(i, col.setRGB(...woodRGB(age).map(v => v / 255 * .82), THREE.SRGBColorSpace));
       if (o.mine) {
@@ -127,7 +147,7 @@ export function createPlaques({ scene, capacity = 96, total = 11 }) {
     });
     meshes.front.geometry.attributes.aCell.needsUpdate = meshes.back.geometry.attributes.aCell.needsUpdate = true;
     if (meshes.body.instanceColor) meshes.body.instanceColor.needsUpdate = true;
-    tex.needsUpdate = true;
+    paintAtlas();
     for (const k in meshes) meshes[k].count = items.length;
   }
 
@@ -144,8 +164,8 @@ export function createPlaques({ scene, capacity = 96, total = 11 }) {
       const down = d => t.makeTranslation(0, -it.len - d, 0);
       meshes.body.setMatrixAt(i, m.copy(base).multiply(down(PH / 2)));
       meshes.front.setMatrixAt(i, m); meshes.back.setMatrixAt(i, m);
-      meshes.bell.setMatrixAt(i, m.copy(base).multiply(down(PH + .03)));
-      meshes.tassel.setMatrixAt(i, m.copy(base).multiply(down(PH + .046)));
+      meshes.bell.setMatrixAt(i, m.copy(base).multiply(down(PH + .002)));
+      meshes.tassel.setMatrixAt(i, m.copy(base).multiply(down(PH + .002 + BELL_HEIGHT * BELL_R - .004)));
     }
     for (const k in meshes) meshes[k].instanceMatrix.needsUpdate = true;
     for (const h of halos) {

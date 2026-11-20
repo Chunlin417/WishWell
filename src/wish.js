@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { patch, shared } from './patch.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { bellGeometry, bronzeTexture, BELL_HEIGHT, tasselGeometry, tasselTexture } from './plaqueBell.js';
 
 const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -33,10 +34,33 @@ const STOP_Y = -2.1;   // 龙头停住时头骨中心的深度（龙头放大了
 const PAPER_W = .22, PAPER_H = .82, SINK_Y = -.9;   // 木牌的宽、高（米）；长条形，和庭院里的木牌同样的比例
 
 // ---------- 木牌：浅色原木，竖排写字（字是一个一个"写"上去的）。一面写愿望，另一面写名字 ----------
-const PW = 256, PH = 960;
+const PW = 256, PH = 960;   // 牌面的逻辑尺寸（排字都按这个算）；画布实际是它的 RES 倍
+const RES = 1.75;
 const INK = '#2a160a', KAI = '"STKaiti","KaiTi","Kaiti SC","楷体",serif';
-const WOOD = [.8, .66, .45];   // 木牌侧面的颜色（sRGB）
-function woodBackground(seed) {
+const WOOD = [.74, .53, .32];   // 木牌侧面的颜色（sRGB，比牌面边缘略深）
+// 牌面：生成的原木照片（scripts/pack_plaque_faces.py：白底和穿孔已经变透明，另有一张木纹法线贴图）
+// 照片是 1:3，木牌是 1:3.7：顶上带孔的那一小段按原比例画（孔保持正圆），下面的部分纵向拉长（竖向木纹拉长看不出来）
+// 孔的位置来自 public/textures/plaque_face.json：中心在照片高度的 3.95% 处，半径是照片宽度的 2.71%
+const FACE_TOP = .08, HOLE_V = .0395, HOLE_R = .0271;
+const HOVER_GLOW = .1;   // 悬在空中时牌面的一点自发光（照片木头本身够亮，再多会把木纹冲淡）
+const loadImg = name => { const im = new Image(); im.src = `${import.meta.env.BASE_URL}textures/${name}`; return im; };
+const faceImg = loadImg('plaque_face_new.webp'), faceNorImg = loadImg('plaque_face_new_nor.webp');
+const imgReady = im => im.complete && im.naturalWidth > 0;
+function drawPlaqueImage(g, img, mirror) {
+  const sw = img.naturalWidth, sh = img.naturalHeight, s = PW / sw, band = sh * FACE_TOP;
+  g.save(); if (mirror) { g.translate(PW, 0); g.scale(-1, 1); }
+  g.drawImage(img, 0, 0, sw, band, 0, 0, PW, band * s);
+  g.drawImage(img, 0, band, sw, sh - band, 0, band * s, PW, PH - band * s);
+  g.restore();
+}
+// mirror：背面左右翻过来画，两面的木纹不一样
+function woodBackground(seed, mirror = false) {
+  if (imgReady(faceImg)) {
+    const c = document.createElement('canvas'); c.width = PW * RES; c.height = PH * RES;
+    const g = c.getContext('2d'); g.scale(RES, RES); drawPlaqueImage(g, faceImg, mirror);
+    return c;
+  }
+  // 照片还没下载好：退回程序画的木纹
   const c = document.createElement('canvas'); c.width = PW; c.height = PH;
   const g = c.getContext('2d');
   let x = seed; const r = () => (x = (x * 16807) % 2147483647) / 2147483647;
@@ -56,29 +80,39 @@ function woodBackground(seed) {
   return c;
 }
 // 画愿望那一面：背景 + 前 prog 个字（prog 带小数：正在写的那个字从淡到浓、从略大到正常，像墨落在木头上）；alpha：墨迹的浓度（入水后慢慢散去）
+// 底：清空画布，按 RES 倍画上木头（之后都用逻辑坐标）
+function drawBg(g, bg) {
+  g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, g.canvas.width, g.canvas.height);
+  g.setTransform(RES, 0, 0, RES, 0, 0); g.drawImage(bg, 0, 0, PW, PH);
+}
+// 一个字：墨和木头相乘（木纹透过墨色），边缘微微晕开，每个字的浓淡略有不同；k：正在写的那个字从淡到浓、从略大到正常
+function inkChar(g, ch, x, y, k, alpha, i) {
+  g.save();
+  g.globalCompositeOperation = 'multiply';
+  g.globalAlpha = k * alpha * (.84 + .12 * ((i * 7919 % 13) / 12));
+  g.shadowColor = 'rgba(60,32,14,.55)'; g.shadowBlur = 2.5 * RES;
+  g.translate(x, y); g.scale(1 + .15 * (1 - k), 1 + .15 * (1 - k)); g.fillText(ch, 0, 0);
+  g.restore();
+}
 function drawWish(g, bg, chars, prog, alpha = 1) {
-  g.clearRect(0, 0, PW, PH); g.drawImage(bg, 0, 0);
+  drawBg(g, bg);
   if (!chars.length || alpha <= 0) return;
   const perCol = chars.length <= 10 ? 10 : 12, cols = Math.max(1, Math.ceil(chars.length / perCol));
   const size = Math.min(58, Math.floor((PH - 190) / perCol), Math.floor((PW - 60) / cols));
   g.fillStyle = INK; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = `${size}px ${KAI}`;
   const colW = (PW - 60) / cols, top = 100 + size / 2;
   for (let i = 0; i < chars.length && i < prog; i++) {
-    const col = Math.floor(i / perCol), row = i % perCol, k = Math.min(1, prog - i);
-    const x = PW - 30 - colW * (col + .5), y = top + row * size * 1.06;
-    g.save(); g.globalAlpha = k * alpha; g.translate(x, y); g.scale(1 + .15 * (1 - k), 1 + .15 * (1 - k)); g.fillText(chars[i], 0, 0); g.restore();
+    const col = Math.floor(i / perCol), row = i % perCol;
+    inkChar(g, chars[i], PW - 30 - colW * (col + .5), top + row * size * 1.06, Math.min(1, prog - i), alpha, i);
   }
 }
 // 画名字那一面：一列大字，居中
 function drawName(g, bg, chars, prog) {
-  g.clearRect(0, 0, PW, PH); g.drawImage(bg, 0, 0);
+  drawBg(g, bg);
   if (!chars.length) return;
   const size = Math.min(124, Math.floor((PH - 230) / chars.length)), top = 100 + (PH - 170 - size * chars.length) / 2;
   g.fillStyle = INK; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = `bold ${size}px ${KAI}`;
-  for (let i = 0; i < chars.length && i < prog; i++) {
-    const k = Math.min(1, prog - i);
-    g.save(); g.globalAlpha = k; g.translate(PW / 2, top + size * (i + .5)); g.scale(1 + .15 * (1 - k), 1 + .15 * (1 - k)); g.fillText(chars[i], 0, 0); g.restore();
-  }
+  for (let i = 0; i < chars.length && i < prog; i++) inkChar(g, chars[i], PW / 2, top + size * (i + .5), Math.min(1, prog - i), 1, i + 3);
 }
 
 // 柔和的圆形光点（PointsMaterial 默认是方块）
@@ -191,9 +225,19 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null, onS
   // 木牌：木头本体 + 两面（一面愿望、一面名字）+ 顶上穿绳的红绳圈 + 底下的小铜铃和红穗（原点在木牌底边，牌在上、铃穗垂在下面）
   // 木牌不用水的真实吸收（颜色在水里一下子就看不见了），改成按深度自己染暗，一路沉下去都看得到
   // 木牌的材质都开着透明（opacity 平时是 1）：沉到深处时慢慢淡去；一直开着，免得淡出那一刻重新编译着色器卡一下
-  const faceMat = () => patch(new THREE.MeshStandardMaterial({ roughness: .85, emissive: 0xffd7a0, emissiveIntensity: 0, transparent: true }), { underwater: false });
+  // alphaTest：照片里穿孔和圆角的地方是透明的，直接镂空
+  const faceMat = () => patch(new THREE.MeshStandardMaterial({ roughness: .82, emissive: 0xffd7a0, emissiveIntensity: 0, transparent: true, alphaTest: .5 }), { underwater: false });
   const nameMat = faceMat(), wishMat = faceMat();
-  const mkCanvas = () => { const c = document.createElement('canvas'); c.width = PW; c.height = PH; return c; };
+  const mkCanvas = () => { const c = document.createElement('canvas'); c.width = PW * RES; c.height = PH * RES; return c; };
+  // 木纹的法线贴图：和牌面一样分两段画上去；背面左右翻过来，法线的左右分量也要反过来
+  const addNormals = () => {
+    for (const [mat, mirror] of [[nameMat, false], [wishMat, true]]) {
+      const c = mkCanvas(), g = c.getContext('2d'); g.scale(RES, RES); drawPlaqueImage(g, faceNorImg, mirror);
+      if (mirror) { const d = g.getImageData(0, 0, c.width, c.height); for (let i = 0; i < d.data.length; i += 4) d.data[i] = 255 - d.data[i]; g.putImageData(d, 0, 0); }
+      mat.normalMap = new THREE.CanvasTexture(c); mat.normalMap.anisotropy = 4; mat.normalScale.set(.8, .8); mat.needsUpdate = true;
+    }
+  };
+  if (imgReady(faceNorImg)) addNormals(); else faceNorImg.addEventListener('load', addNormals, { once: true });
   const nameCanvas = mkCanvas(), wishCanvas = mkCanvas(), nameCtx = nameCanvas.getContext('2d'), wishCtx = wishCanvas.getContext('2d');
   const mkTex = c => { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; };
   const nameTex = mkTex(nameCanvas), wishTex = mkTex(wishCanvas);
@@ -206,21 +250,30 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null, onS
     drawWish(wishCtx, paperBg, chars, writeProg, wishAlpha); wishTex.needsUpdate = true;
     drawName(nameCtx, nameBg, nameChars, nameProg); nameTex.needsUpdate = true;
   };
-  const body = new THREE.Mesh(new THREE.BoxGeometry(PAPER_W, PAPER_H, .02), bodyMat);
+  // 木头本体：圆了一点角的长条板，顶上钻了一个真的孔（和照片里的孔对齐），透过孔看得见后面
+  const holeY = PAPER_H - HOLE_V * 3 * PAPER_W, holeR = HOLE_R * PAPER_W, cr = .004, hw = PAPER_W / 2;   // 照片 1:3，孔在顶上那段按原比例画，所以离顶边 = v × 3 × 宽
+  const outline = new THREE.Shape()
+    .moveTo(-hw + cr, 0).lineTo(hw - cr, 0).quadraticCurveTo(hw, 0, hw, cr).lineTo(hw, PAPER_H - cr).quadraticCurveTo(hw, PAPER_H, hw - cr, PAPER_H)
+    .lineTo(-hw + cr, PAPER_H).quadraticCurveTo(-hw, PAPER_H, -hw, PAPER_H - cr).lineTo(-hw, cr).quadraticCurveTo(-hw, 0, -hw + cr, 0);
+  outline.holes.push(new THREE.Path().absarc(0, holeY, holeR * .92, 0, Math.PI * 2, true));
+  const body = new THREE.Mesh(new THREE.ExtrudeGeometry(outline, { depth: .02, bevelEnabled: false, curveSegments: 12 }).translate(0, 0, -.01), bodyMat);
   const paper = new THREE.Mesh(new THREE.PlaneGeometry(PAPER_W, PAPER_H), nameMat);   // 名字那一面（朝向 +z）
   const back = new THREE.Mesh(new THREE.PlaneGeometry(PAPER_W, PAPER_H), wishMat);    // 愿望那一面
   back.rotation.y = Math.PI;
-  paper.position.set(0, PAPER_H / 2, .0105); back.position.set(0, PAPER_H / 2, -.0105); body.position.y = PAPER_H / 2;
+  paper.position.set(0, PAPER_H / 2, .0105); back.position.set(0, PAPER_H / 2, -.0105);
   const redMat = patch(new THREE.MeshStandardMaterial({ color: 0x8f231d, roughness: .7, transparent: true }), {});
-  const loop = new THREE.Mesh(new THREE.TorusGeometry(.022, .004, 6, 18), redMat);
-  loop.position.y = PAPER_H + .014;
-  const coin = new THREE.Mesh(new THREE.SphereGeometry(.02, 12, 8), patch(new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(.72, .54, .24, THREE.SRGBColorSpace), metalness: .85, roughness: .38, emissive: 0x000000, transparent: true }), {}));
-  const plaqueMats = [nameMat, wishMat, bodyMat, redMat, coin.material];
-  const setOpacity = a => { for (const m of plaqueMats) m.opacity = a; };
-  coin.position.y = -.026;   // 小铜铃（沿用原来铜钱的变量名：龙的仪式里它会微微发光）
-  const tassel = new THREE.Mesh(new THREE.ConeGeometry(.013, .1, 8).rotateX(Math.PI).translate(0, -.05, 0), redMat);
-  tassel.position.y = -.046;
+  // 红绳：从孔里穿过去、绕过顶边的一个绳圈
+  const loopR = .021, loop = new THREE.Mesh(new THREE.TorusGeometry(loopR, .0032, 8, 28), redMat);
+  loop.rotation.y = Math.PI / 2; loop.position.y = holeY + loopR;
+  const BELL_R = .016;   // 铃身半径（米）
+  const coin = new THREE.Mesh(bellGeometry(BELL_R), patch(new THREE.MeshStandardMaterial({ map: bronzeTexture(), metalness: .55, roughness: .5, emissive: 0x000000, transparent: true }), {}));
+  coin.position.y = -.003;   // 小铜铃：吊环顶端贴着木牌底边（沿用原来铜钱的变量名：龙的仪式里它会微微发光）
+  const tasselMat = patch(new THREE.MeshStandardMaterial({ map: tasselTexture(), roughness: .6, alphaTest: .25, side: THREE.DoubleSide, transparent: true }), {});
+  const tassel = new THREE.Mesh(tasselGeometry(.042, .1), tasselMat);
+  tassel.position.y = coin.position.y - BELL_HEIGHT * BELL_R + .006;   // 红穗从铃底的开口里垂下来
   group.add(body, paper, back, loop, coin, tassel);
+  const plaqueMats = [nameMat, wishMat, bodyMat, redMat, coin.material, tasselMat];
+  const setOpacity = a => { for (const m of plaqueMats) m.opacity = a; };
 
   // 龙
   // 截面一圈的角度从腹部正中开始（th = π），接缝藏在肚子底下
@@ -553,8 +606,8 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null, onS
       const ray = new THREE.Raycaster(); ray.setFromCamera({ x: screenX, y: screenY }, cam);
       hoverPos.copy(ray.ray.origin).addScaledVector(ray.ray.direction, 3);   // 离镜头 3 米：签在画面里够大，字看得清
       fromPos.copy(hoverPos).addScaledVector(cR, -4.6).addScaledVector(cU, 1.1).addScaledVector(cF, .8);
-      paperBg = woodBackground(11); nameBg = woodBackground(29); chars = []; writeProg = 0; nameChars = []; nameProg = 0; wishAlpha = 1; pendingText = null; faceYaw = Math.PI; redrawPaper();
-      nameMat.color.setRGB(1, 1, 1); wishMat.color.setRGB(1, 1, 1); setWood([1, 1, 1]); nameMat.emissiveIntensity = wishMat.emissiveIntensity = .3;   // 落水前：逆光时木头是暗的，让牌面带一点亮度，看得清写了什么（落水后由深度染色接管）
+      paperBg = woodBackground(11, true); nameBg = woodBackground(29); chars = []; writeProg = 0; nameChars = []; nameProg = 0; wishAlpha = 1; pendingText = null; faceYaw = Math.PI; redrawPaper();
+      nameMat.color.setRGB(1, 1, 1); wishMat.color.setRGB(1, 1, 1); setWood([1, 1, 1]); nameMat.emissiveIntensity = wishMat.emissiveIntensity = HOVER_GLOW;   // 落水前：逆光时木头是暗的，让牌面带一点亮度，看得清写了什么（落水后由深度染色接管）
       group.visible = true; group.scale.setScalar(1); group.position.copy(fromPos); setOpacity(1);
       setOverlay(true); focus = 0;
       mode = 'summon'; mt = 0;
@@ -604,7 +657,7 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null, onS
     // where：落点（水面上的 x, z）；opts.facing：许愿签正面朝向（朝着镜头）
     start(text, where, opts = {}) {
       if (opts.facing !== undefined) phase0 = opts.facing;
-      if (!opts.keepPaper) { paperBg = woodBackground(11); nameBg = woodBackground(29); chars = [...text.trim()].slice(0, 30); writeProg = chars.length; nameChars = [...(opts.name || '')].slice(0, 6); nameProg = nameChars.length; faceYaw = 0; redrawPaper(); }
+      if (!opts.keepPaper) { paperBg = woodBackground(11, true); nameBg = woodBackground(29); chars = [...text.trim()].slice(0, 30); writeProg = chars.length; nameChars = [...(opts.name || '')].slice(0, 6); nameProg = nameChars.length; faceYaw = 0; redrawPaper(); }
       thrownName = nameChars.join(''); wishAlpha = 1;
       land.set(where.x, 0, where.z);
       // 签从哪里落下、落在水面哪里（直接调用 start 时：从落点正上方 1.3 米落下）
@@ -689,7 +742,7 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null, onS
       const dep = clamp(-group.position.y / 1.4);
       const tint = [lerp(1, .32, dep), lerp(1, .55, dep), lerp(1, .6, dep)];
       nameMat.color.setRGB(...tint); wishMat.color.setRGB(...tint); setWood(tint);
-      nameMat.emissiveIntensity = wishMat.emissiveIntensity = Math.max(.3 * (1 - smooth((pt - pt0) / fallT)), smooth(dep * 2) * .12);
+      nameMat.emissiveIntensity = wishMat.emissiveIntensity = Math.max(HOVER_GLOW * (1 - smooth((pt - pt0) / fallT)), smooth(dep * 2) * .12);
       // 愿望的墨迹：木牌落水后慢慢散开、淡去（愿望不留下任何记录）
       const ink = 1 - smooth((pt - T.float) / 2.6);
       if (Math.abs(ink - wishAlpha) > .04 || (ink === 0 && wishAlpha !== 0)) { wishAlpha = ink; redrawPaper(); }
