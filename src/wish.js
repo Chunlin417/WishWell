@@ -190,14 +190,15 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null, onS
 
   // 木牌：木头本体 + 两面（一面愿望、一面名字）+ 顶上穿绳的红绳圈 + 底下的小铜铃和红穗（原点在木牌底边，牌在上、铃穗垂在下面）
   // 木牌不用水的真实吸收（颜色在水里一下子就看不见了），改成按深度自己染暗，一路沉下去都看得到
-  const faceMat = () => patch(new THREE.MeshStandardMaterial({ roughness: .85, emissive: 0xffd7a0, emissiveIntensity: 0 }), { underwater: false });
+  // 木牌的材质都开着透明（opacity 平时是 1）：沉到深处时慢慢淡去；一直开着，免得淡出那一刻重新编译着色器卡一下
+  const faceMat = () => patch(new THREE.MeshStandardMaterial({ roughness: .85, emissive: 0xffd7a0, emissiveIntensity: 0, transparent: true }), { underwater: false });
   const nameMat = faceMat(), wishMat = faceMat();
   const mkCanvas = () => { const c = document.createElement('canvas'); c.width = PW; c.height = PH; return c; };
   const nameCanvas = mkCanvas(), wishCanvas = mkCanvas(), nameCtx = nameCanvas.getContext('2d'), wishCtx = wishCanvas.getContext('2d');
   const mkTex = c => { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; };
   const nameTex = mkTex(nameCanvas), wishTex = mkTex(wishCanvas);
   nameMat.map = nameMat.emissiveMap = nameTex; wishMat.map = wishMat.emissiveMap = wishTex;
-  const bodyMat = patch(new THREE.MeshStandardMaterial({ roughness: .9 }), { underwater: false });
+  const bodyMat = patch(new THREE.MeshStandardMaterial({ roughness: .9, transparent: true }), { underwater: false });
   const setWood = k => bodyMat.color.setRGB(WOOD[0] * k[0], WOOD[1] * k[1], WOOD[2] * k[2], THREE.SRGBColorSpace);
   setWood([1, 1, 1]);
   let paperBg = null, nameBg = null, chars = [], writeProg = 0, nameChars = [], nameProg = 0, wishAlpha = 1;
@@ -210,10 +211,12 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null, onS
   const back = new THREE.Mesh(new THREE.PlaneGeometry(PAPER_W, PAPER_H), wishMat);    // 愿望那一面
   back.rotation.y = Math.PI;
   paper.position.set(0, PAPER_H / 2, .0105); back.position.set(0, PAPER_H / 2, -.0105); body.position.y = PAPER_H / 2;
-  const redMat = patch(new THREE.MeshStandardMaterial({ color: 0x8f231d, roughness: .7 }), {});
+  const redMat = patch(new THREE.MeshStandardMaterial({ color: 0x8f231d, roughness: .7, transparent: true }), {});
   const loop = new THREE.Mesh(new THREE.TorusGeometry(.022, .004, 6, 18), redMat);
   loop.position.y = PAPER_H + .014;
-  const coin = new THREE.Mesh(new THREE.SphereGeometry(.02, 12, 8), patch(new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(.72, .54, .24, THREE.SRGBColorSpace), metalness: .85, roughness: .38, emissive: 0x000000 }), {}));
+  const coin = new THREE.Mesh(new THREE.SphereGeometry(.02, 12, 8), patch(new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(.72, .54, .24, THREE.SRGBColorSpace), metalness: .85, roughness: .38, emissive: 0x000000, transparent: true }), {}));
+  const plaqueMats = [nameMat, wishMat, bodyMat, redMat, coin.material];
+  const setOpacity = a => { for (const m of plaqueMats) m.opacity = a; };
   coin.position.y = -.026;   // 小铜铃（沿用原来铜钱的变量名：龙的仪式里它会微微发光）
   const tassel = new THREE.Mesh(new THREE.ConeGeometry(.013, .1, 8).rotateX(Math.PI).translate(0, -.05, 0), redMat);
   tassel.position.y = -.046;
@@ -460,6 +463,12 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null, onS
   const hoverPos = new THREE.Vector3(), fromPos = new THREE.Vector3(), dragTarget = new THREE.Vector3(), lastPos = new THREE.Vector3();
   const cR = new THREE.Vector3(), cU = new THREE.Vector3(), cF = new THREE.Vector3(), tmpV = new THREE.Vector3();
   const dropPt = new THREE.Vector3(), throwFrom = new THREE.Vector3();
+  // 落下的过程：fallT 秒（按落差算，悬在镜头前时约 2.3 秒）；pt 从 pt0 = T.fall - fallT 开始走，正好在 T.fall 那一刻碰到水面
+  // qFrom：松手时木牌的朝向（正对镜头），从它慢慢转进下落的姿势；flutSide：左右飘的方向；entryTau：入水后速度衰减的快慢
+  const qFrom = new THREE.Quaternion(), qTo = new THREE.Quaternion(), eul = new THREE.Euler(), flutSide = new THREE.Vector3();
+  let fallT = T.fall, pt0 = 0, fallLen = 1, entryTau = .1;
+  const FALL_DIP = .2, ENTRY_DEPTH = .2, FALL_END_SPEED = .6;   // 下落路线往下弯多少（占落差的比例）、入水后先冲下去多深、碰水时的速度（相对平均速度）
+  const fallS = u => 2.4 * u * u - 1.4 * u * u * u;               // 从静止开始越落越快，碰水时还有 FALL_END_SPEED 的速度（不是猛地砸下去，也不是轻轻放下）
   const SUMMON_T = 2.6, WRITE_DT = .22;
   const camBasis = () => { cR.set(1, 0, 0).applyQuaternion(cam.quaternion); cU.set(0, 1, 0).applyQuaternion(cam.quaternion); cF.set(0, 0, -1).applyQuaternion(cam.quaternion); };
   // 让签正对着镜头（plane 的正面朝 +z），再叠一点飘动的倾斜
@@ -546,7 +555,7 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null, onS
       fromPos.copy(hoverPos).addScaledVector(cR, -4.6).addScaledVector(cU, 1.1).addScaledVector(cF, .8);
       paperBg = woodBackground(11); nameBg = woodBackground(29); chars = []; writeProg = 0; nameChars = []; nameProg = 0; wishAlpha = 1; pendingText = null; faceYaw = Math.PI; redrawPaper();
       nameMat.color.setRGB(1, 1, 1); wishMat.color.setRGB(1, 1, 1); setWood([1, 1, 1]); nameMat.emissiveIntensity = wishMat.emissiveIntensity = .3;   // 落水前：逆光时木头是暗的，让牌面带一点亮度，看得清写了什么（落水后由深度染色接管）
-      group.visible = true; group.scale.setScalar(1); group.position.copy(fromPos);
+      group.visible = true; group.scale.setScalar(1); group.position.copy(fromPos); setOpacity(1);
       setOverlay(true); focus = 0;
       mode = 'summon'; mt = 0;
       return true;
@@ -601,14 +610,26 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null, onS
       // 签从哪里落下、落在水面哪里（直接调用 start 时：从落点正上方 1.3 米落下）
       dropPt.set(opts.drop?.x ?? land.x, 0, opts.drop?.z ?? land.z);
       throwFrom.copy(opts.from ?? dropPt.clone().setY(1.3));
-      mode = 'ritual'; setOverlay(false); focus = 0;
+      // 下落时长按距离算（悬在镜头前约 8 米 → 2.3 秒；调试时从 1.3 米高处投下 → 0.9 秒）
+      fallLen = throwFrom.distanceTo(dropPt);
+      fallT = clamp(.8 * Math.sqrt(fallLen), .9, 2.6); pt0 = T.fall - fallT;
+      // 入水时的竖直速度 → 冲进水里 ENTRY_DEPTH 米后停住所需的时间常数（速度连续，不会"啪"地停在水面）
+      entryTau = clamp(ENTRY_DEPTH * fallT / (Math.max(throwFrom.y, .1) * FALL_END_SPEED), .05, .3);
+      // 左右飘的方向：和落下的路线垂直的水平方向
+      flutSide.set(dropPt.z - throwFrom.z, 0, throwFrom.x - dropPt.x);
+      flutSide.lengthSq() > 1e-4 ? flutSide.normalize() : flutSide.set(1, 0, 0);
+      // 从松手时的朝向开始转（直接调用 start 时木牌原来不在画面里，就从下落姿势开始）
+      if (opts.keepPaper) qFrom.copy(group.quaternion); else qFrom.setFromEuler(eul.set(-.8, phase0, 0));
+      group.quaternion.copy(qFrom);
+      // 背景虚化不在这里一下子清零：在 update 里接着慢慢退
+      mode = 'ritual'; setOverlay(false); setOpacity(1);
       // 贴图本身已经是墨青色：只略微提亮（水会吃掉一大半光）；没贴图的部分用纯墨青色
       for (const m of [dBackMat, bellyMat, headMat]) m.map ? m.color.setRGB(3.6, 3.9, 3.7) : m.color.set(0x173f38);   // 贴图很暗（平均亮度只有 0.01～0.025），乘上去才看得出鳞片
       bellyMat.roughness = 1.8; bellyMat.metalness = 0;   // 腹部做成哑光：它朝上、被阳光照到，粗糙度贴图偏低时会泛出一层丝绸一样的白色反光
       if (bellyMat.map) bellyMat.color.setRGB(.95, 1.3, 1.5);   // 腹部贴图本身比背鳞亮一倍多（平均亮度 0.025 对 0.013），而且偏黄褐：压暗并偏向墨青，和背部协调
       plainMat.color.set(0x173f38);
       buildPath();
-      t = 0; pt = 0; settled = false; called = !!opts.callNow; took = false; rippled = false; fired.clear(); hFinit = false; phase = phase0 + (Math.random() - .5) * .5;
+      t = pt0; pt = pt0; settled = false; called = !!opts.callNow; took = false; rippled = false; fired.clear(); hFinit = false; phase = phase0 + (Math.random() - .5) * .5;
       group.visible = true; group.scale.setScalar(1);
       dragon.visible = false; head.visible = false; motes.visible = false;
     },
@@ -618,48 +639,57 @@ export function createWish({ scene, ripples, floorH, sound = {}, tex = null, onS
         if (throwNow) { throwNow = false; this.start(chars.join(''), throwTo, { ...throwOpts, from: group.position.clone(), drop: { x: throwTo.x, z: throwTo.z }, keepPaper: true }); }
         return;
       }
-      if (t < 0) return;
+      if (mode !== 'ritual') return;
       const day = env.day ?? 1;
       pt += dt; dtNow = dt;
       t += dt; if (!called) t = Math.min(t, T.dread - .01);   // 还没唤龙：时间停在压迫感开始之前（四周不暗、龙不来）
+      focus *= Math.exp(-dt * 4);   // 松手时还剩的一点背景虚化接着退完
       if (!settled && pt >= 3.2) { settled = true; onSettled(thrownName); }
-      // Let the plaque disappear gently without jumping to the dragon's take frame.
+      // 没有龙：木牌一路沉进深处，慢慢看不见（不缩小）
       if (!DRAGON_ENABLED) {
-        group.scale.setScalar(1 - smooth((pt - 3.8) / 2.2));
+        setOpacity(1 - smooth((pt - 3.4) / 2.6));
         if (pt >= 6) { this.finish(); return; }
       }
       const sway = Math.sin(pt * 1.3 + phase), sway2 = Math.sin(pt * .8 + phase * 2);
 
       // ---- 许愿签 ----
-      if (pt < T.fall) {                     // 从空中落下，翻转着
-        // 从松手的地方落向水面：水平方向先快后慢，高度越落越快；一路翻飞
-        const u = pt / T.fall;
-        group.position.set(lerp(throwFrom.x, dropPt.x, easeOut(u)), lerp(throwFrom.y, 0, u * u), lerp(throwFrom.z, dropPt.z, easeOut(u)));
-        group.rotation.set(lerp(-1.2, -.3, u) + Math.sin(u * 9) * .25, phase, Math.sin(u * 7) * .3);
-      } else if (pt < T.float) {             // 落水：溅起涟漪，在水面附近晃一下
-        if (!group.userData.splashed) {
+      if (pt < T.fall) {
+        // 像一片叶子那样落下：从静止开始，先往下坠一点，再一边左右飘、一边滑向水面落点；
+        // 朝向从松手时（正对镜头）慢慢转进下落的姿势，没有一帧里的突变
+        const u = clamp((pt - pt0) / fallT), s = fallS(u), arc = Math.sin(Math.PI * s);
+        const tt = pt - pt0, flut = Math.sin(tt * 3.4 + phase), flutV = Math.cos(tt * 3.4 + phase);
+        group.position.lerpVectors(throwFrom, dropPt, s);
+        group.position.y -= FALL_DIP * fallLen * arc * (1 - s);
+        group.position.addScaledVector(flutSide, Math.min(.3, .04 * fallLen) * arc * flut);
+        eul.set(lerp(-.8, -.6, s) + .2 * Math.sin(tt * 4.3 + 1) * arc, phase + .25 * arc * flut, -.35 * flutV * arc);   // 往哪边飘就往哪边侧一点
+        qTo.setFromEuler(eul);
+        group.quaternion.slerpQuaternions(qFrom, qTo, smooth(u / .45));
+      } else if (!took || t < T.take + .35) {
+        if (!group.userData.splashed) {      // 碰到水面：溅起涟漪
           group.userData.splashed = true;
           sound.splash?.();
           ripples.add(dropPt.x, dropPt.z, .2, .45);
           for (let i = 0; i < 4; i++) ripples.add(dropPt.x + (Math.random() - .5) * .3, dropPt.z + (Math.random() - .5) * .3, .06, .15);
         }
-        const u = (pt - T.fall) / (T.float - T.fall);
-        group.position.set(dropPt.x, lerp(0, -.18, u), dropPt.z);
-        group.rotation.set(lerp(-.3, -.9, Math.sin(u * Math.PI)), phase + u * .3, .2 * sway);
-      } else if (!took || t < T.take + .35) { // 摇摆着下沉：铜钱在下面拽着，纸在上面飘
-        const u = easeOut((pt - T.float) / (T.sunk - T.float));
-        const depth = lerp(-.18, SINK_Y, u);
-        // 一边下沉，一边慢慢被井的中间"吸"过去（落在池边也一样会漂到龙要来的地方）
-        const k = smooth((pt - T.float) / (T.sunk - T.float - 1));
-        group.position.set(lerp(dropPt.x, land.x, k) + sway * .07 * u, depth, lerp(dropPt.z, land.z, k) + sway2 * .05 * u);
-        group.rotation.set(.18 * sway2, phase + .3 + pt * .05, .22 * sway);
+        // 入水之后是一条连续的曲线：带着落下的速度冲进水里、很快被水托住 → 木头的浮力让它往回浮一点 → 铜铃拽着它慢慢沉下去
+        const x = pt - T.fall;
+        const sinkEnd = DRAGON_ENABLED ? SINK_Y : -1.6, sinkDur = DRAGON_ENABLED ? T.sunk - T.fall - .5 : 4.6;
+        const bob = smooth(x / .55) - smooth((x - .55) / 1.1);
+        const depth = -ENTRY_DEPTH * (1 - Math.exp(-x / entryTau)) + .07 * bob + (sinkEnd + ENTRY_DEPTH) * smooth((x - .5) / sinkDur);
+        // 一边下沉，一边慢慢被井的中间"吸"过去（落在池边也一样会漂到龙要来的地方）；摇摆是慢慢起来的
+        const k = smooth((x - .8) / (T.sunk - T.float - 1)), sw = smooth(x / 2.5);
+        group.position.set(lerp(dropPt.x, land.x, k) + sway * .07 * sw, depth, lerp(dropPt.z, land.z, k) + sway2 * .05 * sw);
+        // 姿势：入水时被水一推往后仰一下，然后铜铃在下面拽着，木牌慢慢立直、轻轻摇摆
+        eul.set(lerp(-.6, 0, smooth(x / 2.8)) - .25 * bob + .18 * sway2 * sw, phase + .3 * smooth(x / 2) + .05 * x, .22 * sway * sw);
+        qTo.setFromEuler(eul);
+        group.quaternion.slerp(qTo, 1 - Math.exp(-dt * 6));   // 追着目标姿势转，阶段之间不会跳
       }
 
-      // 入水后：越深越暗、越偏青；字迹微微发光
+      // 入水后：越深越暗、越偏青；字迹微微发光。悬在空中时牌面那一点提亮，在下落的过程里慢慢退掉
       const dep = clamp(-group.position.y / 1.4);
       const tint = [lerp(1, .32, dep), lerp(1, .55, dep), lerp(1, .6, dep)];
       nameMat.color.setRGB(...tint); wishMat.color.setRGB(...tint); setWood(tint);
-      nameMat.emissiveIntensity = wishMat.emissiveIntensity = smooth(dep * 2) * .12;
+      nameMat.emissiveIntensity = wishMat.emissiveIntensity = Math.max(.3 * (1 - smooth((pt - pt0) / fallT)), smooth(dep * 2) * .12);
       // 愿望的墨迹：木牌落水后慢慢散开、淡去（愿望不留下任何记录）
       const ink = 1 - smooth((pt - T.float) / 2.6);
       if (Math.abs(ink - wishAlpha) > .04 || (ink === 0 && wishAlpha !== 0)) { wishAlpha = ink; redrawPaper(); }

@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 5173
+    },
+    {
+      "name": "wish-hall",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["D:/wish-hall/node_modules/vite/bin/vite.js", "D:/wish-hall", "--port", "5176", "--strictPort"],
+      "port": 5176
     }
   ]
 }
