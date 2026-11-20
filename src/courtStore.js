@@ -31,8 +31,10 @@ export async function initStore(opts = {}) {
   try {
     if (opts.api) api = opts.api;
     else {
-      const url = import.meta.env.VITE_SUPABASE_URL, key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      let url = import.meta.env.VITE_SUPABASE_URL;
+      const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
       if (!url || !key) return 'local';
+      if (url.startsWith('/')) url = location.origin + url;   // "/sb"：走本站自己的代理（edge-functions/sb），国内不直接连 supabase.co
       api = await (await import('./remote.js')).connectRemote({ url, key });
     }
     await refreshStore();
